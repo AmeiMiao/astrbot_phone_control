@@ -9,8 +9,8 @@
 ### Fixed
 
 - 修复真实 AstrBot 加载时 `core/plugin/compat.py` 解析插件入口模块失败导致插件无法加载：
-  AstrBot 的插件模块名是 `data.plugins.<目录名>`，原实现只取 `__name__` 第一段拼出
-  `data.main`；现改为逐级向上查找已加载的 `<prefix>.main`，兼容真实包与测试临时包。
+  AstrBot 的插件模块名是 `data.plugins.<目录名>`；改为从当前模块名逐级向上查找已加载的
+  `<prefix>.main`，兼容真实包与测试临时包。
 - 新增 `tests/test_compat_main_module.py` 覆盖 `data.plugins.<dir>.main` 深路径解析。
 
 ## [0.0.2] - 2026-10-20
