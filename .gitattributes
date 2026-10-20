@@ -1,0 +1,16 @@
+* text=auto eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.apk binary
+bin/linux-x86_64/adb binary
+
+bin/linux-x86_64/NOTICE.txt -diff -text
+
+# scrcpy server 为 APK 二进制，禁止文本换行处理
+bin/scrcpy-server-v5.0.1 binary
+*.jar binary

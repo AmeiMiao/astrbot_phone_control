@@ -1,0 +1,659 @@
+"""工具层统一设备门禁与验证求解器取消竞速的单元测试。
+
+这些用例只用假 service/controller/事件驱动 ``core.tools`` 与 ``core.actions``，
+不连接真实设备；本地缺少 AstrBot 依赖时用最小桩模块导入工具层。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import dataclasses
+import logging
+import sys
+import types
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+def _third_party_available() -> bool:
+    """AstrBot 工具层依赖是否齐全；缺任意一个就走桩导入。"""
+    try:
+        import astrbot.api  # noqa: F401
+        import mcp.types  # noqa: F401
+        import pydantic  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _install_import_stubs() -> list[str]:
+    """为本地环境注册最小的 astrbot/mcp/pydantic 桩模块，返回新增模块名。"""
+    added: list[str] = []
+
+    def register(name: str, module: types.ModuleType) -> types.ModuleType:
+        if name not in sys.modules:
+            sys.modules[name] = module
+            added.append(name)
+        return sys.modules[name]
+
+    class FunctionTool:
+        """FunctionTool 桩：只提供工具元信息字段与泛型下标。"""
+
+        name: str = ""
+        description: str = ""
+        parameters: dict = {}
+
+        @classmethod
+        def __class_getitem__(cls, _item: Any) -> type:
+            return cls
+
+    class MessageChain:
+        def message(self, *_args: Any, **_kwargs: Any) -> "MessageChain":
+            return self
+
+        def file_image(self, *_args: Any, **_kwargs: Any) -> "MessageChain":
+            return self
+
+    class CallToolResult:
+        def __init__(self, content: Any = None) -> None:
+            self.content = list(content or [])
+
+    class TextContent:
+        def __init__(self, type: str = "text", text: str = "") -> None:  # noqa: A002
+            self.type = type
+            self.text = text
+
+    class ImageContent:
+        def __init__(
+            self,
+            type: str = "image",  # noqa: A002
+            data: str = "",
+            mimeType: str = "",  # noqa: N803
+        ) -> None:
+            self.type = type
+            self.data = data
+            self.mimeType = mimeType
+
+    astrbot = types.ModuleType("astrbot")
+    astrbot.__path__ = []  # type: ignore[attr-defined]
+    register("astrbot", astrbot)
+
+    api = types.ModuleType("astrbot.api")
+    api.FunctionTool = FunctionTool
+    api.logger = logging.getLogger("astrbot.stub")
+    register("astrbot.api", api)
+
+    api_event = types.ModuleType("astrbot.api.event")
+    api_event.MessageChain = MessageChain
+    register("astrbot.api.event", api_event)
+
+    astrbot_core = types.ModuleType("astrbot.core")
+    astrbot_core.__path__ = []  # type: ignore[attr-defined]
+    register("astrbot.core", astrbot_core)
+
+    agent = types.ModuleType("astrbot.core.agent")
+    agent.__path__ = []  # type: ignore[attr-defined]
+    register("astrbot.core.agent", agent)
+
+    run_context = types.ModuleType("astrbot.core.agent.run_context")
+    run_context.ContextWrapper = type("ContextWrapper", (), {})
+    register("astrbot.core.agent.run_context", run_context)
+
+    tool_exec = types.ModuleType("astrbot.core.agent.tool")
+    tool_exec.ToolExecResult = Any
+    register("astrbot.core.agent.tool", tool_exec)
+
+    agent_context = types.ModuleType("astrbot.core.astr_agent_context")
+    agent_context.AstrAgentContext = type("AstrAgentContext", (), {})
+    register("astrbot.core.astr_agent_context", agent_context)
+
+    message = types.ModuleType("astrbot.core.message")
+    message.__path__ = []  # type: ignore[attr-defined]
+    register("astrbot.core.message", message)
+
+    message_result = types.ModuleType("astrbot.core.message.message_event_result")
+    message_result.MessageChain = MessageChain
+    register("astrbot.core.message.message_event_result", message_result)
+
+    platform = types.ModuleType("astrbot.core.platform")
+    platform.__path__ = []  # type: ignore[attr-defined]
+    register("astrbot.core.platform", platform)
+
+    message_session = types.ModuleType("astrbot.core.platform.message_session")
+    message_session.MessageSession = type("MessageSession", (), {})
+    register("astrbot.core.platform.message_session", message_session)
+
+    mcp = types.ModuleType("mcp")
+    mcp.__path__ = []  # type: ignore[attr-defined]
+    mcp_types = types.ModuleType("mcp.types")
+    mcp_types.ContentBlock = object
+    mcp_types.CallToolResult = CallToolResult
+    mcp_types.TextContent = TextContent
+    mcp_types.ImageContent = ImageContent
+    mcp.types = mcp_types
+    register("mcp", mcp)
+    register("mcp.types", mcp_types)
+
+    pydantic = types.ModuleType("pydantic")
+
+    def Field(*, default_factory: Any = None, **_kwargs: Any) -> Any:
+        return dataclasses.field(default_factory=default_factory)
+
+    pydantic.Field = Field
+    pydantic_dataclasses = types.ModuleType("pydantic.dataclasses")
+    pydantic_dataclasses.dataclass = dataclasses.dataclass
+    pydantic.dataclasses = pydantic_dataclasses
+    register("pydantic", pydantic)
+    register("pydantic.dataclasses", pydantic_dataclasses)
+    return added
+
+
+_STUB_MODULES = _install_import_stubs() if not _third_party_available() else []
+
+from core import tools as tools_mod  # noqa: E402
+from core.actions import DeviceActions  # noqa: E402
+from core.config import PhoneConfig  # noqa: E402
+from core.device_gate import ExecutionCancelled, GateError  # noqa: E402
+
+for _stub_name in _STUB_MODULES:
+    sys.modules.pop(_stub_name, None)
+
+
+def run(coro: Any) -> Any:
+    """在独立事件循环里执行协程（测试环境未安装 pytest-asyncio）。"""
+    return asyncio.run(coro)
+
+
+class FakeEvent:
+    """工具上下文所需的最小消息事件。"""
+
+    def __init__(self, text: str = "") -> None:
+        self.unified_msg_origin = "webchat:FriendMessage:1"
+        self.role = "admin"
+        self._text = text
+        self._extra: dict[str, Any] = {}
+
+    def get_extra(self, key: str) -> Any:
+        return self._extra.get(key)
+
+    def set_extra(self, key: str, value: Any) -> None:
+        self._extra[key] = value
+
+
+class FakeToolContext:
+    def __init__(self, event: FakeEvent) -> None:
+        self.context = types.SimpleNamespace(event=event)
+
+
+def _config() -> PhoneConfig:
+    return PhoneConfig.from_mapping({"adb": {"host": "127.0.0.1", "port": 5555}})
+
+
+class FakeGate:
+    """记录进入/退出的设备门禁。"""
+
+    def __init__(self) -> None:
+        self.entered: list[dict[str, Any]] = []
+        self.exited = 0
+
+    @contextlib.contextmanager
+    def scope(self, event: Any, *, purpose: str, write: bool = True) -> Any:
+        self.entered.append({"event": event, "purpose": purpose, "write": write})
+        try:
+            yield types.SimpleNamespace(
+                gate=self, purpose=purpose, write=write, checkpoint=lambda op="": None
+            )
+        finally:
+            self.exited += 1
+
+
+class RejectingGate:
+    """进入作用域即抛指定门禁异常。"""
+
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+        self.entered = 0
+
+    def scope(self, event: Any, *, purpose: str, write: bool = True) -> Any:
+        self.entered += 1
+        exc = self.exc
+
+        class _Scope:
+            def __enter__(self) -> Any:
+                raise exc
+
+            def __exit__(self, *_args: Any) -> bool:
+                return False
+
+        return _Scope()
+
+
+class FakeController:
+    """验证控制器桩：覆盖工具层使用的接口。"""
+
+    _VERIFY_TOOLS = frozenset({"phone_solve_verification", "phone_bypass_verify"})
+    _READ_ONLY_TOOLS = frozenset(
+        {"phone_status", "phone_screen", "phone_screenshot", "phone_wait"}
+    )
+
+    def __init__(
+        self,
+        *,
+        allow: bool = True,
+        generation: int = 0,
+        remaining: float = 30.0,
+        state: dict[str, Any] | None = None,
+        paused: bool = False,
+    ) -> None:
+        self.allow = allow
+        self.cancel_generation = generation
+        self.remaining = remaining
+        self.state: dict[str, Any] = state or {}
+        self.paused = paused
+        self.cancelled_event = asyncio.Event()
+        self.reserve_calls: list[str] = []
+        self.submitted: list[Any] = []
+
+    async def reserve_attempt(
+        self, event: Any, *, kind: str = "solver"
+    ) -> tuple[bool, str]:
+        self.reserve_calls.append(kind)
+        if not self.allow:
+            return False, "error: 验证已暂停，等待人工协助"
+        self.state = {
+            "id": "ver-test",
+            "status": "attempting",
+            "attempts": 1,
+            "max_attempts": 3,
+            "failure_count": 0,
+            "quiz_answered": 0,
+            **self.state,
+        }
+        return True, ""
+
+    def cancelled(self) -> asyncio.Event:
+        return self.cancelled_event
+
+    def attempt_remaining_seconds(self) -> float:
+        return self.remaining
+
+    def _limits(self) -> dict[str, int]:
+        return {"max_attempts": 3}
+
+    async def submit_outcome(self, event: Any, outcome: Any) -> str:
+        self.submitted.append(outcome)
+        return ""
+
+    def status_text(self) -> str:
+        return "验证会话：ver-test（等待人工协助）"
+
+
+class FakeService:
+    """手机能力门面桩：覆盖工具门禁与验证求解需要的接口。"""
+
+    def __init__(
+        self,
+        *,
+        gate: Any = None,
+        verification: Any = None,
+        config: PhoneConfig | None = None,
+    ) -> None:
+        self.gate = gate
+        self.verification = verification
+        self.config = config or _config()
+        self.app_context: Any = object()
+        self.capture_calls = 0
+        self.screen_text = "验证页面：请完成滑块验证"
+        self.executed_ops: list[Any] = []
+
+    async def status_text(self) -> str:
+        return "设备正常"
+
+    def quota_error_text(self) -> str:
+        return ""
+
+    def quota_warning_text(self) -> str | None:
+        return None
+
+    def should_yield_to_user(self, event: Any) -> bool:
+        return False
+
+    def ensure_play_budget(self, event: Any) -> Any:
+        return None
+
+    async def capture(self, **_kwargs: Any) -> tuple[bytes, Path, dict[str, Any]]:
+        self.capture_calls += 1
+        return b"fake-image", Path("/tmp/fake-shot.png"), {"method": "png"}
+
+    async def screen(self, max_nodes: int = 0) -> tuple[str, Any]:
+        return self.screen_text, None
+
+    async def exec_verify_ops(
+        self, ops: Any, *, confirm: Any = None, wait_seconds: float = 1.0
+    ) -> str:
+        self.executed_ops.append((ops, confirm))
+        return "已执行验证操作：tap(10,20)"
+
+
+@tools_mod._wrap_call
+async def _probe_call(self: Any, context: Any, **_kwargs: Any) -> Any:
+    """测试用的最小工具：只记录被调用，用来验证门禁包裹。"""
+    return f"ok:{self.name}"
+
+
+def _status_tool(service: Any) -> Any:
+    return tools_mod.PhoneStatusTool(service=service)
+
+
+def _solve_tool(service: Any) -> Any:
+    return tools_mod.PhoneSolveVerificationTool(service=service)
+
+
+# ----------------------------------------------------------------------
+# 统一门禁包裹
+# ----------------------------------------------------------------------
+
+
+def test_gate_absent_keeps_original_behavior() -> None:
+    service = FakeService(gate=None)
+    result = run(_probe_call(_status_tool(service), FakeToolContext(FakeEvent())))
+    assert result == "ok:phone_status"
+
+
+def test_gate_scope_wraps_call_and_uses_write_flag() -> None:
+    gate = FakeGate()
+    controller = FakeController()
+    service = FakeService(gate=gate, verification=controller)
+    context = FakeToolContext(FakeEvent())
+    read_result = run(_probe_call(_status_tool(service), context))
+    write_result = run(_probe_call(tools_mod.PhoneTapTool(service=service), context))
+    assert read_result == "ok:phone_status"
+    assert write_result == "ok:phone_tap"
+    assert [item["purpose"] for item in gate.entered] == [
+        "phone_status",
+        "phone_tap",
+    ]
+    assert [item["write"] for item in gate.entered] == [False, True]
+    assert gate.exited == 2
+
+
+def test_gate_error_returns_error_text() -> None:
+    gate = RejectingGate(GateError("手机正被另一个用户任务使用"))
+    service = FakeService(gate=gate)
+    result = run(_probe_call(_status_tool(service), FakeToolContext(FakeEvent())))
+    assert result == "error: 手机正被另一个用户任务使用"
+
+
+def test_execution_cancelled_returns_abort_notice_without_error_prefix() -> None:
+    gate = RejectingGate(ExecutionCancelled("手机操作已被暂停，请立即停止本轮操作"))
+    service = FakeService(gate=gate)
+    result = run(_probe_call(_status_tool(service), FakeToolContext(FakeEvent())))
+    assert "已中止" in result
+    assert "手机操作已被暂停" in result
+    assert not result.startswith("error:")
+
+
+def test_is_write_tool_uses_controller_registry() -> None:
+    controller = FakeController()
+    service = FakeService(verification=controller)
+    assert _status_tool(service)._is_write_tool() is False
+    assert tools_mod.PhoneTapTool(service=service)._is_write_tool() is True
+    assert _solve_tool(service)._is_write_tool() is False
+
+
+def test_is_write_tool_defaults_to_write_without_controller() -> None:
+    service = FakeService(verification=None)
+    assert _status_tool(service)._is_write_tool() is True
+
+
+# ----------------------------------------------------------------------
+# 验证求解：结构化判定与取消竞速
+# ----------------------------------------------------------------------
+
+
+@pytest.fixture
+def outcome_api(monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
+    """补齐验证模块的结构化判定接口；真实实现就位后同样覆盖为可控桩。"""
+    module = tools_mod.verification_mod
+    constants = {
+        "OUTCOME_CLEARED": "cleared",
+        "OUTCOME_PROGRESS": "progress",
+        "OUTCOME_FAILED": "failed",
+        "OUTCOME_UNKNOWN": "unknown",
+        "OUTCOME_NOT_CHALLENGE": "not_challenge",
+        "SOLVE_KIND_CAPTCHA": "captcha",
+        "SOLVE_KIND_QUIZ": "quiz",
+    }
+    for name, value in constants.items():
+        monkeypatch.setattr(module, name, value, raising=False)
+
+    recorded: list[dict[str, Any]] = []
+
+    class FakeSolveOutcome:
+        def __init__(self, **kwargs: Any) -> None:
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    def fake_judge(**kwargs: Any) -> FakeSolveOutcome:
+        recorded.append(dict(kwargs))
+        return FakeSolveOutcome(
+            outcome="cleared",
+            kind=kwargs.get("kind", ""),
+            evidence="",
+            question=0,
+            generation=int(kwargs.get("generation") or 0),
+        )
+
+    monkeypatch.setattr(module, "SolveOutcome", FakeSolveOutcome, raising=False)
+    monkeypatch.setattr(module, "judge_solve_outcome", fake_judge, raising=False)
+    return types.SimpleNamespace(module=module, recorded=recorded, outcome=FakeSolveOutcome)
+
+
+def _patch_vision(
+    monkeypatch: pytest.MonkeyPatch,
+    first: dict[str, Any],
+    second: dict[str, Any] | None = None,
+) -> None:
+    """替换两阶段识图调用，避免依赖真实视觉模型。"""
+
+    async def fake_vision(app_context: Any, provider_id: str, prompt: str, *args: Any, **kwargs: Any) -> tuple[Any, str]:
+        return (first if "is_captcha" in prompt else second), "raw-text"
+
+    # 工具实现位于 core.tools.solve 子模块：它按模块全局名调用这两个辅助函数，
+    # 因此 monkeypatch 必须打到子模块命名空间（包根上的同名符号只是兼容再导出）。
+    solve_module = tools_mod.solve
+    monkeypatch.setattr(solve_module, "_vision_json", fake_vision)
+    monkeypatch.setattr(
+        solve_module,
+        "_resolve_ocr_provider",
+        lambda *_args, **_kwargs: ("provider-x", "ocr"),
+    )
+
+
+def test_solve_pause_wins_cancels_in_flight_and_skips_outcome(
+    monkeypatch: pytest.MonkeyPatch, outcome_api: types.SimpleNamespace
+) -> None:
+    state: dict[str, Any] = {"started": False, "cancelled": False}
+
+    async def slow_impl(self: Any, context: Any, **kwargs: Any) -> Any:
+        state["started"] = True
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            state["cancelled"] = True
+            raise
+        return tools_mod._SolveRun(result="不应返回")
+
+    monkeypatch.setattr(
+        tools_mod.PhoneSolveVerificationTool, "_solve_impl", slow_impl
+    )
+    controller = FakeController()
+    controller.cancelled_event.set()
+    service = FakeService(gate=None, verification=controller)
+
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+
+    assert "验证暂停，已中止在途求解" in result
+    assert state["started"] is True
+    assert state["cancelled"] is True
+    assert controller.submitted == []
+
+
+def test_solve_returns_reserve_reason_when_not_allowed() -> None:
+    controller = FakeController(allow=False)
+    service = FakeService(gate=None, verification=controller)
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+    assert result == "error: 验证已暂停，等待人工协助"
+    assert controller.submitted == []
+
+
+def test_solve_submits_structured_outcome_with_generation(
+    monkeypatch: pytest.MonkeyPatch, outcome_api: types.SimpleNamespace
+) -> None:
+    first = {
+        "content": "滑块验证页面",
+        "is_captcha": True,
+        "is_quiz": False,
+        "captcha_type": "slider",
+    }
+    second = {"ops": [{"action": "tap", "x": 10, "y": 20}], "confirm": None, "note": ""}
+    _patch_vision(monkeypatch, first, second)
+    controller = FakeController(generation=7)
+    service = FakeService(gate=None, verification=controller)
+
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+    text = tools_mod._result_text(result)
+
+    assert controller.reserve_calls == ["solver"]
+    assert service.executed_ops, "应当执行视觉模型给出的操作"
+    assert len(outcome_api.recorded) == 1
+    judged = outcome_api.recorded[0]
+    assert judged["generation"] == 7
+    assert judged["kind"] == "captcha"
+    assert judged["observation_ok"] is True
+    assert "请完成滑块验证" in judged["pre_text"]
+    assert len(controller.submitted) == 1
+    submitted = controller.submitted[0]
+    assert submitted.generation == 7
+    assert submitted.outcome == "cleared"
+    assert "判定：验证挑战已解除" in text
+    assert "尝试 1/3" in text
+    assert "失败 0 次" in text
+
+
+def test_solve_non_challenge_submits_not_challenge_outcome(
+    monkeypatch: pytest.MonkeyPatch, outcome_api: types.SimpleNamespace
+) -> None:
+    first = {
+        "content": "普通聊天页面",
+        "is_captcha": False,
+        "is_quiz": False,
+        "captcha_type": "none",
+    }
+    _patch_vision(monkeypatch, first)
+    controller = FakeController(generation=3)
+    service = FakeService(gate=None, verification=controller)
+
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+    text = tools_mod._result_text(result)
+
+    assert len(controller.submitted) == 1
+    submitted = controller.submitted[0]
+    assert submitted.outcome == "not_challenge"
+    assert submitted.generation == 3
+    assert "未检测到验证码/答题页面" in text
+    assert "判定：未检测到验证/答题" in text
+
+
+def test_solve_without_controller_returns_impl_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def impl_stub(self: Any, context: Any, **kwargs: Any) -> Any:
+        return tools_mod._SolveRun(result="控制器缺失时的求解结果")
+
+    monkeypatch.setattr(
+        tools_mod.PhoneSolveVerificationTool, "_solve_impl", impl_stub
+    )
+    service = FakeService(gate=None, verification=None)
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+    assert result == "控制器缺失时的求解结果"
+
+
+# ----------------------------------------------------------------------
+# 设备动作门禁回调
+# ----------------------------------------------------------------------
+
+
+class FakeAdb:
+    """DeviceActions 所需的最小 ADB 客户端桩。"""
+
+    def __init__(self, wm_output: str = "Physical size: 900x1600") -> None:
+        self.wm_output = wm_output
+        self.commands: list[str] = []
+        self.ensure_ready_calls = 0
+
+    async def ensure_ready(self) -> None:
+        self.ensure_ready_calls += 1
+
+    async def shell(self, command: str) -> str:
+        self.commands.append(command)
+        return self.wm_output if command == "wm size" else ""
+
+
+def test_actions_without_guard_only_runs_device_command() -> None:
+    adb = FakeAdb()
+    actions = DeviceActions(adb)
+    run(actions.press_key("back"))
+    assert adb.commands == ["input keyevent 4"]
+
+
+def test_actions_guard_blocks_before_any_device_operation() -> None:
+    adb = FakeAdb()
+    calls: list[str] = []
+
+    def guard(op: str) -> None:
+        calls.append(op)
+        raise ExecutionCancelled("手机操作已被暂停，请立即停止本轮操作")
+
+    actions = DeviceActions(adb, guard=guard)
+    with pytest.raises(ExecutionCancelled):
+        run(actions.press_key("back"))
+    assert calls == ["press_key"]
+    assert adb.ensure_ready_calls == 0
+    assert adb.commands == []
+
+
+def test_actions_guard_can_be_bound_late_and_may_be_async() -> None:
+    adb = FakeAdb()
+    calls: list[str] = []
+
+    async def guard(op: str) -> None:
+        calls.append(op)
+
+    actions = DeviceActions(adb)
+    actions.guard = guard
+    width, height = run(actions.screen_size())
+    assert (width, height) == (900, 1600)
+    assert calls == ["screen_size"]
+
+
+def test_actions_screenshot_entry_runs_guard(tmp_path: Path) -> None:
+    adb = FakeAdb()
+    calls: list[str] = []
+
+    def guard(op: str) -> None:
+        calls.append(op)
+        raise ExecutionCancelled("已暂停")
+
+    actions = DeviceActions(adb, guard=guard)
+    with pytest.raises(ExecutionCancelled):
+        run(actions.screenshot(tmp_path / "shot.png"))
+    assert calls == ["screenshot"]
+    assert adb.ensure_ready_calls == 0

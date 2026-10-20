@@ -1,0 +1,901 @@
+{
+  "adb": {
+    "type": "object",
+    "description": "ADB 连接（host 与 port 为必填项）",
+    "items": {
+      "host": {
+        "type": "string",
+        "default": "",
+        "description": "必填：模拟器 ADB 主机地址",
+        "hint": "如 192.168.250.x；与 port 一起决定 adb 连接目标，两项都填写后插件才能启动。"
+      },
+      "port": {
+        "type": "int",
+        "default": 0,
+        "description": "必填：模拟器 ADB 端口",
+        "hint": "范围 1-65535；与 host 同时填写后插件才能启动（默认未配置）。"
+      },
+      "serial": {
+        "type": "string",
+        "default": "",
+        "description": "设备序列号（留空用 host:port）",
+        "hint": "填写后优先使用该序列号；serial 不能替代 host/port 的必填校验。"
+      },
+      "path": {
+        "type": "string",
+        "default": "",
+        "description": "adb 可执行文件路径（非必填）",
+        "hint": "留空使用插件自带的 bin/linux-x86_64/adb；也可填绝对路径或 PATH 中的命令名。"
+      },
+      "connect_timeout": {
+        "type": "int",
+        "default": 20,
+        "description": "连接设备等待秒数",
+        "hint": "范围 1-120，默认 20。"
+      },
+      "command_timeout": {
+        "type": "int",
+        "default": 30,
+        "description": "单条 ADB 命令超时秒数",
+        "hint": "范围 1-300，默认 30。"
+      }
+    }
+  },
+  "security": {
+    "type": "object",
+    "description": "权限与安全",
+    "items": {
+      "require_admin": {
+        "type": "bool",
+        "default": true,
+        "description": "仅管理员可用",
+        "hint": "开启后只有 AstrBot 管理员、白名单用户或定时主动任务可以操作手机；关闭后所有能触发机器人的用户都可以操作，请谨慎；默认开启。"
+      },
+      "allowed_user_ids": {
+        "type": "list",
+        "default": [],
+        "description": "额外放行的用户 ID 列表",
+        "hint": "字符串列表；require_admin 开启时这些用户也可以使用手机能力。",
+        "condition": {
+          "require_admin": true
+        }
+      },
+      "owner_ids": {
+        "type": "list",
+        "default": [],
+        "description": "插件主人用户 ID 列表",
+        "hint": "字符串列表；非空时只有列表内用户可以使用手机工具/命令（AstrBot 管理员也不例外），留空回退 require_admin/allowed_user_ids 逻辑。"
+      },
+      "auto_clean_after_browse": {
+        "type": "bool",
+        "default": true,
+        "description": "浏览结束自动清理后台",
+        "hint": "每次浏览（工具/命令/定时任务）结束后自动静默执行一次后台清理（am kill-all，不影响前台），失败只记日志；默认开启。"
+      },
+      "auto_clean_after_task": {
+        "type": "bool",
+        "default": true,
+        "description": "任务结束回桌面并清理后台",
+        "hint": "玩手机/控制类任务（/phone play、随机玩手机、后台任务）结束时自动回桌面（HOME）并清理后台进程（am kill-all），不依赖 AI 主动调用清理工具；与只清后台、不动前台的 auto_clean_after_browse 不同；默认开启。"
+      },
+      "allow_comments": {
+        "type": "bool",
+        "default": false,
+        "description": "允许 AI 评论/回复视频或帖子",
+        "hint": "由 AI 自己用低层工具完成，插件只做许可/限额/记账；默认关闭；该开关是 AI 流程约定与插件侧授权/配额/记账，不是底层动作拦截：模型跳过 phone_interaction_gate 直接用低层工具发布时插件无法阻止，需要硬性保证时不要打开。"
+      },
+      "max_comments_per_day": {
+        "type": "int",
+        "default": 0,
+        "description": "每天最多评论/回复次数",
+        "hint": "按本地时区统计成功次数；0=不限制（默认）。",
+        "condition": {
+          "allow_comments": true
+        }
+      },
+      "allow_posts": {
+        "type": "bool",
+        "default": false,
+        "description": "允许 AI 在论坛类 App 发帖",
+        "hint": "由 AI 自己完成，插件只做许可/限额/记账；默认关闭；该开关是 AI 流程约定与插件侧授权/配额/记账，不是底层动作拦截：模型跳过 phone_interaction_gate 直接发布时插件无法阻止，需要硬性保证时不要打开。"
+      },
+      "max_posts_per_day": {
+        "type": "int",
+        "default": 0,
+        "description": "每天最多发帖次数",
+        "hint": "按本地时区统计成功次数；0=不限制（默认）。",
+        "condition": {
+          "allow_posts": true
+        }
+      },
+      "interaction_cooldown_seconds": {
+        "type": "int",
+        "default": 0,
+        "description": "主动互动冷却秒数",
+        "hint": "两次成功主动评论/发帖之间的最小间隔；与被动回复冷却相互独立；0=无冷却（默认）。"
+      },
+      "allow_passive_replies": {
+        "type": "bool",
+        "default": false,
+        "description": "允许 AI 被动回复",
+        "hint": "别人回复/评论机器人后，AI 先查收件箱读回复内容，再按心情与内容判断是否回复；由 AI 自己用低层工具完成，插件只做许可/每日限额/独立冷却/记账；默认关闭；与评论/发帖相同：开关是流程约定与插件侧授权/配额，不是底层动作拦截。"
+      },
+      "max_passive_replies_per_day": {
+        "type": "int",
+        "default": 0,
+        "description": "每天最多被动回复次数",
+        "hint": "按本地时区统计成功次数；与主动评论/发帖分开计数；0=不限制（默认）。",
+        "condition": {
+          "allow_passive_replies": true
+        }
+      },
+      "passive_reply_cooldown_seconds": {
+        "type": "int",
+        "default": 0,
+        "description": "被动回复冷却秒数",
+        "hint": "两次成功被动回复之间的最小间隔；与主动评论/发帖的 interaction_cooldown_seconds 相互独立；0=无冷却（默认）。"
+      },
+      "allow_shell_tool": {
+        "type": "bool",
+        "default": false,
+        "description": "预留：允许 shell 级操作",
+        "hint": "当前不注册该工具，开启不产生额外能力。"
+      },
+      "allow_interactions": {
+        "type": "bool",
+        "default": false,
+        "description": "预留：允许点赞/收藏等互动",
+        "hint": "当前开关不产生额外能力；评论/发帖由 allow_comments / allow_posts 控制。"
+      },
+      "max_likes_per_session": {
+        "type": "int",
+        "default": 5,
+        "description": "预留：单次浏览最多点赞数",
+        "hint": "当前无点赞路径、不生效。",
+        "condition": {
+          "allow_interactions": true
+        }
+      }
+    }
+  },
+  "browse": {
+    "type": "object",
+    "description": "信息流浏览",
+    "items": {
+      "default_app": {
+        "type": "string",
+        "default": "douyin",
+        "description": "默认浏览的 App",
+        "hint": "douyin / bilibili / xiaoheihe，也可填 Android 包名；默认 douyin。"
+      },
+      "default_items": {
+        "type": "int",
+        "default": 5,
+        "description": "默认每次采集条数",
+        "hint": "范围 1 到 max_items，默认 5。"
+      },
+      "max_items": {
+        "type": "int",
+        "default": 20,
+        "description": "单次浏览条数上限",
+        "hint": "范围 1-50，默认 20。"
+      },
+      "swipe_duration_ms": {
+        "type": "int",
+        "default": 800,
+        "description": "信息流翻页滑动时长（毫秒）",
+        "hint": "范围 100-5000，默认 800，越大越慢越稳；已刻画 App 使用画像实测值（B站 400ms），本项作为其余 App 的全局默认。",
+        "slider": {
+          "min": 100,
+          "max": 5000,
+          "step": 100
+        }
+      },
+      "settle_seconds": {
+        "type": "float",
+        "default": 2.5,
+        "description": "滑动后等待界面稳定秒数",
+        "hint": "范围 0.2-15，默认 2.5；保持默认 2.5 时使用各 App 画像的校准值，改动后以本配置为准。"
+      },
+      "collect_screenshots": {
+        "type": "bool",
+        "default": true,
+        "description": "浏览时逐条截图存档",
+        "hint": "供取证与日记引用；默认开启。"
+      },
+      "send_screenshots_to_user": {
+        "type": "bool",
+        "default": false,
+        "description": "浏览结束后发送截图到聊天",
+        "hint": "仅命令浏览触发；发送前几条；默认关闭。"
+      },
+      "auto_remember": {
+        "type": "bool",
+        "default": true,
+        "description": "浏览后自动写入浏览日记",
+        "hint": "长期记忆；默认开启。"
+      }
+    }
+  },
+  "auto": {
+    "type": "object",
+    "description": "自主浏览、随机玩与持续刷手机",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "启用定时自主浏览",
+        "hint": "插件启动时按本卡片配置自动创建定时浏览任务；默认关闭。"
+      },
+      "cron": {
+        "type": "string",
+        "default": "0 */2 * * *",
+        "description": "定时表达式",
+        "hint": "5 段：分 时 日 月 周；例如 0 */2 * * * 表示每 2 小时一次；默认 0 */2 * * *。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "apps": {
+        "type": "string",
+        "default": "douyin",
+        "description": "定时浏览的 App（逗号分隔）",
+        "hint": "多个用逗号分隔，例如 douyin,bilibili；默认 douyin。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "session": {
+        "type": "string",
+        "default": "",
+        "description": "定时任务汇报会话",
+        "hint": "unified_msg_origin；留空则用 /phone auto on 创建时所在会话。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "max_items": {
+        "type": "int",
+        "default": 6,
+        "description": "定时任务每次采集条数",
+        "hint": "范围 1-50，默认 6。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "prompt": {
+        "type": "text",
+        "default": "",
+        "description": "定时浏览附加提示词",
+        "hint": "例如关注的主题；会拼进唤醒主 Agent 的任务说明。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "random_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "启用随机玩手机",
+        "hint": "插件按随机间隔以设定概率唤醒主 Agent 自由玩手机；默认静默，不投递过程到聊天；默认开启。"
+      },
+      "random_interval_min": {
+        "type": "int",
+        "default": 45,
+        "description": "随机玩手机最短间隔（分钟）",
+        "hint": "至少 1，不设上限；默认 45。",
+        "condition": {
+          "random_enabled": true
+        }
+      },
+      "random_interval_max": {
+        "type": "int",
+        "default": 120,
+        "description": "随机玩手机最长间隔（分钟）",
+        "hint": "至少 1，不设上限；默认 120；小于最短间隔时按最短间隔处理。",
+        "condition": {
+          "random_enabled": true
+        }
+      },
+      "random_probability": {
+        "type": "float",
+        "default": 0.5,
+        "description": "每次到点开始玩的概率",
+        "hint": "范围 0-1，默认 0.5。",
+        "condition": {
+          "random_enabled": true
+        }
+      },
+      "share_only_interesting": {
+        "type": "bool",
+        "default": true,
+        "description": "随机玩手机分享门槛",
+        "hint": "开启时只在内容确实值得分享时才用 phone_share_to_user 分享（看与分享是两次独立判断）；关闭则允许结束时分享；默认开启。",
+        "condition": {
+          "random_enabled": true
+        }
+      },
+      "continuous_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "启用持续刷手机",
+        "hint": "自动一轮接一轮地自由活动（浏览/看视频/查收件箱/按需互动），每轮结束用 phone_learn 记录学到的内容，直到 /phone stop 或关闭；默认关闭。"
+      },
+      "continuous_gap_seconds": {
+        "type": "int",
+        "default": 60,
+        "description": "持续刷手机两轮间隔秒数",
+        "hint": "至少 1 秒，不设上限；默认 60。",
+        "condition": {
+          "continuous_enabled": true
+        }
+      },
+      "continuous_target_tokens": {
+        "type": "int",
+        "default": 0,
+        "description": "持续刷手机每轮预算",
+        "hint": "目标 token 预算；0=不限制（默认），也可用 quota.play_task_tokens。",
+        "condition": {
+          "continuous_enabled": true
+        }
+      },
+      "continuous_apps": {
+        "type": "string",
+        "default": "",
+        "description": "持续刷手机偏好 App",
+        "hint": "多个用逗号分隔，支持中文名/别名（如 哔哩哔哩,抖音 或 bilibili,douyin）；留空=AI 按人格自选；填写后会自动解析成已安装 App，未安装的会提示跳过。",
+        "condition": {
+          "continuous_enabled": true
+        }
+      },
+      "user_priority": {
+        "type": "bool",
+        "default": true,
+        "description": "用户任务优先",
+        "hint": "AI 自刷/随机/后台玩手机期间，用户提出手机相关任务时先执行用户任务（中止当前自刷轮次），用户任务结束后自动恢复持续刷；默认开启。"
+      },
+      "share_quiet_hours_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "分享免打扰时段",
+        "hint": "开启后只在白天时段主动分享（默认 08:00-22:00 中国时区），其余时间不打扰"
+      },
+      "share_start_hour": {
+        "type": "int",
+        "default": 8,
+        "condition": {
+          "share_quiet_hours_enabled": true
+        },
+        "description": "分享时段开始小时",
+        "hint": "0-23，默认 8（中国时区）；包含该小时整点。"
+      },
+      "share_end_hour": {
+        "type": "int",
+        "default": 22,
+        "condition": {
+          "share_quiet_hours_enabled": true
+        },
+        "description": "分享时段结束小时",
+        "hint": "0-23，默认 22（中国时区）；结束小时本身不算在分享时段内。"
+      },
+      "share_timezone": {
+        "type": "string",
+        "default": "Asia/Shanghai",
+        "condition": {
+          "share_quiet_hours_enabled": true
+        },
+        "description": "分享时段时区",
+        "hint": "默认 Asia/Shanghai（中国时区）；缺少 tzdata 时回退 UTC+8"
+      },
+      "share_user_recent_hours": {
+        "type": "int",
+        "default": 24,
+        "description": "私聊分享最近交流时限",
+        "hint": "只把内容主动分享给最近有交流的用户（默认 24 小时内聊过）；群聊按最近群聊内容判断"
+      },
+      "share_target": {
+        "type": "string",
+        "default": "",
+        "description": "分享目标兼容字段",
+        "hint": "分享目标由 AI 依据 phone_recent_chat 的最近聊天内容与群/人喜好自行选择；本字段为兼容保留，当前不参与分享目标选择，留空即可。"
+      }
+    }
+  },
+  "model": {
+    "type": "object",
+    "description": "刷手机/学习模型",
+    "hint": "自主任务（持续刷手机、随机玩手机、/phone play、后台任务）使用独立模型供应商；用户对话与手动命令会话不受影响，投递到用户会话的定时自主浏览沿用该会话默认模型。",
+    "items": {
+      "provider_id": {
+        "type": "string",
+        "default": "",
+        "_special": "select_provider",
+        "description": "刷手机/学习任务使用的模型供应商",
+        "hint": "留空=默认会话模型；只作用于 AI 静默自主任务：持续刷手机、随机玩手机、/phone play、后台任务；用户对话与手动命令会话不受影响，投递到用户会话的定时自主浏览沿用该会话默认模型。建议选择支持图片输入与工具调用（function calling）的模型，否则手机截图/工具循环可能失败；所选 Provider 被删除时任务回退默认模型并记 warning"
+      }
+    }
+  },
+  "quota": {
+    "type": "object",
+    "description": "手机 Token 额度（用完暂停）",
+    "hint": "手机相关 token 用量按 AstrBot provider_stats 实际 usage 对账（含缓存输入与内部识图调用）；enabled=false 时不拦截但仍记录用量；运行中先记估算，Agent run 结束后按实际 usage 补记差额；/phone quota 查看额度与对账明细，/phone quota audit [小时] 对照 AstrBot 实际用量（不传小时取 quota.window_hours，默认 24 小时；范围 1-168 小时）。",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "启用手机 token 额度限制",
+        "hint": "关闭（默认）后不拦截工具/命令，但仍会记录用量供面板展示。"
+      },
+      "window_hours": {
+        "type": "int",
+        "default": 24,
+        "description": "滚动窗口小时数",
+        "hint": "至少 1，不设上限；默认 24；窗口内用量超过上限才暂停刷手机。"
+      },
+      "max_tokens": {
+        "type": "int",
+        "default": 0,
+        "description": "窗口内 token 上限",
+        "hint": "0=不限制（默认）；达到 90% 时工具结果尾部会提醒，用完才拦截手机工具/命令。"
+      },
+      "play_task_tokens": {
+        "type": "int",
+        "default": 0,
+        "description": "每轮玩手机目标 token 预算",
+        "hint": "0=不限制（默认），不会因预算提前收尾。"
+      },
+      "per_step_tokens": {
+        "type": "int",
+        "default": 0,
+        "description": "每步预估 LLM 开销 token 数",
+        "hint": "每次手机工具调用后估算下一轮 LLM 开销；0=不估算（默认）。"
+      }
+    }
+  },
+  "novelty": {
+    "description": "内容新鲜感/厌倦感",
+    "hint": "一直刷到同类内容会“看腻”：插件按标题相似度累计疲劳度，疲劳度达到阈值后注入提示降低同类内容的打开/停留概率；一段时间不看会按半衰期自然恢复。阈值 0 表示不启用该机制。",
+    "type": "object",
+    "items": {
+      "threshold": {
+        "type": "int",
+        "default": 60,
+        "description": "厌倦阈值（0=不启用）",
+        "hint": "疲劳度达到或超过阈值视为“已看腻”（默认 60）；范围 0-100；0 表示完全关闭新鲜感机制，不记录也不注入。"
+      },
+      "half_life_hours": {
+        "type": "int",
+        "default": 24,
+        "description": "疲劳度衰减半衰期",
+        "hint": "超过这段时间不看同类内容，疲劳度减半（默认 24 小时）；即新鲜感恢复速度；范围 1-720 小时。"
+      },
+      "gain": {
+        "type": "int",
+        "default": 20,
+        "description": "同类内容疲劳度增量",
+        "hint": "浏览采样、点击查看、学习记录都会累计；默认 20，约 3 次同类曝光达到默认阈值；范围 1-100。"
+      },
+      "similarity": {
+        "type": "float",
+        "default": 0.15,
+        "description": "标题相似度阈值",
+        "hint": "对标题做中文 2-gram/英文数字词元 Jaccard 相似度（纯数字、UI 动作词与通用模板词不参与），并要求至少共享 2 个主题词元（近乎完全相同的标题除外）；越高越严格（默认 0.15）；范围 0.10-0.90。"
+      },
+      "max_entries": {
+        "type": "int",
+        "default": 300,
+        "description": "最多保留内容主题数",
+        "hint": "超出后优先淘汰疲劳度最低、其次最久未见的主题；范围 20-2000，默认 300。"
+      },
+      "inject_limit": {
+        "type": "int",
+        "default": 5,
+        "description": "厌倦主题注入条数",
+        "hint": "提示词最多注入已看腻/接近阈值的主题；范围 1-10，默认 5。"
+      }
+    }
+  },
+  "perception": {
+    "type": "object",
+    "description": "屏幕感知",
+    "items": {
+      "max_ui_nodes": {
+        "type": "int",
+        "default": 80,
+        "description": "回传模型的 UI 节点上限",
+        "hint": "范围 0-2000，默认 80；0 表示不额外限制，由渲染逻辑决定。"
+      },
+      "dump_timeout": {
+        "type": "int",
+        "default": 20,
+        "description": "单次 uiautomator dump 超时秒数",
+        "hint": "范围 1-120，默认 20。"
+      },
+      "max_text_len": {
+        "type": "int",
+        "default": 60,
+        "description": "UI 文本单条最大字符数",
+        "hint": "范围 10-1000，默认 60；超出截断。"
+      },
+      "include_screenshot_by_default": {
+        "type": "bool",
+        "default": false,
+        "description": "默认查看屏幕是否附带截图",
+        "hint": "开启会增加模型输入体积；默认关闭。"
+      },
+      "screenshot_mode": {
+        "type": "string",
+        "default": "auto",
+        "description": "截图模式",
+        "hint": "auto=自适应（静态页优先 PNG，PNG 慢或异常时切 raw+本地编码）；png=优先 PNG；raw=强制 raw 快速截图；默认 auto。"
+      },
+      "screenshot_slow_ms": {
+        "type": "int",
+        "default": 800,
+        "description": "截图耗时告警阈值（毫秒）",
+        "hint": "范围 100-10000，默认 800；超过时工具结果会标注较慢，便于观察性能。"
+      },
+      "screenshot_auto_clean": {
+        "type": "bool",
+        "default": true,
+        "description": "自动清理过期截图",
+        "hint": "开启后按 screenshot_retention_minutes 定期删除截图目录中的旧截图（默认开启）"
+      },
+      "screenshot_retention_minutes": {
+        "type": "int",
+        "default": 3,
+        "condition": {
+          "screenshot_auto_clean": true
+        },
+        "description": "截图保留分钟数",
+        "hint": "超过该分钟数的手机截图会被自动清理（默认 3 分钟，最小 1 分钟，不设上限）"
+      },
+      "wait_default_seconds": {
+        "type": "float",
+        "default": 2.0,
+        "description": "phone_wait 默认等待秒数",
+        "hint": "phone_wait 不传 seconds 时使用；范围 0.2-60，默认 2 秒；面板可调，任务中可显式覆盖。"
+      },
+      "wait_max_seconds": {
+        "type": "int",
+        "default": 60,
+        "description": "phone_wait 单次等待硬上限",
+        "hint": "范围 1-600，默认 60；请求超过时按上限收敛，避免长时间空等。"
+      },
+      "live_screen_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "任务期间持续截图（实时屏幕缓存）",
+        "hint": "默认关闭；开启后按 live_screen_interval_ms 持续抓帧供 phone_live_screen/phone_read_screen 快速取帧，会持续占用 ADB/模拟器资源；关闭时 phone_live_screen 仍可一次性抓帧。"
+      },
+      "live_screen_interval_ms": {
+        "type": "int",
+        "default": 1200,
+        "description": "实时屏幕抓帧间隔（毫秒）",
+        "hint": "范围 300-5000，默认 1200；adb 截图本身约 300-700ms，循环会自然节流。",
+        "condition": {
+          "live_screen_enabled": true
+        }
+      },
+      "live_screen_frames": {
+        "type": "int",
+        "default": 3,
+        "description": "实时屏幕缓冲保留帧数",
+        "hint": "环形缓冲；范围 1-10，默认 3。",
+        "condition": {
+          "live_screen_enabled": true
+        }
+      },
+      "live_screen_idle_stop_seconds": {
+        "type": "int",
+        "default": 90,
+        "description": "实时屏幕空闲停止秒数",
+        "hint": "任务会话超过该秒数没有手机工具调用时自动停止实时屏幕缓存；范围 30-600，默认 90。",
+        "condition": {
+          "live_screen_enabled": true
+        }
+      },
+      "screen_source": {
+        "type": "string",
+        "default": "adb",
+        "description": "感知帧来源",
+        "hint": "adb=用 ADB 截图（默认；scrcpy 只开控制通道、无 H264 编码/解码，开销低）；auto=实时屏幕开启且 scrcpy 视频帧可用时优先、否则回退 adb；scrcpy=始终启用视频镜像（不可用时回退 adb）。"
+      },
+      "ocr_provider_id": {
+        "type": "string",
+        "default": "",
+        "description": "OCR/图片理解 Provider ID",
+        "hint": "phone_read_screen 使用；留空用 AstrBot「图片描述 Provider」，再回退当前会话 Provider。"
+      },
+      "ocr_timeout_seconds": {
+        "type": "int",
+        "default": 30,
+        "description": "OCR/图片理解识别超时秒数",
+        "hint": "范围 5-120，默认 30；超时后建议改用 phone_live_screen 把画面回传主模型。"
+      },
+      "verify_timeout_seconds": {
+        "type": "int",
+        "default": 30,
+        "description": "验证求解调用超时秒数",
+        "hint": "phone_solve_verification 每次视觉模型调用（识图/出操作方案）的超时秒数；范围 5-120，默认 30；超时建议改用 phone_bypass_verify 手动完成。"
+      }
+    }
+  },
+  "control": {
+    "type": "object",
+    "description": "控制/感知后端",
+    "hint": "ADB 兜底；scrcpy 控制通道无需解码器，视频镜像按 perception.screen_source 按需启用时用 PyAV/ffmpeg 解码；minitouch 需自备 binary。",
+    "items": {
+      "backend": {
+        "type": "string",
+        "default": "auto",
+        "description": "控制后端",
+        "hint": "auto=scrcpy 可用则用、失败自动回退 adb；adb=只用 ADB；scrcpy=优先 scrcpy（不可用回退 adb）；默认 auto。"
+      },
+      "scrcpy": {
+        "type": "object",
+        "description": "scrcpy 控制参数",
+        "hint": "基于 scrcpy v5.0.1；视频镜像由 perception.screen_source 决定：screen_source=adb 时仅控制通道（video=false，无 H264 编码/解码），auto/scrcpy 才启用视频。",
+        "items": {
+          "max_size": {
+            "type": "int",
+            "default": 720,
+            "description": "scrcpy 视频长边最大像素",
+            "hint": "范围 0-8192，默认 720；0=不限制；仅在启用视频镜像时生效。"
+          },
+          "idle_stop_seconds": {
+            "type": "int",
+            "default": 120,
+            "description": "scrcpy 空闲停止秒数",
+            "hint": "无手机工具调用后多少秒停止 scrcpy 连接；视频镜像启用时同时停止解码；范围 10-3600，默认 120，避免常驻开销。"
+          },
+          "server_jar": {
+            "type": "string",
+            "default": "",
+            "description": "scrcpy-server jar 路径",
+            "hint": "留空用插件自带 bin/scrcpy-server-v5.0.1。"
+          }
+        }
+      },
+      "minitouch": {
+        "type": "object",
+        "description": "可选 minitouch 后端",
+        "hint": "touch 后端，不随插件内置二进制；用户自备 DeviceFarmer/minitouch v1.3.2 构建。",
+        "items": {
+          "binary_path": {
+            "type": "string",
+            "default": "",
+            "description": "minitouch 可执行文件路径",
+            "hint": "x86_64/arm64 二进制；留空=不启用（touch 走 adb/scrcpy）。"
+          }
+        }
+      }
+    }
+  },
+  "verification": {
+    "description": "验证与人工协助",
+    "hint": "人机验证/做题页面的自动尝试次数、总时限与人工接管策略；达到上限会暂停手机自动操作并通知用户协助验证。",
+    "type": "object",
+    "items": {
+      "max_attempts": {
+        "type": "int",
+        "default": 3,
+        "description": "自动尝试允许的失败次数上限",
+        "hint": "失败/无法确认次数达到该值即请求人工协助；答题逐题推进不计失败次数；0=直接请求人工协助（非无限重试）"
+      },
+      "total_timeout_seconds": {
+        "type": "int",
+        "default": 120,
+        "description": "自动处理总时限（秒）",
+        "hint": "从进入验证开始累计；次数或时间先到者生效，默认 120 秒"
+      },
+      "attempt_timeout_seconds": {
+        "type": "int",
+        "default": 30,
+        "description": "单次尝试时限（秒）",
+        "hint": "每次尝试从取图到结果观察的总时限，默认 30 秒；到期由看门狗取消在途求解并转人工协助，实际取与会话剩余预算的较小值"
+      },
+      "manual_wait_timeout_seconds": {
+        "type": "int",
+        "default": 600,
+        "description": "等待用户协助时限（秒）",
+        "hint": "到期后进入 expired：原任务结束但设备仍暂停，必须 /phone verify cancel <id> 才解除；默认 600 秒"
+      },
+      "notify_target": {
+        "type": "string",
+        "default": "",
+        "description": "求助通知目标会话",
+        "hint": "自主任务使用明确配置的通知会话 UMO（如 aiocqhttp:FriendMessage:123456）；用户任务优先通知发起会话；留空时回退最近交互会话"
+      }
+    }
+  },
+  "media": {
+    "type": "object",
+    "description": "流媒体内容识别",
+    "hint": "录制手机当前正在播放的声音并用 AstrBot STT Provider 转写、按间隔抓关键帧交给视觉 Provider 描述，用于看懂视频/直播/音乐；依赖已配置的语音识别 Provider，DRM/禁录 App 可能只能拿到静音并降级为仅画面。",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "启用流媒体内容识别",
+        "hint": "开启后主 Agent 可录制当前播放的声音与关键帧（工具 phone_watch_media），/phone watch 也可直接识别当前内容。"
+      },
+      "audio_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "录制设备播放声音并转写",
+        "hint": "开启后采集设备正在播放的声音并交给 STT Provider 转写；关闭后只抓关键帧做画面描述"
+      },
+      "audio_source": {
+        "type": "string",
+        "default": "output",
+        "options": [
+          "output",
+          "mic"
+        ],
+        "description": "音频来源",
+        "hint": "output=录制 App 正在播放的声音（推荐，Android 11+ 可用）；mic=录制设备麦克风"
+      },
+      "seconds": {
+        "type": "int",
+        "default": 20,
+        "description": "默认录制时长（秒）",
+        "hint": "工具/命令不指定秒数时使用；范围 3 到 media.max_seconds，默认 20。"
+      },
+      "max_seconds": {
+        "type": "int",
+        "default": 60,
+        "description": "单次录制上限（秒）",
+        "hint": "范围 5-300；请求时长超过上限时按上限收敛；默认 60 秒内足够理解一段短视频。"
+      },
+      "frame_interval_seconds": {
+        "type": "float",
+        "default": 4.0,
+        "description": "关键帧抓取间隔（秒）",
+        "hint": "范围 1-60，默认 4；间隔越小画面越密、采集与视觉请求越慢。"
+      },
+      "max_frames": {
+        "type": "int",
+        "default": 4,
+        "description": "关键帧数量上限",
+        "hint": "范围 1-8，默认 4；实际帧数还受录制时长与间隔限制，画面在整段时长内均匀抓取。"
+      },
+      "asr_provider_id": {
+        "type": "string",
+        "default": "",
+        "description": "语音识别 Provider ID",
+        "hint": "留空使用 AstrBot 当前语音识别 Provider；Provider 不可用或超时会在降级说明中提示并只返回画面"
+      },
+      "asr_timeout_seconds": {
+        "type": "int",
+        "default": 60,
+        "description": "语音转写超时（秒）",
+        "hint": "范围 5-300，默认 60。"
+      },
+      "vision_provider_id": {
+        "type": "string",
+        "default": "",
+        "description": "画面理解 Provider ID",
+        "hint": "留空依次使用 perception.ocr_provider_id → AstrBot 图片描述 Provider → 当前会话 Provider"
+      },
+      "vision_timeout_seconds": {
+        "type": "int",
+        "default": 60,
+        "description": "画面理解超时（秒）",
+        "hint": "范围 5-300，默认 60。"
+      },
+      "keep_audio": {
+        "type": "bool",
+        "default": false,
+        "description": "保留录音文件",
+        "hint": "排障用；开启后识别完成仍保留 WAV，默认 false 在识别后删除"
+      }
+    }
+  },
+  "traffic": {
+    "description": "流量抓包识别",
+    "hint": "在手机上对手机流量抓包（ADB + mitmproxy），用解密后的接口内容识别当前页面；图文/视频画面/布局仍用多模态截图兜底。",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "启用流量抓包",
+        "hint": "开启后插件启动时自动注入系统 CA、启动 mitmproxy 并设置手机代理；需要 adb root、容器已安装 mitmproxy（pip3 install mitmproxy）"
+      },
+      "port": {
+        "type": "int",
+        "default": 18080,
+        "description": "mitmproxy 监听端口",
+        "hint": "容器内 127.0.0.1 端口，通过 adb reverse 映射到手机；1024-65535"
+      },
+      "body_chars": {
+        "type": "int",
+        "default": 1200,
+        "description": "抓包正文截断长度（字符）",
+        "hint": "写入 flow 日志/提示词的响应正文最大长度，200-8000（默认 1200）"
+      },
+      "keep_seconds": {
+        "type": "int",
+        "default": 900,
+        "description": "抓包记录保留秒数",
+        "hint": "phone_traffic 默认只看最近这段窗口内的流量（60-86400，默认 900）"
+      }
+    }
+  },
+  "memory": {
+    "description": "记忆存储",
+    "hint": "学习档案与 App 使用经验的存储去向：插件本地 / MemoryCompanion / LivingMemory 及其组合。",
+    "type": "object",
+    "items": {
+      "backend": {
+        "description": "存储去向",
+        "hint": "local=仅插件本地（默认）；companion=同步到 MemoryCompanion（astrbot_plugin_memory_companion）；livingmemory=同步到 LivingMemory（astrbot_plugin_livingmemory）；companion+livingmemory=两个记忆插件都同步（插件本地档案始终保留）",
+        "type": "string",
+        "options": [
+          "local",
+          "companion",
+          "livingmemory",
+          "companion+livingmemory"
+        ],
+        "default": "local"
+      },
+      "companion_user_id": {
+        "description": "记忆绑定用户 ID",
+        "hint": "同步到 MemoryCompanion 时绑定哪个用户；留空时用户会话用发送者 ID、自刷任务用 owner_ids[0]",
+        "type": "string",
+        "default": ""
+      },
+      "bot_action_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "自行刷手机的记忆计入「个人记忆-行动」",
+        "hint": "开启后，AI 自行刷手机（持续刷/随机/后台任务）时写入的学习记忆会额外同步一份到 MemoryCompanion 的个人记忆-行动；默认关闭（不计）"
+      }
+    }
+  },
+  "prompt": {
+    "type": "object",
+    "description": "提示词注入",
+    "items": {
+      "inject_guidance": {
+        "type": "bool",
+        "default": true,
+        "description": "注入手机能力使用指南",
+        "hint": "注入到授权用户的 LLM 请求；追加到系统提示，不覆盖已有内容；浏览日记、学习档案、App 经验、新鲜感与验证状态只对授权用户的手机任务/手机请求注入；非主人请求与普通对话不注入。"
+      },
+      "diary_limit": {
+        "type": "int",
+        "default": 5,
+        "description": "注入浏览日记条数",
+        "hint": "最近浏览日记；范围 0-50，默认 5；0 表示不注入。"
+      },
+      "app_memory_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "注入 App 使用经验记忆",
+        "hint": "要求 AI 操作 App 前先 phone_app_memory 查经验、改版后更新记忆；默认开启。"
+      },
+      "app_memory_limit": {
+        "type": "int",
+        "default": 5,
+        "condition": {
+          "app_memory_enabled": true
+        },
+        "description": "注入 App 经验条数上限",
+        "hint": "提示词最多注入几个 App 的使用经验；默认 5；0=不注入。"
+      }
+    }
+  },
+  "debug": {
+    "type": "object",
+    "description": "调试",
+    "items": {
+      "log_actions": {
+        "type": "bool",
+        "default": true,
+        "description": "设备动作写入 info 日志",
+        "hint": "覆盖点击/滑动/dump/截图；关闭后降为 debug 级别；默认开启。"
+      }
+    }
+  }
+}

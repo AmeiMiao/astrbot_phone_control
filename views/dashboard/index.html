@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>手机操控 · 监控面板</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sider">
+        <div class="brand">
+          <div class="brand-text">
+            <strong>手机操控</strong>
+            <small>Phone Control</small>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-view="dashboard" type="button">监控面板</button>
+          <button class="nav-item" data-view="learning" type="button">学习记录</button>
+        </nav>
+        <div class="sider-foot">
+          <a
+            class="foot-link"
+            href="#/extension/plugins/astrbot_phone_control"
+            target="_top"
+            rel="noopener"
+            >在 AstrBot 中打开插件</a
+          >
+          <a
+            class="foot-link"
+            href="#/plugin-view/astrbot_phone_control/dashboard"
+            target="_top"
+            rel="noopener"
+            >刷新页面</a
+          >
+        </div>
+      </aside>
+
+      <main class="main">
+        <section id="view-dashboard" class="view">
+          <header class="page-head">
+            <div>
+              <h1>手机监控面板</h1>
+              <p class="subtitle" id="page-subtitle">加载中…</p>
+            </div>
+            <div class="head-actions">
+              <button id="btn-refresh" class="btn ghost" type="button">刷新</button>
+            </div>
+          </header>
+
+          <div class="cards" id="cards">
+            <div class="card"><div class="card-label">控制后端</div><div class="card-value" id="ov-control">—</div><div class="card-note" id="ov-control-note"></div></div>
+            <div class="card"><div class="card-label">感知后端</div><div class="card-value" id="ov-perception">—</div><div class="card-note" id="ov-perception-note"></div></div>
+            <div class="card"><div class="card-label">Token 额度</div><div class="card-value" id="ov-quota">—</div><div class="card-note" id="ov-quota-note"></div></div>
+            <div class="card"><div class="card-label">最近截图</div><div class="card-value" id="ov-shot">—</div><div class="card-note" id="ov-shot-note"></div></div>
+            <div class="card"><div class="card-label">最近 API</div><div class="card-value" id="ov-llm">—</div><div class="card-note" id="ov-llm-note"></div></div>
+            <div class="card"><div class="card-label">今日互动</div><div class="card-value" id="ov-interactions">—</div><div class="card-note" id="ov-interactions-note"></div></div>
+            <div class="card"><div class="card-label">流量抓包</div><div class="card-value" id="ov-traffic">—</div><div class="card-note" id="ov-traffic-note"></div></div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <div class="card-label">最近抓包（解密流量，页面内容识别优先来源）</div>
+            <pre id="ov-traffic-preview" style="white-space:pre-wrap;max-height:260px;overflow:auto;font-size:12px;line-height:1.5;margin:8px 0 0;"></pre>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>运行指标</h2>
+            </div>
+            <div class="charts">
+              <div class="chart-card">
+                <div class="chart-head">
+                  <h3>截图耗时</h3>
+                  <span class="chart-latest" id="shot-latest">— ms</span>
+                </div>
+                <canvas id="chart-shot" height="180"></canvas>
+                <div class="chart-foot" id="shot-foot">最近 30 分钟 · 单位 ms</div>
+              </div>
+              <div class="chart-card">
+                <div class="chart-head">
+                  <h3>API 输出 Token/s</h3>
+                  <span class="chart-latest" id="tps-latest">— tok/s</span>
+                </div>
+                <canvas id="chart-tps" height="180"></canvas>
+                <div class="chart-foot" id="tps-foot">最近 30 分钟 · 10s 桶 · 输出 tokens/端到端耗时</div>
+              </div>
+            </div>
+          </section>
+
+          <p class="hint">
+            数据来自插件运行时采集，保存在插件数据目录；页面不可见时自动暂停轮询。
+            本页只读监控，配置请到 AstrBot 插件页修改（`/phone` 命令可热应用部分配置）。
+          </p>
+        </section>
+
+
+        <section id="view-learning" class="view" hidden>
+          <header class="page-head">
+            <div>
+              <h1>手机学习记录</h1>
+              <p class="subtitle" id="learning-subtitle">加载中…</p>
+            </div>
+            <div class="head-actions">
+              <button id="btn-learning-refresh" class="btn ghost" type="button">刷新</button>
+            </div>
+          </header>
+
+          <div class="card learning-toolbar">
+            <input
+              id="learning-query"
+              type="text"
+              placeholder="按内容/来源/标签搜索；留空显示最近记录"
+            />
+            <select id="learning-limit">
+              <option value="20">20 条</option>
+              <option value="50" selected>50 条</option>
+              <option value="100">100 条</option>
+              <option value="200">200 条</option>
+            </select>
+            <button id="btn-learning-search" class="btn primary" type="button">搜索</button>
+          </div>
+
+          <div class="learning-stats" id="learning-stats"></div>
+          <div class="learning-list" id="learning-list"></div>
+          <p class="hint">
+            学习记录由 AI 用 phone_learn 写入 learning.jsonl，本页只读；
+            也可用 /phone learn [关键词|条数] 在聊天里查看。
+          </p>
+        </section>
+      </main>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>

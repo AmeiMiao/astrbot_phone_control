@@ -1,0 +1,28 @@
+scrcpy-server v5.0.1 —— 第三方组件声明
+==============================================================================
+本插件 bin/ 目录下的 scrcpy-server-v5.0.1 为 scrcpy 项目的 server 端构建产物
+（scrcpy-server.jar 原始文件，未做任何修改），仅通过 adb 推送到安卓设备的
+/data/local/tmp 下以 app_process 方式运行，用于屏幕镜像与控制注入。
+
+- 项目名称：scrcpy
+- 项目主页：https://github.com/Genymobile/scrcpy
+- 版本：v5.0.1
+- 发布页面：https://github.com/Genymobile/scrcpy/releases/tag/v5.0.1
+- 许可证：Apache License, Version 2.0
+  许可证全文：https://www.apache.org/licenses/LICENSE-2.0
+  插件内同时包含的 Apache-2.0 许可证全文见 bin/linux-x86_64/NOTICE.txt
+- 版权：Copyright (c) 2018 Genymobile；Copyright (c) 2018-2026 Romain Vimont
+  以及 scrcpy 项目的其他贡献者。
+
+本插件使用 scrcpy 的方式：插件进程通过 adb 启动 server（raw_stream=true、
+tunnel_forward=true、audio=false、control=true），建立 video/control 两个
+本地转发连接；video 为裸 H.264 流，由本地 ffmpeg 解码后取最新帧；control
+通道按 scrcpy 控制协议发送按键/文本/触摸等注入消息。联网能力、隐私与许可
+边界以 scrcpy 项目文档为准。
+
+minitouch（可选，不随插件分发）
+------------------------------------------------------------------------------
+插件支持可选的 minitouch touch 后端（DeviceFarmer/minitouch v1.3.2），但
+不内置其二进制：只有在用户显式配置本地 binary 路径时才会 push 到设备运行。
+项目主页：https://github.com/DeviceFarmer/minitouch
+许可证：见该项目 LICENSE（Apache-2.0 / MIT 混合，以项目原文为准）。
