@@ -81,6 +81,98 @@ from .token_quota import (
 from .ui import dump_ui, render_ui
 
 
+# 验证码/做题操作批次：整批校验并生成计划后才开始设备动作。
+_VERIFY_OPS_LIMIT = 20
+_VERIFY_TAP_ACTIONS = frozenset({"tap", "click", "point"})
+_VERIFY_DRAG_ACTIONS = frozenset({"drag", "swipe"})
+
+
+def _verify_coordinate(item: Any, axis: str, limit: int) -> int:
+    """校验单个坐标分量并返回整数；任何非法坐标抛 :class:`ActionFailedError`。"""
+    if not isinstance(item, dict):
+        raise ActionFailedError("操作坐标必须是 {x,y} 对象")
+    raw = item.get(axis)
+    if isinstance(raw, bool) or raw is None:
+        raise ActionFailedError(f"{axis} 必须是整数")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ActionFailedError(f"{axis} 必须是整数") from exc
+    if isinstance(raw, float) and not raw.is_integer():
+        raise ActionFailedError(f"{axis} 必须是整数")
+    if value < 0 or value >= limit:
+        raise ActionFailedError(
+            f"{axis} 坐标越界：{value}，有效范围 0..{limit - 1}"
+        )
+    return value
+
+
+def _validate_verify_batch(ops: Any, confirm: Any) -> tuple[list[Any], Any]:
+    """设备动作前的批次结构校验：数量、类型与 confirm 形式。"""
+    if ops is None:
+        raw_ops: list[Any] = []
+    elif isinstance(ops, list):
+        raw_ops = list(ops)
+    else:
+        raise ActionFailedError("验证操作批次必须是列表")
+    if len(raw_ops) > _VERIFY_OPS_LIMIT:
+        raise ActionFailedError(
+            f"验证操作数量超出上限 {_VERIFY_OPS_LIMIT}（实际 {len(raw_ops)}）"
+        )
+    if confirm is not None and not isinstance(confirm, dict):
+        raise ActionFailedError("确认坐标必须是 {x,y} 对象")
+    return raw_ops, confirm
+
+
+def _plan_verify_steps(
+    ops: list[Any], confirm: Any, width: int, height: int
+) -> tuple[list[dict[str, Any]], dict[str, int] | None]:
+    """把整批 ops/confirm 解析成已验证计划；任何非法项都在设备动作前抛出。"""
+    plan: list[dict[str, Any]] = []
+    for item in ops:
+        if not isinstance(item, dict):
+            raise ActionFailedError("每个操作项必须是 {action,x,y} 对象")
+        action = str(item.get("action") or "tap").strip().lower()
+        if action in _VERIFY_DRAG_ACTIONS:
+            x1 = _verify_coordinate(item, "x1", width)
+            y1 = _verify_coordinate(item, "y1", height)
+            x2 = _verify_coordinate(item, "x2", width)
+            y2 = _verify_coordinate(item, "y2", height)
+            duration = item.get("duration_ms")
+            if duration is None or duration == "":
+                duration = 500
+            else:
+                try:
+                    duration = int(duration)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ActionFailedError("duration_ms 必须是整数") from exc
+            plan.append(
+                {
+                    "action": "drag",
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2,
+                    "duration_ms": max(100, min(5000, duration)),
+                }
+            )
+        elif action in _VERIFY_TAP_ACTIONS:
+            x = _verify_coordinate(item, "x", width)
+            y = _verify_coordinate(item, "y", height)
+            plan.append({"action": "tap", "x": x, "y": y})
+        else:
+            raise ActionFailedError(
+                f"不支持的操作类型：{action}（仅支持 tap/drag）"
+            )
+    confirm_point: dict[str, int] | None = None
+    if confirm is not None:
+        confirm_point = {
+            "x": _verify_coordinate(confirm, "x", width),
+            "y": _verify_coordinate(confirm, "y", height),
+        }
+    return plan, confirm_point
+
+
 class PhoneService:
     """手机能力门面：工具层与命令层共用的稳定接口。"""
 
@@ -178,6 +270,30 @@ class PhoneService:
         gate = getattr(self, "gate", None)
         if gate is not None:
             gate.checkpoint(str(op))
+
+    def guard_device_write(self, op: str = "") -> None:
+        """按写操作语义复查验证门禁（用于底层会切 App/点击的动作）。
+
+        工具包装器按工具名分类设置作用域写标记；可能导航的底层动作在这里再按
+        写操作复查一次，避免工具分类漏标时验证会话进行中仍切换 App 或点击。
+        无验证控制器（离线单测）时只做普通门禁检查。
+        """
+        controller = getattr(self, "verification", None)
+        if controller is not None:
+            try:
+                denied = str(
+                    controller.guard_tool(
+                        str(op or "device_write"), write=True
+                    )
+                    or ""
+                ).strip()
+            except Exception:  # noqa: BLE001 - 验证状态读取失败时保持普通门禁
+                denied = ""
+            if denied:
+                if denied.startswith("error:"):
+                    denied = denied[len("error:") :].strip()
+                raise PhoneControlError(denied)
+        self.guard_device(op)
 
     @property
     def config(self) -> PhoneConfig:
@@ -1441,56 +1557,48 @@ class PhoneService:
         confirm: Any = None,
         wait_seconds: float = 1.0,
     ) -> str:
-        """执行验证码/做题求解器给出的操作序列（tap/drag + 最终确认点）。"""
+        """执行验证码/做题求解器给出的操作序列（tap/drag + 最终确认点）。
+
+        设备动作前先整体解析并校验完整 ops 与 confirm（动作类型、数量、坐标范围
+        等），任何非法项都不会产生设备动作；执行阶段逐步复查设备门禁与单次尝试
+        期限，暂停/取消/期限变化立即中止后续步骤。
+        """
         self.ensure_configured()
+        raw_ops, raw_confirm = _validate_verify_batch(ops, confirm)
         width, height = await self.actions.screen_size()
-        raw_ops = ops if isinstance(ops, list) else []
+        plan, confirm_point = _plan_verify_steps(
+            raw_ops, raw_confirm, width, height
+        )
         steps: list[str] = []
-
-        def _point(item: Any, axis: str, limit: int) -> int:
-            if not isinstance(item, dict):
-                raise ActionFailedError("操作坐标必须是 {x,y} 对象")
-            try:
-                value = int(item.get(axis))
-            except (TypeError, ValueError) as exc:
-                raise ActionFailedError(f"{axis} 必须是整数") from exc
-            if value < 0 or value >= limit:
-                raise ActionFailedError(f"{axis} 坐标越界：{value}，有效范围 0..{limit - 1}")
-            return value
-
-        for item in raw_ops[:20]:
-            if not isinstance(item, dict):
-                continue
+        for step in plan:
             # 批次内每步都复查执行门禁：暂停/取消代次/期限变化后立即停止。
             self.guard_device("verify_op")
             self._ensure_verify_deadline()
-            action = str(item.get("action") or "tap").strip().lower()
-            if action == "drag":
-                x1 = _point(item, "x1", width)
-                y1 = _point(item, "y1", height)
-                x2 = _point(item, "x2", width)
-                y2 = _point(item, "y2", height)
-                try:
-                    duration = int(item.get("duration_ms") or 500)
-                except (TypeError, ValueError):
-                    duration = 500
-                duration = max(100, min(5000, duration))
+            if step["action"] == "drag":
                 await self.actions.swipe(
-                    x1, y1, x2, y2, duration_ms=duration
+                    step["x1"],
+                    step["y1"],
+                    step["x2"],
+                    step["y2"],
+                    duration_ms=step["duration_ms"],
                 )
-                steps.append(f"drag({x1},{y1})→({x2},{y2})")
+                steps.append(
+                    f"drag({step['x1']},{step['y1']})"
+                    f"→({step['x2']},{step['y2']})"
+                )
             else:
-                x = _point(item, "x", width)
-                y = _point(item, "y", height)
-                await self.tap(x, y)
-                steps.append(f"tap({x},{y})")
+                await self.tap(step["x"], step["y"])
+                steps.append(f"tap({step['x']},{step['y']})")
             await asyncio.sleep(0.15)
-        if isinstance(confirm, dict):
+        if confirm_point is not None:
             self.guard_device("verify_confirm")
-            x = _point(confirm, "x", width)
-            y = _point(confirm, "y", height)
-            await self.tap(x, y)
-            steps.append(f"确认 tap({x},{y})")
+            # 作用域期限可能在预占尝试前按「无限」记录；确认前按当前尝试剩余
+            # 期限再复查一次，避免到期后的最终确认点击。
+            self._ensure_verify_deadline()
+            await self.tap(confirm_point["x"], confirm_point["y"])
+            steps.append(
+                f"确认 tap({confirm_point['x']},{confirm_point['y']})"
+            )
         self._invalidate_ui_cache()
         try:
             pause = max(0.2, min(3.0, float(wait_seconds or 0.2)))
@@ -1556,6 +1664,8 @@ class PhoneService:
         self.ensure_configured()
         lines: list[str] = ["【收件箱检查】"]
         if app:
+            # 切 App 属于设备写副作用：即使工具分类漏标为只读，也要按写语义复查。
+            self.guard_device_write("phone_check_inbox:open_app")
             lines.append(await self.open_app(app))
             await asyncio.sleep(1.5)
         _, snapshot = await self.screen(max_nodes=max_nodes)
@@ -1564,6 +1674,8 @@ class PhoneService:
         if node is not None:
             label = node.label or node.text or node.desc or "消息入口"
             center_x, center_y = node.bounds.center
+            # 点击消息入口同样属于设备写副作用。
+            self.guard_device_write("phone_check_inbox:tap")
             await self.tap(center_x, center_y)
             await asyncio.sleep(1.2)
             page_text, _snapshot = await self.screen(max_nodes=max_nodes)

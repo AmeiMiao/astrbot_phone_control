@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
+import dataclasses
 import math
 from typing import Any
 
@@ -14,6 +14,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
+from .. import ui as ui_mod
 from .. import verification as verification_mod
 from ..device_gate import GateError
 from ..errors import PhoneControlError
@@ -101,19 +102,76 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         allowed, reason = await controller.reserve_attempt(event, kind="solver")
         if not allowed:
             return reason
-        generation = _as_int(getattr(controller, "cancel_generation", 0), 0)
-        run = await self._solve_racing_cancel(context, controller, generation, **kwargs)
+        # 入口身份在预占后捕获一次；本次求解的结果只能按这份身份提交，
+        # 之后即使会话被取消/替换也不会被旧结果污染。
+        identity = self._reservation_identity(controller)
+        # 预占后重新绑定期限：包装器的作用域在预占前建立，期限可能按无尝试记为
+        # 无限；求解期间的设备动作要按当前单次尝试/会话剩余期限复查。
+        with self._gate_scope_after_reservation(event):
+            run = await self._solve_racing_cancel(
+                context, controller, identity, **kwargs
+            )
         if run is None:
             return "验证暂停，已中止在途求解（本次结果未提交，请等待用户处理）"
         result = run.result
-        if run.outcome is not None:
-            notice = await self._submit_outcome(event, controller, run.outcome)
+        outcome = self._bind_outcome_identity(run.outcome, identity)
+        if outcome is not None:
+            notice = await self._submit_outcome(event, controller, outcome)
             result = _append_text(result, notice)
             result = _append_text(result, self._health_reason(controller))
-            result = _append_text(result, _outcome_summary(controller, run.outcome))
+            result = _append_text(result, _outcome_summary(controller, outcome))
             if getattr(controller, "paused", False):
                 result = _append_text(result, self._pause_status(controller))
         return result
+
+    @staticmethod
+    def _reservation_identity(controller: Any) -> verification_mod.AttemptIdentity:
+        """读取本次预占产生的执行身份（会话 ID + 尝试序号 + 取消代次）。"""
+        getter = getattr(controller, "reservation_identity", None)
+        if callable(getter):
+            try:
+                identity = getter()
+            except Exception as exc:  # noqa: BLE001 - 身份读取失败按空身份，提交时会被拒
+                logger.warning("验证预占身份读取失败：%s", exc)
+                identity = None
+            if identity is not None:
+                return identity
+        state = getattr(controller, "state", None)
+        state = state if isinstance(state, dict) else {}
+        return verification_mod.AttemptIdentity(
+            session_id=str(state.get("id") or ""),
+            attempt_id=_as_int(state.get("attempts"), 0),
+            generation=_as_int(getattr(controller, "cancel_generation", 0), 0),
+        )
+
+    @staticmethod
+    def _bind_outcome_identity(
+        outcome: Any, identity: verification_mod.AttemptIdentity
+    ) -> Any:
+        """用入口捕获的身份补盖结果缺失字段；已有身份原样保留（不覆盖）。
+
+        求解实现正常会自行携带身份；外部替换的求解实现（测试/降级路径）不带时，
+        由工具按预占身份补齐，提交时再与控制器当前执行严格比对。
+        """
+        if outcome is None or identity is None:
+            return outcome
+        patch: dict[str, Any] = {}
+        if not str(getattr(outcome, "session_id", "") or "").strip():
+            patch["session_id"] = identity.session_id
+        if not _as_int(getattr(outcome, "attempt_id", 0), 0):
+            patch["attempt_id"] = identity.attempt_id
+        if not patch:
+            return outcome
+        try:
+            return dataclasses.replace(outcome, **patch)
+        except (TypeError, ValueError):
+            pass
+        for key, value in patch.items():
+            try:
+                setattr(outcome, key, value)
+            except (AttributeError, TypeError):
+                logger.warning("验证判定结果无法补盖身份字段：%s", key)
+        return outcome
 
     async def _submit_outcome(
         self, event: Any, controller: Any, outcome: Any
@@ -152,7 +210,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         self,
         result: ToolExecResult,
         evidence: str,
-        generation: int,
+        identity: verification_mod.AttemptIdentity,
         structured: bool,
     ) -> _SolveRun:
         """动作执行前失败：按「无法确认」交给控制器累计失败次数。"""
@@ -163,7 +221,9 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 pre_text="",
                 post_text=_clean_solve_text(evidence, 120),
                 observation_ok=False,
-                generation=generation,
+                generation=identity.generation,
+                session_id=identity.session_id,
+                attempt_id=identity.attempt_id,
             )
         return _SolveRun(result=result, outcome=outcome)
 
@@ -179,72 +239,64 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         self,
         context: ContextWrapper[AstrAgentContext],
         controller: Any,
-        generation: int,
+        identity: verification_mod.AttemptIdentity,
         **kwargs,
     ) -> _SolveRun | None:
-        """求解与「验证暂停/取消」事件竞速；暂停先到则取消求解并返回 None。"""
-        solve_task = asyncio.create_task(
-            self._solve_impl(context, generation=generation, **kwargs)
-        )
-        cancel_task: asyncio.Task | None = None
+        """求解与「验证暂停/取消」事件竞速；暂停/取消先到则中止求解并返回 None。"""
+        cancelled_event = None
         cancelled_fn = getattr(controller, "cancelled", None)
         if callable(cancelled_fn):
             try:
                 cancelled_event = cancelled_fn()
-                if hasattr(cancelled_event, "wait"):
-                    cancel_task = asyncio.create_task(cancelled_event.wait())
             except Exception:  # noqa: BLE001 - 取消事件不可用时退化为串行等待
                 logger.warning("验证取消事件不可用，求解改为串行等待")
-                cancel_task = None
-        if cancel_task is None:
-            return await solve_task
-        try:
-            done, _pending = await asyncio.wait(
-                {solve_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
-            )
-        except asyncio.CancelledError:
-            solve_task.cancel()
-            cancel_task.cancel()
-            raise
-        if solve_task in done:
-            cancel_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await cancel_task
-            return await solve_task
-        # 暂停/取消先到：中止在途求解，不提交本次判定（代次已变化）
-        solve_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await solve_task
+                cancelled_event = None
+        finished, run = await verification_mod.race_with_cancel(
+            # generation 关键字供外部替换的求解实现读取；真实实现以 identity 为准
+            self._solve_impl(
+                context,
+                generation=identity.generation,
+                identity=identity,
+                **kwargs,
+            ),
+            cancelled_event,
+        )
+        if finished:
+            return run
+        # 暂停/取消先到：本次结果属于已失效执行，不提交判定
         return None
 
     async def _solve_impl(
         self,
         context: ContextWrapper[AstrAgentContext],
         *,
-        generation: int = 0,
-        **kwargs,
+        identity: verification_mod.AttemptIdentity | None = None,
+        **_kwargs,
     ) -> _SolveRun:
         event = _event_of(context)
         controller = getattr(self.service, "verification", None)
         structured = controller is not None
-        mode = str(kwargs.get("mode") or "auto").strip().lower()
+        identity = identity or verification_mod.current_identity(
+            getattr(controller, "state", None)
+        )
+        mode = str(_kwargs.get("mode") or "auto").strip().lower()
         if mode not in _VERIFY_MODES:
             return self._failed_run(
                 f"error: 不支持的 mode {mode!r}，只能是 auto / captcha / quiz",
                 "mode 参数非法",
-                generation,
+                identity,
                 structured,
             )
-        include_image = bool(kwargs.get("include_image", True))
+        include_image = bool(_kwargs.get("include_image", True))
         timeout_s, remaining_s = self._vision_timeout(
-            controller, kwargs.get("timeout_seconds"), structured
+            controller, _kwargs.get("timeout_seconds"), structured
         )
         if structured and remaining_s <= 1.0:
             return self._failed_run(
                 "error: 本次尝试剩余时间不足，已中止求解且未执行任何操作；"
                 "请等待验证控制器进入人工协助",
                 "尝试剩余时间不足",
-                generation,
+                identity,
                 structured,
             )
         app_context = getattr(self.service, "app_context", None)
@@ -254,7 +306,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 "phone_bypass_verify capture 后手动 drag/tap_points，或在 AstrBot 配置"
                 "「图片描述 Provider」/插件 perception.ocr_provider_id",
                 "缺少 AstrBot 上下文",
-                generation,
+                identity,
                 structured,
             )
         provider_id, _source = _resolve_ocr_provider(self.service, app_context, event)
@@ -264,7 +316,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 "perception.ocr_provider_id 或 AstrBot「图片描述 Provider」中配置；"
                 "也可用 phone_bypass_verify capture 后手动 drag/tap_points",
                 "缺少视觉模型 Provider",
-                generation,
+                identity,
                 structured,
             )
 
@@ -277,7 +329,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
             return self._failed_run(
                 f"error: 快速截图失败：{exc}；可改用 phone_bypass_verify capture 后手动操作",
                 "快速截图失败",
-                generation,
+                identity,
                 structured,
             )
         try:
@@ -297,7 +349,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 "phone_bypass_verify capture 看验证形式后手动 drag/tap_points，或调大 "
                 "perception.verify_timeout_seconds / 检查视觉 Provider 是否支持图片输入",
                 "识图超时",
-                generation,
+                identity,
                 structured,
             )
         except Exception as exc:  # noqa: BLE001 - 视觉调用失败给可操作建议
@@ -306,7 +358,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 "phone_bypass_verify capture 后手动 drag/tap_points，或检查 AstrBot"
                 "「图片描述 Provider」/插件 perception.ocr_provider_id 配置",
                 "识图调用失败",
-                generation,
+                identity,
                 structured,
             )
         if first is None:
@@ -315,7 +367,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 f"error: 识图结果不是可用 JSON（provider={provider_id}）：{preview}；"
                 "建议改用 phone_bypass_verify capture 看验证形式后手动 drag/tap_points",
                 "识图结果无法解析",
-                generation,
+                identity,
                 structured,
             )
 
@@ -342,7 +394,9 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                     outcome=verification_mod.OUTCOME_NOT_CHALLENGE,
                     kind=verification_mod.SOLVE_KIND_QUIZ,
                     evidence=content,
-                    generation=generation,
+                    generation=identity.generation,
+                    session_id=identity.session_id,
+                    attempt_id=identity.attempt_id,
                 )
             return _SolveRun(
                 result=_image_result(
@@ -354,14 +408,14 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         # 第二阶段：重新截图 + 让视觉模型给出操作序列与最终确认点
         kind = "quiz" if is_quiz else "captcha"
         timeout_s, remaining_s = self._vision_timeout(
-            controller, kwargs.get("timeout_seconds"), structured
+            controller, _kwargs.get("timeout_seconds"), structured
         )
         if structured and remaining_s <= 1.0:
             return self._failed_run(
                 "error: 本次尝试剩余时间不足，已中止求解且未执行任何操作；"
                 "请等待验证控制器进入人工协助",
                 "尝试剩余时间不足",
-                generation,
+                identity,
                 structured,
             )
         try:
@@ -373,7 +427,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 f"error: 解答前重新截图失败：{exc}；第一段识图：{content or '无摘要'}；"
                 "未执行任何操作；可改用 phone_bypass_verify 手动处理",
                 "解答前重新截图失败",
-                generation,
+                identity,
                 structured,
             )
         try:
@@ -394,7 +448,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 "建议用 phone_bypass_verify capture 后手动 drag/tap_points，或调大 "
                 "perception.verify_timeout_seconds",
                 "求解识图超时",
-                generation,
+                identity,
                 structured,
             )
         except Exception as exc:  # noqa: BLE001 - 求解识图失败给可操作建议
@@ -403,7 +457,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 f"未执行任何操作；第一段识图：{content or '无摘要'}；可改用 "
                 "phone_bypass_verify 手动处理",
                 "求解识图调用失败",
-                generation,
+                identity,
                 structured,
             )
         if second is None:
@@ -413,7 +467,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 f"已中止且未执行任何操作；第一段识图：{content or '无摘要'}；可改用 "
                 "phone_bypass_verify 手动处理",
                 "求解结果无法解析",
-                generation,
+                identity,
                 structured,
             )
         ops = _normalize_verify_ops(second.get("ops"))
@@ -424,7 +478,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 f"第一段识图：{content or '无摘要'}；可改用 phone_bypass_verify capture "
                 "后手动 drag/tap_points",
                 "求解结果缺少可执行操作",
-                generation,
+                identity,
                 structured,
             )
         note = _clean_solve_text(second.get("note"), 80)
@@ -450,16 +504,19 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 f"error: 自动执行验证操作失败：{exc}；第一段识图："
                 f"{content or '无摘要'}；可改用 phone_bypass_verify 手动处理",
                 "执行验证操作失败",
-                generation,
+                identity,
                 structured,
             )
 
         # 执行后再读一次界面，形成结构化判定（视觉模型不判断最终结果）
         observation_ok = False
         post_text = ""
+        observation_quality = ""
         try:
-            post_text, _post_snapshot = await self.service.screen(max_nodes=0)
+            post_text, post_snapshot = await self.service.screen(max_nodes=0)
             observation_ok = True
+            # UI dump 成功不等于页面可观察：空树/纯系统节点/加载页不能作为解除证据
+            observation_quality = ui_mod.assess_observation(post_snapshot)
         except Exception as exc:  # noqa: BLE001 - 观察失败按无法确认处理
             logger.warning("求解后界面观察失败：%s", exc)
         outcome = None
@@ -473,7 +530,10 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 pre_text=pre_text,
                 post_text=post_text,
                 observation_ok=observation_ok,
-                generation=generation,
+                generation=identity.generation,
+                session_id=identity.session_id,
+                attempt_id=identity.attempt_id,
+                observation_quality=observation_quality,
             )
 
         # 执行后再快速截图，供模型确认结果
@@ -499,8 +559,17 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         if note:
             lines.append(f"操作说明：{note}")
         lines.append(f"执行结果：{summary}")
+        quality_reason = verification_mod.observation_quality_reason(
+            observation_quality
+        )
         if not observation_ok:
             lines.append("（执行后界面观察失败，结果判定降级为「无法确认」）")
+        elif quality_reason:
+            lines.append(
+                f"（执行后界面观察不足：{quality_reason}；"
+                "结果判定降级为「无法确认」，请用 phone_screen/phone_live_screen "
+                "或截图确认后再操作）"
+            )
         if include_image:
             lines.append(
                 "已重新截图，可查看图片确认结果。"

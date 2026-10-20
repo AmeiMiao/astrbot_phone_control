@@ -18,11 +18,21 @@ from core.adb import AdbClient  # noqa: E402
 from core.errors import AdbCommandError, UiDumpError  # noqa: E402
 from core.models import Rect, ScreenSnapshot, UiNode  # noqa: E402
 from core.ui import (  # noqa: E402
+    LOADING_PAGE_TEXT,
+    NO_READABLE_NODES_TEXT,
+    assess_observation,
     dump_ui,
     find_nodes,
     parse_ui_xml,
     render_ui,
     screen_signature,
+)
+from core.verification import (  # noqa: E402
+    OBSERVATION_EMPTY,
+    OBSERVATION_LOADING,
+    OBSERVATION_NO_TEXT,
+    OBSERVATION_OK,
+    OBSERVATION_SYSTEM_ONLY,
 )
 
 FOCUS_OUTPUT = (
@@ -322,6 +332,65 @@ def test_render_ui_flags_and_escaping():
 def test_render_ui_empty_snapshot():
     text = render_ui(make_snapshot([]))
     assert "没有可读节点" in text
+
+
+def test_render_ui_empty_snapshot_uses_shared_marker():
+    """空树渲染标记与判定器兜底文案保持一致（防止两处文案漂移）。"""
+    text = render_ui(make_snapshot([]))
+    assert NO_READABLE_NODES_TEXT in text
+    assert "当前界面没有可读节点" in text
+
+
+def test_render_ui_loading_page_marks_unobservable():
+    nodes = [
+        make_node(0, text="加载中…"),
+        make_node(1, class_name="android.widget.ProgressBar", clickable=False),
+    ]
+    text = render_ui(make_snapshot(nodes))
+    assert LOADING_PAGE_TEXT in text
+    assert "界面仍在加载" in text
+
+
+def test_render_ui_normal_page_has_no_unobservable_marker():
+    text = render_ui(make_snapshot([make_node(0, text="首页推荐视频列表")]))
+    assert NO_READABLE_NODES_TEXT not in text
+    assert LOADING_PAGE_TEXT not in text
+
+
+# ----------------------------------------------------------------------
+# assess_observation（观察质量）
+# ----------------------------------------------------------------------
+def test_assess_observation_empty_tree():
+    assert assess_observation(make_snapshot([])) == OBSERVATION_EMPTY
+    assert assess_observation(None) == OBSERVATION_EMPTY
+
+
+def test_assess_observation_system_only():
+    nodes = [
+        make_node(0, text="12:00", package="com.android.systemui"),
+        make_node(1, package="android", clickable=True),
+    ]
+    assert assess_observation(make_snapshot(nodes)) == OBSERVATION_SYSTEM_ONLY
+
+
+def test_assess_observation_no_readable_text():
+    nodes = [make_node(0, clickable=True), make_node(1, resource_id="com.example.app:id/icon")]
+    assert assess_observation(make_snapshot(nodes)) == OBSERVATION_NO_TEXT
+
+
+def test_assess_observation_loading_page():
+    nodes = [make_node(0, text="正在加载"), make_node(1, text="请稍候")]
+    assert assess_observation(make_snapshot(nodes)) == OBSERVATION_LOADING
+
+
+def test_assess_observation_ok_with_readable_content():
+    assert (
+        assess_observation(make_snapshot([make_node(0, text="首页推荐视频列表")]))
+        == OBSERVATION_OK
+    )
+    # 有可读内容时，混入加载提示也属于可观察页面
+    nodes = [make_node(0, text="加载中"), make_node(1, text="首页推荐视频列表")]
+    assert assess_observation(make_snapshot(nodes)) == OBSERVATION_OK
 
 
 # ----------------------------------------------------------------------

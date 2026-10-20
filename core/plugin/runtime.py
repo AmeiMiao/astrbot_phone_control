@@ -424,21 +424,25 @@ class RuntimeMixin:
         self._live_last_activity = 0.0
 
     async def _ensure_traffic_started(self) -> None:
-        """按配置启动/重启抓包（禁用时确保停止）。"""
+        """按配置启动/重启抓包（禁用时确保停止）。
+
+        ``TrafficCapture.start`` 内部持锁且幂等；确定性不可用（设备无 root、
+        系统证书挂载被拒绝、mitmdump 缺失等）已记录原因，这里只输出一次 WARN
+        并停止自动重试；临时失败按 start 的退避时间重试。
+        """
         config = self.service.config
         traffic_config = getattr(config, "traffic", None)
         if traffic_config is None or not traffic_config.enabled:
             if self._traffic.running:
                 await self._traffic.stop()
             return
-        if getattr(self._traffic, "root_unavailable", False):
-            return
         if self._traffic.running:
             await self._traffic.ensure_device()
             return
-        await self._traffic.cleanup_device_state(
-            port=traffic_config.port
-        )
+        if self._traffic.unavailable:
+            return
+        if not self._traffic.retry_ready:
+            return
         result = await self._traffic.start(
             port=traffic_config.port,
             body_chars=traffic_config.body_chars,
@@ -449,10 +453,17 @@ class RuntimeMixin:
                 result.get("port"),
                 result.get("log_path"),
             )
-        elif result.get("root_unavailable"):
-            logger.warning("抓包跳过：%s；本次运行不再尝试", result.get("reason"))
+        elif result.get("unavailable"):
+            logger.warning(
+                "抓包不可用：%s；本次运行不再自动重试（/phone traffic status 查看）",
+                result.get("reason") or "未提供原因",
+            )
         else:
-            logger.warning("抓包启动失败：%s", result.get("reason"))
+            logger.warning(
+                "抓包启动失败：%s；%.0f 秒后重试",
+                result.get("reason") or "未提供原因",
+                float(result.get("retry_in") or 0.0),
+            )
 
     def _start_traffic_keepalive(self) -> None:
         """启动抓包保活循环（90 秒一次，读实时配置）。"""
@@ -510,12 +521,15 @@ class RuntimeMixin:
                     if self._traffic.running:
                         await self._traffic.stop()
                     continue
-                if getattr(self._traffic, "root_unavailable", False):
+                # 确定性不可用或临时失败退避未到期：静默跳过，不刷 WARN。
+                if self._traffic.unavailable or not self._traffic.retry_ready:
                     continue
                 if not self._traffic.running:
                     await self._ensure_traffic_started()
                     continue
                 await self._traffic.ensure_device()
+                if not self._traffic.running:
+                    continue
                 now = time.time()
                 if now - self._last_traffic_log >= 300:
                     status = self._traffic.status()

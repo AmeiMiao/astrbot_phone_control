@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 from typing import Any
 
@@ -230,11 +231,28 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
             raise AdbNotConfiguredError(UNCONFIGURED_MESSAGE)
         return event
 
+    @contextlib.contextmanager
+    def _gate_scope_after_reservation(self, event: Any):
+        """预占尝试后重新进入设备作用域，使执行期限按当前状态重新计算。
+
+        工具包装器在进入工具实现前创建 ``gate.scope``；验证工具在实现内部才
+        预占尝试，此时作用域期限可能按「没有进行中的尝试」记为无限。预占后
+        重新进入同一事件作用域（同一租约可重入），让后续设备动作按当前单次
+        尝试/会话剩余期限复查。
+        """
+        gate = getattr(self.service, "gate", None)
+        if gate is None or event is None:
+            yield
+            return
+        with gate.scope(event, purpose=self.name, write=self._is_write_tool()):
+            yield
+
     def _is_write_tool(self) -> bool:
         """该工具是否属于会改变设备状态的写操作（未知工具按写操作）。
 
-        依据验证控制器登记的工具集合判断：验证工具与只读观察工具按读处理，
-        其余按写处理，供统一设备门禁区分暂停/占用时的放行范围。
+        依据验证控制器登记的工具集合判断：验证工具与纯只读观察工具按读处理，
+        其余按写处理，供统一设备门禁区分暂停/占用时的放行范围。可能切换 App、
+        点击或输入的工具（如 phone_check_inbox）必须按写操作，不得登记为只读。
         """
         controller = getattr(self.service, "verification", None)
         if controller is None:

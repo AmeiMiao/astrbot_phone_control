@@ -176,7 +176,7 @@ from .core.media import (
 from .core.telemetry import MetricsStore
 from .core.ui import dump_ui, render_ui
 
-from .core.plugin.bootstrap import BootstrapMixin
+from .core.plugin.bootstrap import BootstrapMixin, LIVE_PLUGIN_INSTANCES
 from .core.plugin.commands import CommandsMixin
 from .core.plugin.tasks import TasksMixin
 from .core.plugin.runtime import RuntimeMixin
@@ -213,6 +213,19 @@ class PhoneControlPlugin(
 
     _CONTROL_SUBS = frozenset({"stop", "verify"})
     _HELP_SUBS = frozenset({"", "help", "-h", "--help", "?", "？"})
+
+    async def terminate(self) -> None:
+        """插件停用/重载时终止后台循环并恢复设备状态。
+
+        AstrBot 的 ``PluginManager._terminate_plugin`` 只探测插件类**自身**
+        ``__dict__`` 中是否有 ``terminate``；停止逻辑在 ``BootstrapMixin`` 里，
+        若不在子类类体内重新声明，框架 reload/禁用插件时不会调用，旧实例的
+        keepalive/抓包循环会在后台继续运行并操作同一台设备。
+        """
+        try:
+            await super().terminate()
+        finally:
+            LIVE_PLUGIN_INSTANCES.discard(self)
 
     @filter.command("phone", desc="/phone help 查看手机操控指令")
     async def phone_command(self, event: AstrMessageEvent, args: GreedyStr) -> None:

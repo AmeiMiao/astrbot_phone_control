@@ -10,13 +10,22 @@ desc: |
 
 
 help: /phone help 查看全部指令。常用：/phone status、/phone browse 微信 5、/phone task 去B站看视频总结（后台执行）、/phone tasks、/phone quota [audit [小时]]、/phone play [tokens]、/phone interactions、/phone continuous on|off|status、/phone learn [关键词|条数]、/phone novelty [status|reset]、/phone watch [秒数]、/phone stop [job_id|all]。
-version: 0.0.5
+version: 0.0.6
 author: ACAT
 repo: https://github.com/acat-fun/astrbot_phone_control
 astrbot_version: ">=4.27.1,<5"
 tags:
   - 手机操控
+  - 手机控制
+  - 安卓
   - ADB
+  - scrcpy
   - 模拟器
+  - 自动化
+  - 手机自动化
+  - AI代理
   - 信息流
   - 浏览记忆
+  - 屏幕识别
+  - 人机验证
+  - 定时任务

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import types
 
 from core.traffic_capture import TrafficCapture
 
@@ -32,7 +31,8 @@ def test_setup_device_marks_root_unavailable(tmp_path, monkeypatch) -> None:
     capture, _adb = _capture(tmp_path)
     monkeypatch.setattr("core.traffic_capture.ROOT_SETTLE_SECONDS", 0)
 
-    async def _hash(_path):
+    def _hash(_path):
+        """同步替身：_subject_hash_old 本身是同步方法，不能替换成 async。"""
         return "deadbeef"
 
     async def _cleanup():
@@ -42,7 +42,7 @@ def test_setup_device_marks_root_unavailable(tmp_path, monkeypatch) -> None:
         return False
 
     monkeypatch.setattr(capture, "_subject_hash_old", _hash)
-    monkeypatch.setattr(capture, "cleanup_device_state", _cleanup)
+    monkeypatch.setattr(capture, "_cleanup_device_state_locked", _cleanup)
     monkeypatch.setattr(capture, "_wait_root", _wait_root)
 
     try:
@@ -52,13 +52,27 @@ def test_setup_device_marks_root_unavailable(tmp_path, monkeypatch) -> None:
     else:  # pragma: no cover - 必须有失败
         raise AssertionError("无 root 时应抛出 RuntimeError")
     assert capture.root_unavailable is True
+    assert capture.unavailable is True
+    assert "root" in capture.unavailable_reason
 
 
 def test_start_skips_when_root_unavailable(tmp_path) -> None:
     capture, adb = _capture(tmp_path)
-    capture._root_unavailable = True
+    capture._note_failure(
+        "RuntimeError: 设备无 root，已跳过抓包（adb root 失败）",
+        unavailable=True,
+    )
+
     result = asyncio.run(capture.start())
+
     assert result["ok"] is False
+    assert result["unavailable"] is True
     assert result["root_unavailable"] is True
+    # 失败 reason 必须是明确字符串，不能是 None。
+    assert isinstance(result["reason"], str) and "root" in result["reason"]
     assert adb.calls == []
-    assert capture.status()["root_unavailable"] is True
+    status = capture.status()
+    assert status["unavailable"] is True
+    assert status["unavailable_reason"]
+    assert "root" in status["unavailable_reason"]
+    assert "不可用" in capture.status_text()

@@ -306,6 +306,79 @@ def test_enter_does_not_activate_contextvar():
 
 
 # ----------------------------------------------------------------------
+# 3.1 可让路租约（任务收尾清理）
+# ----------------------------------------------------------------------
+
+
+def test_preemptible_lease_taken_over_by_new_task():
+    gate = _gate()
+    cleanup_event = FakeEvent(umo="webchat:FriendMessage:1")
+    newcomer = FakeEvent(umo="webchat:FriendMessage:2")
+    with gate.scope(
+        cleanup_event, purpose="task_cleanup", preemptible=True
+    ) as cleanup_scope:
+        epoch_before = gate.epoch
+        # 新任务需要设备：直接接管可让路租约，旧收尾下一次检查必须停止。
+        gate.enter(newcomer, purpose="phone_tap")
+        assert gate.epoch == epoch_before + 1
+        assert gate.owner_umo == newcomer.unified_msg_origin
+        with pytest.raises(ExecutionCancelled) as exc:
+            cleanup_scope.checkpoint("am kill-all")
+        assert "接管或任务已被停止" in exc.value.message
+    # 作用域退出只清上下文；新任务的租约保留到 run 结束。
+    assert gate.busy is True
+    assert gate.release_event(newcomer) is True
+    assert gate.busy is False
+
+
+def test_preemptible_lease_not_taken_over_by_another_preemptible():
+    gate = _gate()
+    first = FakeEvent(umo="webchat:FriendMessage:1")
+    second = FakeEvent(umo="webchat:FriendMessage:2")
+    with gate.scope(first, purpose="task_cleanup", preemptible=True):
+        epoch_before = gate.epoch
+        with pytest.raises(GateError) as exc:
+            gate.enter(second, purpose="task_cleanup", preemptible=True)
+        assert "手机正被另一个" in exc.value.message
+        # 收尾之间仍互斥：不接管、不改代次、租约仍归第一个收尾。
+        assert gate.epoch == epoch_before
+        assert gate.owner_umo == first.unified_msg_origin
+
+
+def test_preemptible_request_does_not_take_normal_lease():
+    gate = _gate()
+    holder = FakeEvent(umo="webchat:FriendMessage:1")
+    holder_scope = gate.enter(holder, purpose="phone_tap")
+    epoch_before = gate.epoch
+    with pytest.raises(GateError) as exc:
+        gate.enter(
+            FakeEvent(umo="webchat:FriendMessage:2"),
+            purpose="task_cleanup",
+            preemptible=True,
+        )
+    assert "手机正被另一个" in exc.value.message
+    assert gate.epoch == epoch_before
+    assert gate.owner_umo == holder.unified_msg_origin
+    assert gate.release_event(holder_scope.event) is True
+
+
+def test_takeover_validated_before_stealing_preemptible_lease():
+    # 新请求自身已到期：不能先接管旧收尾再报错，否则旧收尾会被无谓中止。
+    clock = FakeClock()
+    state = {"remaining": 30.0}
+    gate = _gate(clock, deadline_seconds=lambda event, purpose: state["remaining"])
+    cleanup_event = FakeEvent(umo="webchat:FriendMessage:1")
+    gate.enter(cleanup_event, purpose="task_cleanup", preemptible=True)
+    epoch_before = gate.epoch
+    state["remaining"] = 0.0
+    with pytest.raises(ExecutionCancelled):
+        gate.enter(FakeEvent(umo="webchat:FriendMessage:2"), purpose="phone_tap")
+    assert gate.epoch == epoch_before
+    assert gate.busy is True
+    assert gate.owner_umo == cleanup_event.unified_msg_origin
+
+
+# ----------------------------------------------------------------------
 # 4. 租约类型判定
 # ----------------------------------------------------------------------
 

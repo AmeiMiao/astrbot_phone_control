@@ -6,12 +6,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
+import time
 
 import pytest
 
+from core.models import Rect, ScreenSnapshot, UiNode
+from core.ui import render_ui
 from core.verification import (
     CLOSED_STATUSES,
+    OBSERVATION_EMPTY,
+    OBSERVATION_LOADING,
+    OBSERVATION_NO_TEXT,
+    OBSERVATION_OK,
+    OBSERVATION_SYSTEM_ONLY,
+    OBSERVATION_TEXT_MARKERS,
     OUTCOME_CLEARED,
     OUTCOME_FAILED,
     OUTCOME_NOT_CHALLENGE,
@@ -27,6 +37,7 @@ from core.verification import (
     SolveOutcome,
     apply_outcome,
     attempt_deadline_reached,
+    current_identity,
     effective_limits,
     execution_deadline_seconds,
     failure_limit_reached,
@@ -39,12 +50,16 @@ from core.verification import (
     mark_expired,
     mark_passed,
     new_session,
+    observation_quality_reason,
+    observation_text_insufficient,
     question_signature,
     quiz_question_progressed,
     remaining_attempt_seconds,
+    race_with_cancel,
     reserve_attempt,
     session_timeout_reached,
     status_text,
+    submission_mismatch_reason,
 )
 
 
@@ -537,3 +552,295 @@ def test_judge_unknown_applied_counts_failure():
     assert state["failure_count"] == 1
     assert state["status"] == STATUS_AWAITING_USER
     assert is_paused(state)
+
+
+# ----------------------------------------------------------------------
+# 观察质量：UI dump 成功 != 页面可观察（A14 重放）
+# ----------------------------------------------------------------------
+
+
+def _snapshot(nodes, **kwargs):
+    data = dict(
+        package="review.app",
+        activity="review.app.MainActivity",
+        width=1080,
+        height=1920,
+        nodes=nodes,
+        captured_at=time.time(),
+    )
+    data.update(kwargs)
+    return ScreenSnapshot(**data)
+
+
+def _node(ref: int, **kwargs):
+    data = dict(
+        text="",
+        desc="",
+        class_name="android.widget.TextView",
+        package="review.app",
+        bounds=Rect(0, 0, 100, 100),
+    )
+    data.update(kwargs)
+    return UiNode(ref=ref, **data)
+
+
+def _judge_rendered(snapshot, *, pre_text="请完成滑块验证", kind=SOLVE_KIND_CAPTCHA):
+    rendered = render_ui(snapshot)
+    return judge_solve_outcome(
+        kind=kind,
+        pre_text=pre_text,
+        post_text=rendered,
+        observation_ok=True,
+    )
+
+
+def test_a14_empty_ui_rendered_text_is_unknown_not_cleared():
+    """A14 重放：真实 render_ui 输出的零可读节点文本不得判 cleared。"""
+    snapshot = _snapshot([])
+    rendered = render_ui(snapshot)
+    assert "当前界面没有可读节点" in rendered
+    outcome = judge_solve_outcome(
+        kind=SOLVE_KIND_CAPTCHA,
+        pre_text="请完成滑块验证",
+        post_text=rendered,
+        observation_ok=True,
+        generation=0,
+    )
+    assert outcome.outcome == OUTCOME_UNKNOWN
+    assert "观察" in outcome.evidence or "可读" in outcome.evidence
+    assert outcome.outcome != OUTCOME_CLEARED
+
+
+def test_judge_pure_system_nodes_render_is_unknown():
+    snapshot = _snapshot(
+        [
+            _node(0, text="12:00", package="com.android.systemui"),
+            _node(1, package="android", clickable=True),
+        ]
+    )
+    outcome = _judge_rendered(snapshot)
+    assert outcome.outcome == OUTCOME_UNKNOWN
+
+
+def test_judge_loading_page_render_is_unknown():
+    snapshot = _snapshot([_node(0, text="加载中…"), _node(1, text="请稍候")])
+    outcome = _judge_rendered(snapshot)
+    assert outcome.outcome == OUTCOME_UNKNOWN
+    assert "加载" in outcome.evidence
+
+
+def test_judge_clickable_only_nodes_render_is_unknown():
+    snapshot = _snapshot([_node(0, clickable=True), _node(1, clickable=True)])
+    outcome = _judge_rendered(snapshot)
+    assert outcome.outcome == OUTCOME_UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "quality",
+    [OBSERVATION_EMPTY, OBSERVATION_SYSTEM_ONLY, OBSERVATION_NO_TEXT, OBSERVATION_LOADING],
+)
+def test_judge_insufficient_observation_quality_is_unknown(quality):
+    """结构化观察质量不足时，即使文本看起来可读也不能解除门禁。"""
+    outcome = judge_solve_outcome(
+        kind=SOLVE_KIND_CAPTCHA,
+        pre_text="请完成滑块验证",
+        post_text="首页推荐视频列表",
+        observation_ok=True,
+        observation_quality=quality,
+    )
+    assert outcome.outcome == OUTCOME_UNKNOWN
+    assert observation_quality_reason(quality) in outcome.evidence
+
+
+def test_judge_observation_quality_ok_keeps_known_success_page():
+    outcome = judge_solve_outcome(
+        kind=SOLVE_KIND_CAPTCHA,
+        pre_text="请完成滑块验证",
+        post_text="首页推荐视频列表",
+        observation_ok=True,
+        observation_quality=OBSERVATION_OK,
+    )
+    assert outcome.outcome == OUTCOME_CLEARED
+
+
+def test_judge_unchanged_page_without_positive_evidence_is_unknown():
+    """前后界面一致（动作未生效）时不能仅凭缺少挑战关键词判通过。"""
+    outcome = judge_solve_outcome(
+        kind=SOLVE_KIND_CAPTCHA,
+        pre_text="首页推荐视频列表",
+        post_text="首页推荐视频列表",
+        observation_ok=True,
+        observation_quality=OBSERVATION_OK,
+    )
+    assert outcome.outcome == OUTCOME_UNKNOWN
+
+
+def test_judge_success_requires_affirmative_evidence():
+    affirmative = judge_solve_outcome(
+        kind=SOLVE_KIND_CAPTCHA,
+        pre_text="请完成滑块验证",
+        post_text="验证成功，已解除限制",
+        observation_ok=True,
+        observation_quality=OBSERVATION_OK,
+    )
+    assert affirmative.outcome == OUTCOME_CLEARED
+    assert "成功" in affirmative.evidence
+
+
+def test_judge_challenge_page_still_failed_with_quality_ok():
+    outcome = judge_solve_outcome(
+        kind=SOLVE_KIND_CAPTCHA,
+        pre_text="请完成滑块验证",
+        post_text="请拖动滑块完成验证",
+        observation_ok=True,
+        observation_quality=OBSERVATION_OK,
+    )
+    assert outcome.outcome == OUTCOME_FAILED
+
+
+def test_observation_text_markers_match_render_ui_outputs():
+    """判定器兜底文案必须覆盖 render_ui 的观察不足标记（防两处漂移）。"""
+    empty_text = render_ui(_snapshot([]))
+    loading_text = render_ui(_snapshot([_node(0, text="加载中")]))
+    assert observation_text_insufficient(empty_text)
+    assert observation_text_insufficient(loading_text)
+    for marker in OBSERVATION_TEXT_MARKERS:
+        assert marker in empty_text or marker in loading_text
+    assert observation_text_insufficient("首页推荐视频列表") == ""
+
+
+def test_judge_propagates_attempt_identity():
+    outcome = judge_solve_outcome(
+        kind=SOLVE_KIND_CAPTCHA,
+        pre_text="请完成滑块验证",
+        post_text="验证成功",
+        observation_ok=True,
+        generation=0,
+        session_id="ver-abc",
+        attempt_id=2,
+    )
+    assert outcome.session_id == "ver-abc"
+    assert outcome.attempt_id == 2
+    assert outcome.generation == 0
+    assert outcome.identity.session_id == "ver-abc"
+
+
+# ----------------------------------------------------------------------
+# 取消与完成同事件循环周期：取消优先
+# ----------------------------------------------------------------------
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def test_race_with_cancel_same_cycle_cancel_wins():
+    async def scenario():
+        cancelled = asyncio.Event()
+        finished_state = {"stopped": False}
+
+        async def work():
+            # 与取消信号在同一事件循环周期就绪
+            cancelled.set()
+            return "stale-result"
+
+        finished, result = await race_with_cancel(work(), cancelled)
+        assert finished is False
+        assert result is None
+        assert finished_state["stopped"] is False
+
+    _run(scenario())
+
+
+def test_race_with_cancel_returns_result_without_cancel():
+    async def scenario():
+        async def work():
+            return 42
+
+        finished, result = await race_with_cancel(work(), asyncio.Event())
+        assert finished is True
+        assert result == 42
+
+    _run(scenario())
+
+
+def test_race_with_cancel_cancels_slow_work():
+    async def scenario():
+        cancelled = asyncio.Event()
+        state = {"started": False, "cancelled": False}
+
+        async def work():
+            state["started"] = True
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                state["cancelled"] = True
+                raise
+            return "不应返回"
+
+        async def trigger():
+            while not state["started"]:
+                await asyncio.sleep(0)
+            cancelled.set()
+
+        trigger_task = asyncio.create_task(trigger())
+        finished, result = await race_with_cancel(work(), cancelled)
+        await trigger_task
+        assert finished is False
+        assert result is None
+        assert state["cancelled"] is True
+
+    _run(scenario())
+
+
+def test_race_with_cancel_supports_non_waitable_signal():
+    async def scenario():
+        async def work():
+            return "done"
+
+        finished, result = await race_with_cancel(work(), None)
+        assert (finished, result) == (True, "done")
+
+    _run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 提交身份纯函数与观察质量文本兜底
+# ----------------------------------------------------------------------
+
+
+def test_submission_mismatch_accepts_current_identity():
+    state = new_session(now=1000.0)
+    reserve_attempt(state, limits=effective_limits(state), now=1000.0)
+    identity = current_identity(state)
+    outcome = SolveOutcome(
+        OUTCOME_CLEARED,
+        generation=identity.generation,
+        session_id=identity.session_id,
+        attempt_id=identity.attempt_id,
+    )
+    assert submission_mismatch_reason(state, outcome, now=1000.0) == ""
+
+
+def test_submission_mismatch_rejects_old_session_identity_with_zero_generation():
+    """两个会话代次都是 0：必须靠 session_id 区分（A13 根因）。"""
+    old_state = new_session(now=1000.0)
+    reserve_attempt(old_state, limits=effective_limits(old_state), now=1000.0)
+    old_identity = current_identity(old_state)
+
+    new_state = new_session(now=2000.0)
+    reserve_attempt(new_state, limits=effective_limits(new_state), now=2000.0)
+    outcome = SolveOutcome(
+        OUTCOME_CLEARED,
+        generation=old_identity.generation,
+        session_id=old_identity.session_id,
+        attempt_id=old_identity.attempt_id,
+    )
+    reason = submission_mismatch_reason(new_state, outcome, now=2000.0)
+    assert "会话" in reason
+
+
+def test_observation_text_insufficient_handles_plain_text_and_empty():
+    assert observation_text_insufficient("") == "UI 观察文本为空"
+    assert "可读节点" in observation_text_insufficient("（当前界面没有可读节点）")
+    assert observation_text_insufficient("验证成功") == ""

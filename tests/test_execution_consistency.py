@@ -9,7 +9,10 @@
 * 提示词注入隔离：非授权请求零注入；普通对话只注入能力指南，不注入日记/学习/App
   经验；手机任务/手机请求才注入手机活动记忆；
 * 设备占用互斥与收尾：第二个用户任务收到占用提示且不放走第一个任务的租约；任务
-  结束收尾 HOME 在其他任务仍持有租约时跳过。
+  结束收尾 HOME 在其他任务仍持有租约时跳过；收尾在自持设备租约内执行 HOME/清后台，
+  新任务接管租约后旧收尾立即停止；
+* 工具副作用分类与执行期限：会导航/点击的工具在验证进行中按写操作拒绝，纯读观察
+  工具保持只读；单次尝试到期后验证批次与最终确认不再产生设备动作。
 
 依赖 AstrBot（本地无 astrbot 时整体跳过）：在 AstrBot 容器内跑 ``pytest tests``
 时用假 Context/事件直接验证 main.py 接线（不连接真实设备）。
@@ -21,6 +24,7 @@ import asyncio
 import dataclasses
 import importlib.util
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -54,6 +58,7 @@ GateError = plugin_main.GateError
 # main 只导入 build_phone_tools，工具类从同一模块命名空间取（避免重复导入 core.tools）
 _tools_ns = plugin_main.build_phone_tools.__globals__
 PhoneScreenTool = _tools_ns["PhoneScreenTool"]
+PhoneCheckInboxTool = _tools_ns["PhoneCheckInboxTool"]
 
 
 # ----------------------------------------------------------------------
@@ -702,7 +707,7 @@ def test_home_cleanup_skipped_while_other_lease_active(tmp_path, monkeypatch):
         gate = plugin.device_gate
         cleanup_calls: list[int] = []
 
-        async def fake_cleanup() -> None:
+        async def fake_cleanup(**_kwargs) -> None:
             cleanup_calls.append(1)
 
         monkeypatch.setattr(plugin, "_cleanup_phone_home", fake_cleanup)
@@ -731,7 +736,7 @@ def test_home_cleanup_runs_when_no_other_lease(tmp_path, monkeypatch):
         plugin = _make_plugin(tmp_path, monkeypatch)
         cleanup_calls: list[int] = []
 
-        async def fake_cleanup() -> None:
+        async def fake_cleanup(**_kwargs) -> None:
             cleanup_calls.append(1)
 
         monkeypatch.setattr(plugin, "_cleanup_phone_home", fake_cleanup)
@@ -740,6 +745,197 @@ def test_home_cleanup_runs_when_no_other_lease(tmp_path, monkeypatch):
         try:
             await plugin.on_task_agent_done(event)
             assert cleanup_calls == [1]
+        finally:
+            await _cleanup(plugin)
+
+    asyncio.run(scenario())
+
+
+def test_home_cleanup_holds_own_lease_and_releases_it(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        gate = plugin.device_gate
+        operations: list[str] = []
+        busy_during: list[bool] = []
+
+        async def fake_press_key(key: str) -> None:
+            gate.checkpoint("press_key")
+            operations.append(key)
+            busy_during.append(gate.busy)
+
+        async def fake_shell(command: str, **_kwargs) -> str:
+            gate.checkpoint("shell")
+            operations.append(command)
+            busy_during.append(gate.busy)
+            return ""
+
+        monkeypatch.setattr(plugin.actions, "press_key", fake_press_key)
+        monkeypatch.setattr(plugin.adb, "shell", fake_shell)
+        event = FakeEvent(role="admin")
+        try:
+            await plugin._auto_cleanup_after_task(event)
+            # HOME 与清后台都在收尾自己的设备作用域内执行（租约由收尾持有）。
+            assert operations == ["home", "am kill-all"]
+            assert busy_during == [True, True]
+            # 收尾结束释放自己的可让路租约，不残留占用。
+            assert gate.busy is False
+        finally:
+            await _cleanup(plugin)
+
+    asyncio.run(scenario())
+
+
+def test_home_cleanup_stops_when_new_task_takes_over_lease(tmp_path, monkeypatch):
+    """A12 重放：HOME 后新任务取得租约，旧收尾必须停止，不得继续 am kill-all。"""
+
+    async def scenario() -> None:
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        gate = plugin.device_gate
+        home_done = asyncio.Event()
+        operations: list[dict] = []
+
+        async def fake_press_key(key: str) -> None:
+            gate.checkpoint("press_key")
+            operations.append({"op": key, "lease": gate.busy})
+            if key == "home":
+                home_done.set()
+
+        async def fake_shell(command: str, **_kwargs) -> str:
+            gate.checkpoint("shell")
+            operations.append({"op": command, "lease": gate.busy})
+            return ""
+
+        monkeypatch.setattr(plugin.actions, "press_key", fake_press_key)
+        monkeypatch.setattr(plugin.adb, "shell", fake_shell)
+        old_event = FakeEvent(umo="webchat:FriendMessage:old", role="admin")
+        task = asyncio.create_task(plugin._auto_cleanup_after_task(old_event))
+        new_event = None
+        try:
+            await asyncio.wait_for(home_done.wait(), timeout=5)
+            # HOME 完成进入等待后，新任务接管可让路租约（不等待旧收尾结束）。
+            new_event = FakeEvent(umo="webchat:FriendMessage:new", role="admin")
+            with gate.scope(new_event, purpose="phone_tap", write=True):
+                await asyncio.wait_for(task, timeout=5)
+                # 旧收尾在下一次门禁检查处停止：没有执行 am kill-all。
+                assert [item["op"] for item in operations] == ["home"]
+                assert gate.busy is True
+                assert gate.owner_umo == new_event.unified_msg_origin
+        finally:
+            if new_event is not None:
+                gate.release_event(new_event)
+            await _cleanup(plugin)
+
+    asyncio.run(scenario())
+
+
+def test_home_cleanup_after_force_release_still_cleans(tmp_path, monkeypatch):
+    """显式停止先强制释放租约：失效命令作用域内的收尾仍按后台操作执行。"""
+
+    async def scenario() -> None:
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        gate = plugin.device_gate
+        operations: list[str] = []
+
+        async def fake_press_key(key: str) -> None:
+            operations.append(key)
+
+        async def fake_shell(command: str, **_kwargs) -> str:
+            operations.append(command)
+            return ""
+
+        monkeypatch.setattr(plugin.actions, "press_key", fake_press_key)
+        monkeypatch.setattr(plugin.adb, "shell", fake_shell)
+        stop_event = FakeEvent(umo="webchat:FriendMessage:1", role="admin")
+        try:
+            with gate.scope(stop_event, purpose="command:stop"):
+                # /phone stop：先收回租约并中止在途动作，再直接收尾。
+                gate.force_release("phone_stop")
+                await plugin._cleanup_phone_home()
+            assert operations == ["home", "am kill-all"]
+        finally:
+            await _cleanup(plugin)
+
+    asyncio.run(scenario())
+
+
+def test_check_inbox_tool_denied_while_verification_active(tmp_path, monkeypatch):
+    """A09 重放：验证 observing 时查收件箱不得切换 App/点击，会话结束后恢复。"""
+
+    async def scenario() -> None:
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        called: list[dict] = []
+
+        async def fake_check(**kwargs) -> tuple[str, None, str]:
+            called.append(dict(kwargs))
+            return "synthetic inbox", None, ""
+
+        monkeypatch.setattr(plugin.service, "check_inbox", fake_check)
+        event = FakeEvent(role="admin")
+        inbox_tool = PhoneCheckInboxTool(service=plugin.service)
+        screen_tool = PhoneScreenTool(service=plugin.service)
+        try:
+            plugin._verification.state = verification_mod.new_session()
+            result = await inbox_tool.call(FakeToolContext(event))
+            assert "error:" in str(result)
+            assert called == []
+            # 分类正确：可导航工具按写操作，纯读观察工具保持只读。
+            assert inbox_tool._is_write_tool() is True
+            assert screen_tool._is_write_tool() is False
+            assert (
+                plugin._verification.guard_tool(
+                    "phone_screen", write=False
+                )
+                == ""
+            )
+            # 验证会话正常结束（通过）后恢复收件箱浏览能力。
+            plugin._verification.state["status"] = (
+                verification_mod.STATUS_PASSED
+            )
+            result = await inbox_tool.call(FakeToolContext(event))
+            assert "error:" not in str(result)
+            assert called
+        finally:
+            await _cleanup(plugin)
+
+    asyncio.run(scenario())
+
+
+def test_confirm_skipped_after_attempt_deadline_expired(tmp_path, monkeypatch):
+    """A15 重放：首步后单次尝试到期，最终确认点击不得再执行。"""
+
+    async def scenario() -> None:
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        verification = plugin._verification
+        verification.state = verification_mod.new_session()
+        taps: list[tuple[int, int]] = []
+
+        async def fake_screen_size() -> tuple[int, int]:
+            return (1080, 1920)
+
+        async def fake_tap(x: int, y: int) -> None:
+            plugin.service.guard_device("tap")
+            taps.append((x, y))
+            if len(taps) == 1:
+                # 模拟首步执行后单次尝试期限已到（默认 30s）。
+                verification.state["attempt_started_at"] = time.time() - 31
+
+        monkeypatch.setattr(plugin.actions, "screen_size", fake_screen_size)
+        monkeypatch.setattr(plugin.service, "tap", fake_tap)
+        event = FakeEvent(role="admin")
+        try:
+            with plugin.device_gate.scope(
+                event, purpose="phone_solve_verification", write=False
+            ):
+                allowed, _reason = await verification.reserve_attempt(event)
+                assert allowed is True
+                with pytest.raises(plugin_main.PhoneControlError):
+                    await plugin.service.exec_verify_ops(
+                        [{"action": "tap", "x": 10, "y": 20}],
+                        confirm={"x": 30, "y": 40},
+                        wait_seconds=0.2,
+                    )
+            # 首步点击已执行（不可回滚），最终确认点击必须为 0。
+            assert taps == [(10, 20)]
         finally:
             await _cleanup(plugin)
 

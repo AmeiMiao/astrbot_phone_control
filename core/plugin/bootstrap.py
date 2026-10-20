@@ -7,6 +7,7 @@ import inspect
 import json
 import re
 import time
+import weakref
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -182,6 +183,88 @@ from ..service import PhoneService
 from ..verification_controller import PhoneVerification
 from .compat import plugin_main_module
 
+# 存活的插件实例登记。AstrBot 的 ``PluginManager._terminate_plugin`` 只检查
+# 插件类**自身** ``__dict__`` 里是否有 ``terminate``（见
+# astrbot/core/star/star_manager.py），定义在 mixin 里的 terminate 不会被探测到，
+# 插件 reload/禁用后旧实例的 keepalive 等后台循环仍在运行并操作同一设备。
+# 新实例激活时据此先关闭旧实例；模块级弱引用不会阻止旧实例被回收。
+LIVE_PLUGIN_INSTANCES: "weakref.WeakSet[Any]" = weakref.WeakSet()
+PLUGIN_INSTANCE_CLOSE_TIMEOUT = 20.0
+# 插件后台任务统一命名前缀：初始化时取消其它（含历史版本）实例遗留的循环。
+PLUGIN_TASK_PREFIX = "astrbot_phone_control_"
+
+
+async def close_stale_instances(
+    current: Any, *, timeout: float = PLUGIN_INSTANCE_CLOSE_TIMEOUT
+) -> int:
+    """关闭登记表里仍然存活的旧插件实例；返回处理的实例数。
+
+    正常 reload 路径由 AstrBot 调用 ``terminate``；这里兜底其它未调用 terminate
+    的重载路径，避免旧实例的 keepalive/随机/持续刷循环继续访问同一台设备。
+    """
+    stale = [
+        instance
+        for instance in list(LIVE_PLUGIN_INSTANCES)
+        if instance is not current
+    ]
+    if not stale:
+        return 0
+    logger.warning(
+        "检测到 %d 个旧插件实例仍存活，先停用旧实例，避免后台循环重复操作设备",
+        len(stale),
+    )
+    for instance in stale:
+        terminate = getattr(instance, "terminate", None)
+        if not callable(terminate):
+            LIVE_PLUGIN_INSTANCES.discard(instance)
+            continue
+        try:
+            await asyncio.wait_for(terminate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "停用旧插件实例超时（%.0f 秒），已取消其终止流程", timeout
+            )
+        except Exception as exc:  # noqa: BLE001 - 停用旧实例失败不阻塞新实例
+            logger.warning(
+                "停用旧插件实例失败：%s: %s", type(exc).__name__, exc
+            )
+        finally:
+            LIVE_PLUGIN_INSTANCES.discard(instance)
+    logger.info("已停用 %d 个旧插件实例", len(stale))
+    return len(stale)
+
+
+async def cancel_stale_background_tasks(*, timeout: float = 10.0) -> int:
+    """取消其它插件实例遗留的后台循环（跨模块版本的兜底）。
+
+    历史版本的实例可能未登记到本模块的弱引用表，但后台任务名统一带
+    ``astrbot_phone_control_`` 前缀；初始化阶段取消所有这类任务即可停止
+    旧实例的 keepalive/随机/持续刷循环，防止升级后仍反复重试抓包。
+    """
+    current = asyncio.current_task()
+    stale: list[asyncio.Task] = []
+    for task in asyncio.all_tasks():
+        if task is current or task.done():
+            continue
+        try:
+            name = task.get_name()
+        except Exception:  # noqa: BLE001 - 任务对象异常时跳过
+            continue
+        if isinstance(name, str) and name.startswith(PLUGIN_TASK_PREFIX):
+            stale.append(task)
+    if not stale:
+        return 0
+    names = "、".join(sorted({task.get_name() for task in stale}))
+    logger.warning("检测到 %d 个遗留插件后台循环，正在停止：%s", len(stale), names)
+    for task in stale:
+        task.cancel()
+    _, pending = await asyncio.wait(stale, timeout=timeout)
+    if pending:
+        logger.warning("有 %d 个遗留后台循环未在 %.0f 秒内退出", len(pending), timeout)
+    stopped = len(stale) - len(pending)
+    logger.info("已停止 %d 个遗留插件后台循环", stopped)
+    return stopped
+
 
 class BootstrapMixin:
     def __init__(
@@ -190,6 +273,8 @@ class BootstrapMixin:
         config: AstrBotConfig | dict | None = None,
     ) -> None:
         super().__init__(context)
+        self._terminated = False
+        self._live_instance_registered = False
         self.raw_config: Any = config if config is not None else {}
         initial = PhoneConfig.from_mapping(
             self.raw_config,
@@ -347,11 +432,19 @@ class BootstrapMixin:
         )
 
     async def initialize(self) -> None:
-        """插件激活：异步同步自主浏览任务。
+        """插件激活：先停用残留旧实例，再异步同步自主浏览任务。
 
         AstrBot 在插件 reload 之后才启动 cron 管理器，因此这里用后台任务重试，
         避免 ``add_active_job`` 在调度器尚未 start 时抛错。
         """
+        # 纵深防御：AstrBot 只探测插件类自身 __dict__ 里的 terminate，历史实例
+        # 可能未被停用；先关闭登记过的旧实例并取消其余遗留后台循环，再启动本实例。
+        # 同一实例重复 initialize 时不再重复清理（避免取消自己刚启动的循环）。
+        if not getattr(self, "_live_instance_registered", False):
+            await close_stale_instances(self)
+            await cancel_stale_background_tasks()
+            LIVE_PLUGIN_INSTANCES.add(self)
+            self._live_instance_registered = True
         if not self.service.configured:
             logger.warning("未配置 ADB 地址/端口，跳过自主浏览任务同步")
             return
@@ -391,7 +484,19 @@ class BootstrapMixin:
         logger.debug("实时屏幕：未启动（仅在任务运行期间按需启动）")
 
     async def terminate(self) -> None:
-        """插件停用/重载：停止后台任务并释放 adb 子进程资源。"""
+        """插件停用/重载：停止后台任务并释放 adb 子进程资源（幂等）。"""
+        if getattr(self, "_terminated", False):
+            logger.info("插件实例已停用，跳过重复终止")
+            return
+        self._terminated = True
+        try:
+            await self._terminate_impl()
+        finally:
+            LIVE_PLUGIN_INSTANCES.discard(self)
+            self._live_instance_registered = False
+
+    async def _terminate_impl(self) -> None:
+        """终止流程实现：取消后台任务、恢复设备状态并关闭资源。"""
         if getattr(self, "_agent_usage_patch_installed", False):
             try:
                 uninstall_agent_usage_capture()
@@ -720,6 +825,9 @@ class BootstrapMixin:
             or previous.traffic.body_chars != current.traffic.body_chars
         ):
             try:
+                if current.traffic.enabled:
+                    # 配置变化后允许重新尝试（清除确定性不可用/退避状态）。
+                    self._traffic.reset_unavailable()
                 if self._traffic.running:
                     await self._traffic.stop()
                 await self._ensure_traffic_started()
@@ -728,7 +836,13 @@ class BootstrapMixin:
                         f"抓包：已按新配置启动（端口 {current.traffic.port}）"
                     )
                 elif current.traffic.enabled:
-                    notes.append("抓包：启动失败（详见插件日志）")
+                    status = self._traffic.status()
+                    reason = str(
+                        status.get("unavailable_reason")
+                        or status.get("error")
+                        or "未提供原因"
+                    )
+                    notes.append(f"抓包：启动失败（{reason}）")
                 else:
                     notes.append("抓包：已停止")
             except Exception as exc:  # noqa: BLE001 - 抓包重启失败只记录

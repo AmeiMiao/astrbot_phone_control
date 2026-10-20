@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 import json
 import re
@@ -111,6 +113,37 @@ OUTCOME_NOT_CHALLENGE = "not_challenge"
 
 SOLVE_KIND_CAPTCHA = "captcha"
 SOLVE_KIND_QUIZ = "quiz"
+
+# UI 观察质量：UI dump 成功不等于页面可观察（WebView/自绘页面/加载过渡页可能没有可读节点）。
+# 已给定质量等级时，只有 ``OBSERVATION_OK`` 可按「没有挑战关键词 + 页面已变化」推断解除；
+# 其余等级一律判无法确认。未给定质量时按渲染文本中的观察不足标记兜底。
+OBSERVATION_OK = "ok"
+OBSERVATION_EMPTY = "empty"
+OBSERVATION_SYSTEM_ONLY = "system_only"
+OBSERVATION_NO_TEXT = "no_text"
+OBSERVATION_LOADING = "loading"
+# 观察质量不足以判定结果：不能解除门禁，必须按「无法确认」计失败
+INSUFFICIENT_OBSERVATIONS = frozenset(
+    {
+        OBSERVATION_EMPTY,
+        OBSERVATION_SYSTEM_ONLY,
+        OBSERVATION_NO_TEXT,
+        OBSERVATION_LOADING,
+    }
+)
+
+# 渲染文本中的观察不足标记（与 ``core/ui.py`` 的 render_ui 文案保持一致）
+OBSERVATION_TEXT_MARKERS = (
+    "当前界面没有可读节点",
+    "界面仍在加载",
+)
+
+_OBSERVATION_REASONS = {
+    OBSERVATION_EMPTY: "UI 树为空",
+    OBSERVATION_SYSTEM_ONLY: "只有系统界面节点",
+    OBSERVATION_NO_TEXT: "UI 节点没有可读文本",
+    OBSERVATION_LOADING: "界面处于加载过渡页",
+}
 
 NOTIFY_NONE = "none"
 NOTIFY_PENDING = "pending"
@@ -694,15 +727,69 @@ def _page_changed(pre_text: str, post_text: str) -> bool:
     return pre_stem != post_stem
 
 
+def observation_quality_reason(quality: str) -> str:
+    """把观察质量等级转成可读原因；质量足够或未指定时返回空串。"""
+    level = str(quality or "").strip().lower()
+    if level not in INSUFFICIENT_OBSERVATIONS:
+        return ""
+    return _OBSERVATION_REASONS.get(level, "")
+
+
+def observation_text_insufficient(text: str) -> str:
+    """从渲染后的 UI 文本识别「观察不足」；返回原因，空串表示有可读内容。
+
+    UI dump 成功与页面内容可观察是不同条件：渲染文本可能只有尺寸/包名等头部信息，
+    或只有坐标没有文本。此函数用于判定器兜底，避免仅凭「没有挑战关键词」判通过。
+    """
+    content = str(text or "")
+    if not content.strip():
+        return "UI 观察文本为空"
+    for marker in OBSERVATION_TEXT_MARKERS:
+        if marker in content:
+            return f"UI 观察不足：{marker}"
+    body: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("屏幕 "):
+            continue
+        if stripped.startswith("…（"):
+            continue
+        body.append(stripped)
+    if not body:
+        return "UI 观察文本只有头部信息"
+    node_lines = [line for line in body if line.startswith("[")]
+    if node_lines and not any(
+        ("text=" in line or "desc=" in line) for line in node_lines
+    ):
+        return "UI 观察不足：节点没有可读文本"
+    return ""
+
+
+@dataclass(frozen=True)
+class AttemptIdentity:
+    """一次验证尝试的身份（预占时生成，提交结果时逐一匹配）。"""
+
+    session_id: str = ""
+    attempt_id: int = 0
+    generation: int = 0
+
+
 @dataclass(frozen=True)
 class SolveOutcome:
-    """一次求解尝试的结构化结果（由 ``judge_solve_outcome`` 产生，控制器据此更新状态）。"""
+    """一次求解尝试的结构化结果（由 ``judge_solve_outcome`` 产生，控制器据此更新状态）。
+
+    ``session_id``/``attempt_id``/``generation`` 绑定产生结果的验证会话与尝试：
+    提交时三者必须与当前执行完全一致（``generation`` 为 0 也参与比较），
+    避免旧会话/旧尝试的结果写入新会话。
+    """
 
     outcome: str
     kind: str = SOLVE_KIND_QUIZ
     evidence: str = ""
     question: int = 0
     generation: int = 0
+    session_id: str = ""
+    attempt_id: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -712,6 +799,20 @@ class SolveOutcome:
             self, "kind", str(self.kind or SOLVE_KIND_QUIZ).strip()
         )
         object.__setattr__(self, "evidence", str(self.evidence or ""))
+        object.__setattr__(self, "session_id", str(self.session_id or "").strip())
+        try:
+            object.__setattr__(self, "attempt_id", max(0, int(self.attempt_id or 0)))
+        except (TypeError, ValueError):
+            object.__setattr__(self, "attempt_id", 0)
+
+    @property
+    def identity(self) -> AttemptIdentity:
+        """结果携带的执行身份（供控制器/工具核对）。"""
+        return AttemptIdentity(
+            session_id=self.session_id,
+            attempt_id=self.attempt_id,
+            generation=self.generation,
+        )
 
 
 def apply_outcome(
@@ -754,6 +855,114 @@ def apply_outcome(
     )
 
 
+def current_identity(state: dict[str, Any] | None) -> AttemptIdentity:
+    """当前会话的执行身份（会话 ID + 已预占尝试次数 + 取消代次）。"""
+    state = state or {}
+    return AttemptIdentity(
+        session_id=str(state.get("id") or ""),
+        attempt_id=normalize_int(state.get("attempts"), 0, minimum=0),
+        generation=normalize_int(state.get("cancel_generation"), 0, minimum=0),
+    )
+
+
+def submission_mismatch_reason(
+    state: dict[str, Any] | None,
+    outcome: Any,
+    *,
+    limits: dict[str, int] | None = None,
+    now: float | None = None,
+) -> str:
+    """核对结果身份与当前执行是否仍匹配；返回不匹配原因，空串表示可以提交。
+
+    会话 ID、尝试序号与取消代次全部精确比较（``generation`` 为 0 也参与），
+    并复核会话未暂停/未关闭、本次尝试未到期，避免旧执行的结果写入新会话。
+    """
+    if not state:
+        return "当前没有进行中的验证会话"
+    if is_closed(state):
+        return "验证会话已结束"
+    if is_paused(state):
+        return "验证会话已暂停等待人工协助"
+    if str(state.get("status") or "") != STATUS_ATTEMPTING:
+        return f"当前执行已结束（状态 {state.get('status') or '未知'}）"
+    expected = current_identity(state)
+    session_id = str(getattr(outcome, "session_id", "") or "").strip()
+    if session_id != expected.session_id:
+        return (
+            "求解结果所属会话已失效"
+            f"（结果会话 {session_id or '未知'}，当前会话 {expected.session_id or '未知'}）"
+        )
+    try:
+        attempt_id = int(getattr(outcome, "attempt_id", 0) or 0)
+    except (TypeError, ValueError):
+        attempt_id = -1
+    if attempt_id != expected.attempt_id:
+        return (
+            "求解结果所属尝试已失效"
+            f"（结果尝试 {attempt_id}，当前尝试 {expected.attempt_id}）"
+        )
+    try:
+        generation = int(getattr(outcome, "generation", 0) or 0)
+    except (TypeError, ValueError):
+        generation = -1
+    if generation != expected.generation:
+        return (
+            "求解结果取消代次已变化"
+            f"（结果代次 {generation}，当前代次 {expected.generation}）"
+        )
+    limit = limits or effective_limits(state)
+    if attempt_deadline_reached(state, limits=limit, now=now):
+        return "本次尝试已到期"
+    return ""
+
+
+async def race_with_cancel(work: Any, cancelled: Any) -> tuple[bool, Any]:
+    """让求解任务与「验证暂停/取消」信号竞速，返回 ``(是否取得结果, 结果)``。
+
+    取消优先：取消信号与求解完成落在同一事件循环周期时丢弃求解结果并取消求解
+    任务，避免已经暂停/取消的会话仍提交结果。``cancelled`` 不可等待时退化为串行
+    等待（与不传入取消信号等价）。
+    """
+    task = asyncio.create_task(work)
+    wait_task: asyncio.Task | None = None
+    if cancelled is not None and hasattr(cancelled, "wait"):
+        wait_task = asyncio.create_task(cancelled.wait())
+    if wait_task is None:
+        return True, await task
+    try:
+        done, _pending = await asyncio.wait(
+            {task, wait_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+    except asyncio.CancelledError:
+        task.cancel()
+        wait_task.cancel()
+        raise
+    if wait_task in done:
+        # 取消与完成同周期时取消优先：求解结果属于已失效执行，不能提交。
+        if not task.done():
+            task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+        if not wait_task.done():
+            wait_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await wait_task
+        return False, None
+    if not wait_task.done():
+        wait_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await wait_task
+    result = await task
+    # 二次复核：求解完成与取消信号可能落在同一事件循环周期，await 期间信号已置位
+    # 时本次结果仍属于已失效执行，不能提交。
+    try:
+        if cancelled is not None and cancelled.is_set():
+            return False, None
+    except Exception:  # noqa: BLE001 - 取消信号不支持 is_set 时保持已得结果
+        pass
+    return True, result
+
+
 def judge_solve_outcome(
     *,
     kind: str,
@@ -761,79 +970,67 @@ def judge_solve_outcome(
     post_text: str,
     observation_ok: bool,
     generation: int = 0,
+    session_id: str = "",
+    attempt_id: int = 0,
+    observation_quality: str = "",
 ) -> SolveOutcome:
     """基于执行前后的 UI 文本给出结构化判定（纯启发式，只依赖纯标准库）。
 
-    判定顺序：观察失败 → 失败词 → 答题换题 → 成功词 → 挑战仍在 → 结束/变化判定。
-    答题换题先于成功词：逐题答对时页面上的「回答正确」只代表本题通过，不能把整场
-    答题直接判为解除。
+    判定顺序：观察失败/观察不足 → 失败词 → 答题换题 → 成功词 → 挑战仍在 →
+    页面变化判定。答题换题先于成功词：逐题答对时页面上的「回答正确」只代表本题
+    通过，不能把整场答题直接判为解除。
+
+    观察质量由 ``core.ui.assess_observation`` 从 UI 快照评估后传入；空树、纯系统
+    节点、无可读文本与加载页一律无法确认（不解除门禁），渲染文本中的观察不足标记
+    也会作为兜底证据。``session_id``/``attempt_id``/``generation`` 原样写入结果，
+    供控制器在提交时核对执行身份。
     """
     solve_kind = str(kind or SOLVE_KIND_QUIZ).strip()
     observed = str(post_text or "")
-    if not observation_ok:
+
+    def build(result: str, evidence: str, question: int = 0) -> SolveOutcome:
         return SolveOutcome(
-            OUTCOME_UNKNOWN,
+            result,
             kind=solve_kind,
-            evidence="执行后观察失败",
+            evidence=evidence,
+            question=question,
             generation=generation,
+            session_id=session_id,
+            attempt_id=attempt_id,
         )
+
+    if not observation_ok:
+        return build(OUTCOME_UNKNOWN, "执行后观察失败")
+    quality_reason = observation_quality_reason(observation_quality)
+    if quality_reason:
+        return build(OUTCOME_UNKNOWN, f"UI 观察不足（{quality_reason}），无法确认验证结果")
+    text_reason = observation_text_insufficient(observed)
+    if text_reason:
+        return build(OUTCOME_UNKNOWN, text_reason)
     failure = _match_keyword(observed, FAILURE_KEYWORDS)
     if failure:
-        return SolveOutcome(
-            OUTCOME_FAILED,
-            kind=solve_kind,
-            evidence=f"出现失败提示：{failure}",
-            generation=generation,
-        )
+        return build(OUTCOME_FAILED, f"出现失败提示：{failure}")
     if solve_kind == SOLVE_KIND_QUIZ:
         progressed, question = quiz_question_progressed(pre_text, observed)
         if progressed:
             evidence = f"进入第 {question} 题" if question > 0 else "题干已变化"
-            return SolveOutcome(
-                OUTCOME_PROGRESS,
-                kind=solve_kind,
-                evidence=evidence,
-                question=question,
-                generation=generation,
-            )
+            return build(OUTCOME_PROGRESS, evidence, question=question)
     success = _match_success(observed)
     if success:
-        return SolveOutcome(
-            OUTCOME_CLEARED,
-            kind=solve_kind,
-            evidence=f"出现成功提示：{success}",
-            generation=generation,
-        )
+        return build(OUTCOME_CLEARED, f"出现成功提示：{success}")
     challenge = _match_keyword(observed, CHALLENGE_KEYWORDS)
     if challenge:
-        return SolveOutcome(
-            OUTCOME_FAILED,
-            kind=solve_kind,
-            evidence=f"验证挑战仍在：{challenge}",
-            generation=generation,
-        )
+        return build(OUTCOME_FAILED, f"验证挑战仍在：{challenge}")
+    changed = _page_changed(pre_text, observed)
     if solve_kind == SOLVE_KIND_CAPTCHA:
-        return SolveOutcome(
-            OUTCOME_CLEARED,
-            kind=solve_kind,
-            evidence="验证挑战已解除",
-            generation=generation,
-        )
-    if _page_changed(pre_text, observed) or _match_keyword(
-        observed, RESULT_PAGE_KEYWORDS
-    ):
-        return SolveOutcome(
-            OUTCOME_CLEARED,
-            kind=solve_kind,
-            evidence="答题页已结束",
-            generation=generation,
-        )
-    return SolveOutcome(
-        OUTCOME_FAILED,
-        kind=solve_kind,
-        evidence="答题页无明显变化",
-        generation=generation,
-    )
+        # 人机验证只有「执行前后界面确实发生变化」才可按挑战消失推断解除；
+        # 页面没变化说明动作没有生效，不能仅凭缺少挑战关键词放行。
+        if not changed:
+            return build(OUTCOME_UNKNOWN, "执行前后界面一致，缺少验证解除的肯定证据")
+        return build(OUTCOME_CLEARED, "验证挑战已解除（界面已变化）")
+    if changed or _match_keyword(observed, RESULT_PAGE_KEYWORDS):
+        return build(OUTCOME_CLEARED, "答题页已结束")
+    return build(OUTCOME_FAILED, "答题页无明显变化")
 
 
 def should_notify(state: dict[str, Any]) -> bool:
@@ -966,20 +1163,135 @@ def status_text(state: dict[str, Any] | None, *, now: float | None = None) -> st
     return "\n".join(lines)
 
 
+# 状态文件加载结果的种类：区分「首次没有文件」与真正的读取故障。
+STORE_LOAD_MISSING = "missing"
+STORE_LOAD_EMPTY = "empty"
+STORE_LOAD_OK = "ok"
+STORE_LOAD_READ_ERROR = "read_error"
+STORE_LOAD_PARSE_ERROR = "parse_error"
+STORE_LOAD_STRUCTURE_ERROR = "structure_error"
+# 需要人工处置才能恢复的故障种类：控制器据此保持设备阻断且不覆盖原文件
+STORE_LOAD_FAULTS = frozenset(
+    {STORE_LOAD_READ_ERROR, STORE_LOAD_PARSE_ERROR, STORE_LOAD_STRUCTURE_ERROR}
+)
+
+# 结构校验时要求可解析的数值字段（缺省允许，用于兼容更早的状态文件）
+_STORE_NUMERIC_FIELDS = (
+    "attempts",
+    "failure_count",
+    "quiz_answered",
+    "cancel_generation",
+    "started_at",
+    "updated_at",
+    "attempt_started_at",
+)
+
+
+@dataclass(frozen=True)
+class StoreLoadResult:
+    """``VerificationStore.load_result`` 的返回值：状态 + 加载种类 + 故障说明。"""
+
+    state: dict[str, Any]
+    kind: str = STORE_LOAD_OK
+    reason: str = ""
+
+    @property
+    def fault(self) -> bool:
+        """是否为需要人工处置的读取故障（首次缺文件与合法空状态不算故障）。"""
+        return self.kind in STORE_LOAD_FAULTS
+
+
 class VerificationStore:
     """验证会话的 JSON 持久化（原子写；读写失败不抛出到业务层）。"""
 
     def __init__(self, root: str | Path) -> None:
         self.path = Path(root) / VERIFICATION_STORE_FILENAME
 
-    def load(self) -> dict[str, Any]:
+    # ---- 读取 ---------------------------------------------------------
+
+    def load_result(self) -> StoreLoadResult:
+        """读取状态并区分：首次缺文件、合法空状态、读取/解析/结构故障。
+
+        - 文件不存在：正常空状态（首次启动），不产生故障；
+        - 合法空状态（``{}``）：正常空状态；
+        - 读取异常（权限/IO）、JSON 解析失败、结构校验失败：保留故障说明，
+          调用方必须阻断设备操作并等待人工处置，不得当成「没有状态」放行；
+        - 状态文件始终保持原样，不在读取阶段删除或覆盖。
+        """
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        if not isinstance(payload, dict) or not payload.get("id"):
-            return {}
-        return payload
+            raw = self.path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return StoreLoadResult({}, STORE_LOAD_MISSING, "")
+        except UnicodeDecodeError as exc:
+            return StoreLoadResult(
+                {},
+                STORE_LOAD_PARSE_ERROR,
+                f"验证状态文件编码无法解析（{self.path}）：{exc}；"
+                "已保留原文件并阻断手机自动操作，请执行 `/phone verify cancel <任意编号>` 处置",
+            )
+        except OSError as exc:
+            return StoreLoadResult(
+                {},
+                STORE_LOAD_READ_ERROR,
+                f"验证状态文件读取失败（{self.path}）：{exc}；"
+                "已保留原文件并阻断手机自动操作，请检查文件权限后执行 "
+                "`/phone verify cancel <任意编号>` 处置",
+            )
+        try:
+            payload = json.loads(raw)
+        except ValueError as exc:
+            return StoreLoadResult(
+                {},
+                STORE_LOAD_PARSE_ERROR,
+                f"验证状态文件 JSON 无法解析（{self.path}）：{exc}；"
+                "已保留原文件并阻断手机自动操作，请执行 `/phone verify cancel <任意编号>` 处置",
+            )
+        if not isinstance(payload, dict):
+            return StoreLoadResult(
+                {},
+                STORE_LOAD_STRUCTURE_ERROR,
+                f"验证状态文件结构校验失败（{self.path}）：顶层不是 JSON 对象；"
+                "已保留原文件并阻断手机自动操作，请执行 `/phone verify cancel <任意编号>` 处置",
+            )
+        if not payload:
+            return StoreLoadResult({}, STORE_LOAD_EMPTY, "")
+        detail = self._structure_error_detail(payload)
+        if detail:
+            return StoreLoadResult(
+                {},
+                STORE_LOAD_STRUCTURE_ERROR,
+                f"验证状态文件结构校验失败（{self.path}）：{detail}；"
+                "已保留原文件并阻断手机自动操作，请执行 `/phone verify cancel <任意编号>` 处置",
+            )
+        return StoreLoadResult(payload, STORE_LOAD_OK, "")
+
+    @staticmethod
+    def _structure_error_detail(payload: dict[str, Any]) -> str:
+        """校验已加载状态的必要结构；返回错误描述，空串表示结构合法。"""
+        session_id = payload.get("id")
+        if not isinstance(session_id, str) or not session_id.strip():
+            return "会话 id 缺失或不是非空字符串"
+        status = payload.get("status")
+        known = ACTIVE_STATUSES | PAUSED_STATUSES | CLOSED_STATUSES
+        if not isinstance(status, str) or status not in known:
+            return f"会话状态非法：{status!r}"
+        for key in _STORE_NUMERIC_FIELDS:
+            if key not in payload:
+                continue
+            try:
+                float(payload[key])
+            except (TypeError, ValueError):
+                return f"字段 {key} 不是数值：{payload[key]!r}"
+        notify = payload.get("notify")
+        if notify is not None and not isinstance(notify, dict):
+            return "字段 notify 不是对象"
+        return ""
+
+    def load(self) -> dict[str, Any]:
+        """兼容包装：只返回状态字典；判断是否故障请用 ``load_result``。"""
+        return self.load_result().state
+
+    # ---- 写入 / 处置 ---------------------------------------------------
 
     def save(self, state: dict[str, Any] | None) -> bool:
         """保存状态；空 dict 表示清空。写失败返回 False。"""
@@ -994,6 +1306,23 @@ class VerificationStore:
             return True
         except OSError:
             return False
+
+    def quarantine(self) -> Path | None:
+        """把无法可靠读取的状态文件改名保留（不删除），返回备份路径。
+
+        仅由用户在明确处置时调用；重命名失败返回 ``None``，调用方应继续保持阻断。
+        """
+        try:
+            if not self.path.exists():
+                return None
+            stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+            backup = self.path.with_name(
+                f"{VERIFICATION_STORE_FILENAME}.corrupt-{stamp}-{secrets.token_hex(2)}"
+            )
+            self.path.replace(backup)
+            return backup
+        except OSError:
+            return None
 
     def clear(self) -> bool:
         return self.save({})

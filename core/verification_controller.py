@@ -29,13 +29,24 @@ class PhoneVerification:
     def __init__(self, plugin: "PhoneControlPlugin") -> None:
         self.plugin = plugin
         self.store = verification_mod.VerificationStore(plugin.data_dir)
-        self.state: dict[str, Any] = self.store.load()
+        loaded = self.store.load_result()
+        self.state: dict[str, Any] = loaded.state
         self._lock = asyncio.Lock()
         self._notify_task: asyncio.Task | None = None
         self._watchdog_task: asyncio.Task | None = None
         self._log = getattr(plugin, "_device_log", logger.info)
         # 持久化故障：写盘失败时 fail-closed，所有设备操作拒绝直到恢复。
         self._persist_error = ""
+        # 读取故障：状态文件无法可靠读取时 fail-closed，需人工显式处置后才解除；
+        # 处置前禁止写盘，避免静默覆盖损坏文件丢掉证据。
+        self._load_error = loaded.reason
+        if loaded.fault:
+            logger.error(
+                "验证状态加载失败（%s，%s）：%s",
+                self.store.path,
+                loaded.kind,
+                self._load_error,
+            )
         # 在途求解取消信号：暂停/过期/取消时 set，新会话/恢复时换新 Event。
         self._cancel_event: asyncio.Event | None = None
 
@@ -79,11 +90,16 @@ class PhoneVerification:
         return verification_mod.effective_limits(state, current)
 
     def _save(self) -> bool:
+        if self._load_error:
+            # 读取故障处置前不覆盖原文件：保留证据，等待用户显式处置
+            return False
         ok = self.store.save(self.state if self.state else {})
         if ok:
             if self._persist_error:
                 self._persist_error = ""
                 self._log("验证：状态持久化已恢复，解除自动操作阻断")
+                # 故障期间 set 的取消信号不能留给后续求解，换新 Event
+                self._rotate_cancel()
             return True
         self._persist_error = (
             f"验证状态无法写入 {self.store.path}（磁盘/权限异常），"
@@ -96,13 +112,17 @@ class PhoneVerification:
     # ---- 持久化 / 取消信号 ---------------------------------------------
 
     def health_reason(self) -> str:
-        """持久化故障导致的执行阻断文案；空串表示健康。"""
-        return self._persist_error
+        """状态读写故障导致的执行阻断文案；空串表示健康。"""
+        return self._load_error or self._persist_error
 
     @property
     def persistence_ok(self) -> bool:
         """状态是否能正常持久化（失败时自动调度停止）。"""
-        return not self._persist_error
+        return not (self._load_error or self._persist_error)
+
+    def load_fault(self) -> bool:
+        """状态文件读取故障是否尚未处置（处置前禁止写盘与设备操作）。"""
+        return bool(self._load_error)
 
     def _cancel_signal(self) -> asyncio.Event:
         event = self._cancel_event
@@ -115,7 +135,9 @@ class PhoneVerification:
         """在途求解取消信号：暂停/过期/取消时 set。"""
         return self._cancel_signal()
 
-    def _reset_cancel(self) -> None:
+    def _rotate_cancel(self) -> None:
+        """先触发旧取消信号再换新 Event：在途求解按旧信号退出，新执行从干净状态开始。"""
+        self._signal_cancel()
         self._cancel_event = asyncio.Event()
 
     def _signal_cancel(self) -> None:
@@ -125,6 +147,22 @@ class PhoneVerification:
     def cancel_generation(self) -> int:
         """当前验证会话的取消代次（暂停/取消/交还代次时递增）。"""
         return int((self.state or {}).get("cancel_generation") or 0)
+
+    @property
+    def session_id(self) -> str:
+        """当前验证会话 ID（空串表示没有会话）。"""
+        return str((self.state or {}).get("id") or "")
+
+    @property
+    def attempt_id(self) -> int:
+        """当前已预占的尝试序号（每次 ``reserve_attempt`` 递增）。"""
+        return verification_mod.normalize_int(
+            (self.state or {}).get("attempts"), 0, minimum=0
+        )
+
+    def reservation_identity(self) -> verification_mod.AttemptIdentity:
+        """本次预占产生的执行身份（供求解工具随结果携带）。"""
+        return verification_mod.current_identity(self.state)
 
     def attempt_remaining_seconds(self) -> float:
         """当前单次尝试的剩余秒数；未处于尝试中返回 ``inf``。"""
@@ -156,13 +194,22 @@ class PhoneVerification:
 
     def status_text(self) -> str:
         text = verification_mod.status_text(self.state)
-        if self._persist_error:
+        if self._load_error:
+            text += (
+                f"\n- 状态故障：{self._load_error}"
+                "\n- 恢复：确认不需要保留原验证状态后发送 `/phone verify cancel <任意编号>`，"
+                "插件会把损坏文件改名保留并解除阻断"
+            )
+        elif self._persist_error:
             text += "\n- 状态持久化：失败（已阻断手机自动操作，恢复写入后自动解除）"
         return text
 
     # ---- 门禁 ---------------------------------------------------------
 
     _VERIFY_TOOLS = frozenset({"phone_solve_verification", "phone_bypass_verify"})
+    # 只读观察工具：只读取设备/本地状态，不切换 App、不点击。
+    # 会导航或产生设备写副作用的工具（如 phone_check_inbox 可能先打开 App 再点击
+    # 消息入口）必须按写操作处理，不得列入本表。
     _READ_ONLY_TOOLS = frozenset(
         {
             "phone_status",
@@ -178,14 +225,14 @@ class PhoneVerification:
             "phone_app_memory",
             "phone_skill",
             "phone_list_apps",
-            "phone_check_inbox",
         }
     )
 
     def guard_tool(self, tool_name: str, *, write: bool) -> str:
         """工具执行前的验证门禁；返回空串表示放行。"""
-        if self._persist_error:
-            return self.health_reason()
+        health = self.health_reason()
+        if health:
+            return health
         if not self.state:
             return ""
         status = str(self.state.get("status") or "")
@@ -226,8 +273,9 @@ class PhoneVerification:
 
     def guard_command(self, sub: str = "") -> str:
         """命令层门禁：暂停/过期/持久化故障时拒绝写类命令，只读命令放行。"""
-        if self._persist_error:
-            return self.health_reason()
+        health = self.health_reason()
+        if health:
+            return health
         if not self.state:
             return ""
         status = str(self.state.get("status") or "")
@@ -284,7 +332,7 @@ class PhoneVerification:
             if config
             else 600,
         )
-        self._reset_cancel()
+        self._rotate_cancel()
         if not self._save():
             return
         self._log(
@@ -293,10 +341,11 @@ class PhoneVerification:
         )
 
     async def reserve_attempt(self, event: Any, *, kind: str = "solver") -> tuple[bool, str]:
-        """预占一次自动尝试（持久化）；写盘失败时回滚并拒绝。"""
+        """预占一次自动尝试（持久化）；写盘失败或状态故障时回滚并拒绝。"""
         async with self._lock:
-            if self._persist_error:
-                return False, self.health_reason()
+            health = self.health_reason()
+            if health:
+                return False, health
             status = str((self.state or {}).get("status") or "")
             if status == verification_mod.STATUS_EXPIRED:
                 return False, self.guard_tool("phone_solve_verification", write=False)
@@ -309,8 +358,9 @@ class PhoneVerification:
                         "phone_solve_verification", write=False
                     )
                 await self._start_session(event)
-                if self._persist_error:
-                    return False, self.health_reason()
+                health = self.health_reason()
+                if health:
+                    return False, health
             previous = {
                 key: self.state.get(key)
                 for key in (
@@ -374,18 +424,28 @@ class PhoneVerification:
     async def submit_outcome(
         self, event: Any, outcome: "verification_mod.SolveOutcome"
     ) -> str:
-        """提交结构化求解结果；代次不匹配/会话已结束时丢弃本次结果。"""
+        """提交结构化求解结果；执行身份不匹配或已失效时丢弃本次结果。
+
+        会话 ID、尝试序号与取消代次全部精确比较（代次 0 也参与），并在持锁后
+        复核会话仍进行中、未暂停、本次尝试未到期，避免旧执行结果写入新会话。
+        """
         async with self._lock:
             if not self.active:
-                return ""
-            generation = int(getattr(outcome, "generation", 0) or 0)
-            if generation and generation != self.cancel_generation:
                 self._log(
-                    f"验证：丢弃过期求解结果（代次 {generation} != "
-                    f"{self.cancel_generation}，id={self.state.get('id')}）"
+                    "验证：丢弃已结束会话的求解结果"
+                    f"（会话 {getattr(outcome, 'session_id', '') or '未知'}）"
                 )
                 return ""
             limits = self._limits()
+            mismatch = verification_mod.submission_mismatch_reason(
+                self.state, outcome, limits=limits
+            )
+            if mismatch:
+                self._log(
+                    f"验证：丢弃失效求解结果（{mismatch}，"
+                    f"id={self.session_id}）"
+                )
+                return ""
             verification_mod.apply_outcome(self.state, outcome, limits=limits)
             if not self._save():
                 return self.health_reason()
@@ -513,8 +573,9 @@ class PhoneVerification:
         return current.startswith(wanted)
 
     async def resume(self, session_id: str, event: Any) -> str:
-        if self._persist_error:
-            return self.health_reason()
+        health = self.health_reason()
+        if health:
+            return health
         async with self._lock:
             if not self.active:
                 if self.state and self.state.get("status") == verification_mod.STATUS_EXPIRED:
@@ -530,7 +591,7 @@ class PhoneVerification:
             verification_mod.enter_checking(self.state)
             if not self._save():
                 return self.health_reason()
-            self._reset_cancel()
+            self._rotate_cancel()
             self._log(f"验证：用户请求恢复，开始有界结果观察（{self.state.get('id')}）")
         present = True
         observed = False
@@ -596,14 +657,53 @@ class PhoneVerification:
         except Exception as exc:  # noqa: BLE001 - 恢复失败由后续配置/重载兜底
             logger.warning("验证解除暂停后恢复调度失败：%s", exc)
 
-    async def cancel(self, session_id: str, event: Any = None, *, restart_schedulers: bool = True) -> str:
+    async def _dispose_load_fault(self) -> str:
+        """显式处置状态读取故障：原文件改名保留、清空内存状态并解除阻断。
+
+        只由用户命令触发（``/phone verify cancel``）；``/phone stop`` 不会静默处置，
+        避免把故障状态当正常收尾放过去。
+        """
+        backup = self.store.quarantine()
+        if backup is None:
+            self._log("验证：状态文件损坏且无法备份，保持设备阻断")
+            return (
+                "error: 验证状态文件损坏且无法保留备份"
+                f"（{self.store.path}）；请检查插件数据目录权限后重试 "
+                "`/phone verify cancel`"
+            )
+        self._load_error = ""
+        self._persist_error = ""
+        self.state = {}
+        self._rotate_cancel()
+        self._log(f"验证：状态文件损坏，已保留原文件为 {backup.name} 并解除设备阻断")
+        await self._release_device_lease("verify_state_disposed")
+        await self._resume_schedulers()
+        return (
+            f"验证状态文件损坏，原文件已保留为 {backup.name}；设备阻断已解除，"
+            "原验证会话无法恢复，可重新发起任务。"
+        )
+
+    async def cancel(
+        self,
+        session_id: str,
+        event: Any = None,
+        *,
+        restart_schedulers: bool = True,
+        dispose_load_fault: bool = True,
+    ) -> str:
         async with self._lock:
+            if self._load_error:
+                if not dispose_load_fault:
+                    return self.health_reason()
+                return await self._dispose_load_fault()
             if not self.active:
                 if self.state and self.state.get("status") == verification_mod.STATUS_EXPIRED:
+                    # 先触发旧执行的取消信号，再递增代次/换新 Event
+                    self._signal_cancel()
                     verification_mod.mark_cancelled(self.state, reason="user_cancel")
                     if not self._save():
                         return self.health_reason()
-                    self._reset_cancel()
+                    self._rotate_cancel()
                     self._log(f"验证：用户取消已到期等待（{self.state.get('id')}），解除暂停")
                     await self._release_device_lease("verify_cancel")
                     if restart_schedulers:
@@ -615,10 +715,13 @@ class PhoneVerification:
                 return "当前没有进行中的验证会话"
             if session_id and not self._match_id(session_id):
                 return f"验证编号不匹配：当前会话是 {self.state.get('id')}"
+            # 先触发旧执行的取消信号，再递增代次/换新 Event：在途求解竞速退出，
+            # 旧结果即使返回也会因会话/尝试/代次不匹配被 submit_outcome 拒绝。
+            self._signal_cancel()
             verification_mod.mark_cancelled(self.state, reason="user_cancel")
             if not self._save():
                 return self.health_reason()
-            self._reset_cancel()
+            self._rotate_cancel()
             self._log(f"验证：用户取消等待（{self.state.get('id')}），解除暂停")
             await self._stop_live_screen()
             await self._release_device_lease("verify_cancel")
@@ -636,23 +739,40 @@ class PhoneVerification:
             gate.force_release(reason)
 
     async def cancel_for_stop(self) -> str:
+        if self._load_error:
+            # 状态文件故障只由显式的 /phone verify cancel 处置，停止命令不静默放行
+            return (
+                "验证状态文件损坏（手机自动操作仍阻断）；请执行 "
+                "`/phone verify cancel <任意编号>` 处置"
+            )
         if not self.active:
             if self.state and self.state.get("status") == verification_mod.STATUS_EXPIRED:
-                return await self.cancel("", restart_schedulers=False)
+                return await self.cancel(
+                    "", restart_schedulers=False, dispose_load_fault=False
+                )
             return ""
-        return await self.cancel("", restart_schedulers=False)
+        return await self.cancel(
+            "", restart_schedulers=False, dispose_load_fault=False
+        )
 
     # ---- 看门狗/启动恢复 ---------------------------------------------
 
     async def startup(self) -> None:
         """插件启动时恢复验证状态：不自动继续旧验证，先保持暂停。"""
+        if self._load_error:
+            logger.warning(
+                "验证：状态文件损坏（%s），手机自动操作保持阻断；"
+                "请执行 /phone verify cancel <任意编号> 显式处置",
+                self.store.path,
+            )
+            return
         if not self.state:
             return
         if verification_mod.is_closed(self.state):
             self.state = {}
             self._save()
             return
-        self._reset_cancel()
+        self._rotate_cancel()
         if self.state.get("status") in {
             verification_mod.STATUS_OBSERVING,
             verification_mod.STATUS_ATTEMPTING,

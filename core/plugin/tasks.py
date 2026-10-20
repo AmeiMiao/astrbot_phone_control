@@ -178,6 +178,10 @@ from .shared import (
 )
 
 
+# 任务收尾清理的设备作用域 purpose：只有该作用域内收尾才逐步复查门禁。
+_TASK_CLEANUP_PURPOSE = "task_cleanup"
+
+
 class TasksMixin:
     async def _apply_auto_config_when_ready(self) -> None:
         """等待 cron 管理器就绪后按配置创建任务（最多重试约 10 秒）。"""
@@ -259,13 +263,30 @@ class TasksMixin:
         """DeviceActions 动作前的批次内复查。"""
         self.device_gate.checkpoint(str(op))
 
-    async def _cleanup_phone_home(self) -> None:
-        """强制回桌面并清理后台进程（不读自动清理开关，用于显式停止任务）。"""
+    async def _cleanup_phone_home(self, *, guarded: bool = False) -> None:
+        """强制回桌面并清理后台进程（不读自动清理开关，用于显式停止任务）。
+
+        Args:
+            guarded: 是否在设备作用域内逐步复查门禁。任务收尾传 ``True``：每个
+                await 之后校验取消与租约归属，租约被新任务接管后立即停止，不再
+                执行后续动作；用户停止命令已先强制释放租约，按后台操作执行。
+        """
+
+        def _check(op: str) -> None:
+            if guarded:
+                self.device_gate.checkpoint(op)
+
         try:
+            _check("cleanup_home")
             await self.actions.press_key("home")
+            _check("cleanup_home_done")
             await asyncio.sleep(0.4)
+            _check("cleanup_kill_background")
             await self.adb.shell("am kill-all")
+            _check("cleanup_done")
             self._device_log("任务结束：已回到桌面并清理后台")
+        except GateError:
+            raise
         except PhoneControlError as exc:
             logger.warning("停止任务后清理手机失败：%s", exc)
         except Exception as exc:  # noqa: BLE001 - 收尾异常不影响命令结果
@@ -447,6 +468,10 @@ class TasksMixin:
 
         只按 HOME 键和 ``am kill-all``：前者把前台 App 移入后台，后者清理后台进程，
         避免 AI 忘记收尾时手机停留在某个 App 里持续耗电/播放。
+
+        HOME、等待与 ``am kill-all`` 全部在本次收尾自己的设备作用域内执行，并持有
+        可让路租约：其他任务持租约时直接跳过；新任务需要设备时接管该租约，旧收尾
+        在下一次门禁检查处停止，不会在新任务已拿到设备后继续清后台。
         """
         try:
             config = self.service.config
@@ -463,7 +488,26 @@ class TasksMixin:
             # 其他任务仍持有设备租约：HOME/清后台会打断它，交给最后结束的任务收尾。
             logger.info("任务结束：手机仍被其他任务占用，跳过 HOME/清后台")
             return
-        await self._cleanup_phone_home()
+        acquired = False
+        try:
+            with self.device_gate.scope(
+                event,
+                purpose=_TASK_CLEANUP_PURPOSE,
+                write=True,
+                preemptible=True,
+            ):
+                acquired = True
+                await self._cleanup_phone_home(guarded=True)
+        except ExecutionCancelled as exc:
+            logger.info(
+                "任务结束：手机已被新任务接管，停止 HOME/清后台收尾（%s）",
+                exc.message,
+            )
+        except GateError as exc:
+            logger.info("任务结束：当前不能收尾清理：%s", exc.message)
+        finally:
+            if acquired:
+                self.device_gate.release_event(event)
 
     def _start_random_play_loop(self) -> None:
         """启动单实例随机玩手机循环（配置 random_enabled 关闭时循环空转等待）。"""

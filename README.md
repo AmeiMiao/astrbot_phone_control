@@ -6,7 +6,7 @@
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.0.5` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.0.6` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -183,7 +183,6 @@ NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt
 
 ## 文档与仓库
 
-- 主仓库（GitHub）：<https://github.com/acat-fun/astrbot_phone_control>（Issues / PR 欢迎）
 - [完整使用手册](docs/使用手册.md)
 - [第三方组件与引用说明](THIRD_PARTY_NOTICES.md)
 - [许可证](LICENSE)

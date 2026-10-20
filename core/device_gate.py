@@ -4,7 +4,8 @@
 「观察 → 决策 → 操作」，也避免暂停/取消只停住某一个执行路径：
 
 * 设备租约（lease）：同一时刻最多一个任务持有；同一事件内可重入。用户任务
-  优先时由 :meth:`DeviceExecutionGate.preempt` 撤销自主任务租约；
+  优先时由 :meth:`DeviceExecutionGate.preempt` 撤销自主任务租约；任务收尾清理
+  使用可让路租约，新任务需要设备时直接接管（旧收尾在下一次检查处停止）；
 * 授权与暂停状态由插件回调注入（本模块不导入 astrbot）；
 * 取消代次（epoch）：撤销租约、进入暂停、用户取消或停止时递增；动作批次在
   每次设备操作前调用 :meth:`GateScope.checkpoint`，代次变化即中止；
@@ -82,6 +83,9 @@ class _Lease:
     owner_umo: str
     purpose: str
     since: float
+    # 可让路租约（任务收尾清理）：新任务需要设备时直接接管，旧执行在下一次
+    # checkpoint 处停止；同类让路租约之间仍按占用互斥处理。
+    preemptible: bool = False
 
 
 _CURRENT_SCOPE: contextvars.ContextVar[GateScope | None] = contextvars.ContextVar(
@@ -167,8 +171,20 @@ class DeviceExecutionGate:
 
     # ---- 进入 / 释放 --------------------------------------------------
 
-    def enter(self, event: Any, *, purpose: str, write: bool = True) -> GateScope:
+    def enter(
+        self,
+        event: Any,
+        *,
+        purpose: str,
+        write: bool = True,
+        preemptible: bool = False,
+    ) -> GateScope:
         """进入设备执行作用域（不激活 contextvar）。
+
+        Args:
+            preemptible: 本次租约是否可让路（收尾清理等低优先级事务）。已有可
+                让路租约时，普通任务直接接管并使其下一次检查中止；可让路任务
+                之间仍遵循占用互斥。
 
         Raises:
             GateError: 鉴权失败、暂停/故障、期限已到或设备被其他任务占用。
@@ -183,6 +199,7 @@ class DeviceExecutionGate:
         umo = self._event_umo(event)
         now = self._clock()
         lease = self._lease
+        takeover = False
         if lease is not None and lease.key != key:
             if now - lease.since >= self._stale_seconds:
                 self._log(
@@ -191,12 +208,25 @@ class DeviceExecutionGate:
                 )
                 self.force_release("stale_lease")
                 lease = None
+            elif lease.preemptible and not preemptible:
+                # 可让路租约（收尾清理）：等新请求通过期限校验后再接管，避免
+                # 新请求本身无效时把旧执行的中止点提前。
+                takeover = True
             else:
                 raise GateError(self._busy_message(lease, now))
         # 期限在绑定新租约之前校验，避免到期操作留下无人释放的租约。
         remaining = self._remaining(event, purpose)
         if remaining <= 0:
             raise ExecutionCancelled("本次手机执行已到期，停止继续操作并转人工协助")
+        if takeover and self._lease is not None:
+            previous = self._lease
+            self._epoch += 1
+            self._lease = None
+            lease = None
+            self._log(
+                f"设备租约：接管可让路租约（{previous.purpose or previous.kind}），"
+                "旧执行将在下一次检查处停止"
+            )
         if lease is None:
             kind = self._kind_for(event, purpose)
             lease = _Lease(
@@ -205,6 +235,7 @@ class DeviceExecutionGate:
                 owner_umo=umo,
                 purpose=str(purpose or ""),
                 since=now,
+                preemptible=bool(preemptible),
             )
             self._lease = lease
             self._log(
@@ -226,10 +257,17 @@ class DeviceExecutionGate:
 
     @contextlib.contextmanager
     def scope(
-        self, event: Any, *, purpose: str, write: bool = True
+        self,
+        event: Any,
+        *,
+        purpose: str,
+        write: bool = True,
+        preemptible: bool = False,
     ) -> Iterator[GateScope]:
         """``enter`` + 激活 contextvar；退出只清作用域，租约保留到 run 结束。"""
-        gate_scope = self.enter(event, purpose=purpose, write=write)
+        gate_scope = self.enter(
+            event, purpose=purpose, write=write, preemptible=preemptible
+        )
         token = _CURRENT_SCOPE.set(gate_scope)
         try:
             yield gate_scope

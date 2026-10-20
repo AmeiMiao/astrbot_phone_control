@@ -14,12 +14,32 @@ import xml.etree.ElementTree as ET
 from .adb import FOCUS_DUMP_COMMAND, AdbClient, parse_foreground_dump
 from .errors import PhoneControlError, UiDumpError
 from .models import Rect, ScreenSnapshot, UiNode
+from .verification import (
+    OBSERVATION_EMPTY,
+    OBSERVATION_LOADING,
+    OBSERVATION_NO_TEXT,
+    OBSERVATION_OK,
+    OBSERVATION_SYSTEM_ONLY,
+)
 
 # bounds="[left,top][right,bottom]"
 _BOUNDS_RE = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 
 # 系统界面节点包名（状态栏、导航栏、系统弹窗等），默认不展示给模型
 _SYSTEM_PACKAGES = ("com.android.systemui", "android")
+
+# 加载过渡页的节点文案：整页只有这类提示时不能作为验证结果证据
+_LOADING_TEXT_KEYWORDS = (
+    "加载中",
+    "正在加载",
+    "请稍候",
+    "loading",
+)
+
+# 渲染文本中的观察不足标记；``core.verification`` 按同样文案兜底判定
+NO_READABLE_NODES_TEXT = "（当前界面没有可读节点）"
+LOADING_PAGE_TEXT = "（界面仍在加载，暂无可读内容）"
+
 
 def _clean_text(value: str | None) -> str:
     """归一化节点文本：把不换行空格替换为普通空格后 strip。"""
@@ -226,6 +246,37 @@ def _quote(value: str) -> str:
     return f'"{flat}"'
 
 
+def _is_loading_text(text: str) -> bool:
+    """节点文案是否只是加载提示（用于识别加载过渡页）。"""
+    content = str(text or "").strip().lower()
+    if not content:
+        return False
+    return any(keyword in content for keyword in _LOADING_TEXT_KEYWORDS)
+
+
+def assess_observation(snapshot: ScreenSnapshot) -> str:
+    """评估 UI 快照的观察质量，返回 ``OBSERVATION_*`` 等级。
+
+    UI dump 成功不等于页面内容可观察：WebView、自绘界面与加载过渡页可能没有
+    可读节点。只有 ``OBSERVATION_OK`` 表示页面有可读内容，其余等级都不能作为
+    「验证挑战已解除」的证据。
+    """
+    if snapshot is None:
+        return OBSERVATION_EMPTY
+    nodes = list(getattr(snapshot, "nodes", None) or [])
+    if not nodes:
+        return OBSERVATION_EMPTY
+    visible = [node for node in nodes if node.package not in _SYSTEM_PACKAGES]
+    if not visible:
+        return OBSERVATION_SYSTEM_ONLY
+    readable = [node for node in visible if (node.text or node.desc)]
+    if not readable:
+        return OBSERVATION_NO_TEXT
+    if all(_is_loading_text(node.text or node.desc) for node in readable):
+        return OBSERVATION_LOADING
+    return OBSERVATION_OK
+
+
 def render_ui(
     snapshot: ScreenSnapshot,
     *,
@@ -282,7 +333,10 @@ def render_ui(
     if truncated:
         lines.append(f"…（已截断，仅显示前 {max(0, max_nodes)} 个节点，共 {len(snapshot.nodes)} 个）")
     if rendered == 0:
-        lines.append("（当前界面没有可读节点）")
+        lines.append(NO_READABLE_NODES_TEXT)
+    elif assess_observation(snapshot) == OBSERVATION_LOADING:
+        # 加载过渡页即使有「加载中」等节点文本，也不构成页面内容证据
+        lines.append(LOADING_PAGE_TEXT)
     return "\n".join(lines)
 
 

@@ -417,6 +417,50 @@ def test_gate_error_returns_error_text() -> None:
     assert result == "error: 手机正被另一个用户任务使用"
 
 
+def test_gate_scope_refresh_reenters_scope_after_reservation() -> None:
+    gate = FakeGate()
+    controller = FakeController()
+    service = FakeService(gate=gate, verification=controller)
+    tool = _solve_tool(service)
+    event = FakeEvent()
+    with tool._gate_scope_after_reservation(event):
+        pass
+    # 同一事件可重入：刷新只是一个新的设备作用域（写标记按工具分类）。
+    assert gate.entered == [
+        {
+            "event": event,
+            "purpose": "phone_solve_verification",
+            "write": False,
+        }
+    ]
+    assert gate.exited == 1
+
+
+def test_solve_rebinds_gate_scope_after_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gate = FakeGate()
+    controller = FakeController()
+    service = FakeService(gate=gate, verification=controller)
+    observed: list[int] = []
+
+    async def fake_impl(self: Any, context: Any, **kwargs: Any) -> Any:
+        # 预占后的求解阶段应当已经处在刷新的设备作用域内（包装器 1 + 刷新 1）。
+        observed.append(len(gate.entered))
+        return tools_mod._SolveRun(result="ok")
+
+    monkeypatch.setattr(
+        tools_mod.PhoneSolveVerificationTool, "_solve_impl", fake_impl
+    )
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+    assert result == "ok"
+    assert [item["purpose"] for item in gate.entered] == [
+        "phone_solve_verification",
+        "phone_solve_verification",
+    ]
+    assert observed == [2]
+
+
 def test_execution_cancelled_returns_abort_notice_without_error_prefix() -> None:
     gate = RejectingGate(ExecutionCancelled("手机操作已被暂停，请立即停止本轮操作"))
     service = FakeService(gate=gate)
@@ -529,6 +573,42 @@ def test_solve_pause_wins_cancels_in_flight_and_skips_outcome(
     assert "验证暂停，已中止在途求解" in result
     assert state["started"] is True
     assert state["cancelled"] is True
+    assert controller.submitted == []
+
+
+def test_solve_cancel_and_completion_same_tick_discards_outcome(
+    monkeypatch: pytest.MonkeyPatch, outcome_api: types.SimpleNamespace
+) -> None:
+    """取消信号与求解完成同周期：结果必须丢弃，不能提交/污染会话。"""
+    state: dict[str, Any] = {"started": False, "completed": False}
+
+    async def instant_impl(self: Any, context: Any, **kwargs: Any) -> Any:
+        state["started"] = True
+        # 求解返回前触发取消：两者落在同一事件循环周期
+        controller.cancelled_event.set()
+        state["completed"] = True
+        return tools_mod._SolveRun(
+            result="本次结果不应提交",
+            outcome=outcome_api.outcome(
+                outcome="cleared",
+                kind="captcha",
+                evidence="同周期完成",
+                question=0,
+                generation=0,
+            ),
+        )
+
+    controller = FakeController()
+    monkeypatch.setattr(
+        tools_mod.PhoneSolveVerificationTool, "_solve_impl", instant_impl
+    )
+    service = FakeService(gate=None, verification=controller)
+
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+
+    assert "验证暂停" in result
+    assert state["started"] is True
+    assert state["completed"] is True
     assert controller.submitted == []
 
 
