@@ -31,6 +31,7 @@ from . import traffic as traffic_mod
 REMOTE_TMP = "/data/local/tmp/astrbot_phone_traffic"
 SYSTEM_CACERTS = "/system/etc/security/cacerts"
 CA_WAIT_SECONDS = 20.0
+ROOT_SETTLE_SECONDS = 2.0
 PROXY_VALUE = "127.0.0.1:{port}"
 
 
@@ -60,6 +61,8 @@ class TrafficCapture:
         self._prev_proxy = ""
         self._last_error = ""
         self._started_at = 0.0
+        # 设备无 root 时抓包不可用：本次插件运行内跳过重试，避免反复 adb root/告警。
+        self._root_unavailable = False
 
     # ---- 基础工具 -----------------------------------------------------
     def _log(self, message: str) -> None:
@@ -72,6 +75,11 @@ class TrafficCapture:
     @property
     def running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
+
+    @property
+    def root_unavailable(self) -> bool:
+        """设备无 root、本次运行内已跳过抓包。"""
+        return self._root_unavailable
 
     @property
     def port(self) -> int:
@@ -200,9 +208,10 @@ class TrafficCapture:
         with suppress(Exception):
             await self.adb.run(["root"], timeout=20)
         # adb root 会让 adbd 重启：等它完成后再建 reverse，否则 reverse 会被清掉。
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(ROOT_SETTLE_SECONDS)
         if not await self._wait_root():
-            raise RuntimeError("设备无法获取 root（adb root 失败）")
+            self._root_unavailable = True
+            raise RuntimeError("设备无 root，已跳过抓包（adb root 失败）")
         remote_ca = f"{REMOTE_TMP}/cacerts/{cert_hash}.0"
         await self.adb.shell(
             f"rm -rf {REMOTE_TMP}; mkdir -p {REMOTE_TMP}/cacerts; "
@@ -252,6 +261,12 @@ class TrafficCapture:
         """启动抓包；返回 ``{"ok","reason",...}``，失败时自动清理。"""
         if self.running:
             return self.status()
+        if self._root_unavailable:
+            return {
+                "ok": False,
+                "root_unavailable": True,
+                "reason": "设备无 root，已跳过抓包",
+            }
         target_port = int(port or traffic_mod.DEFAULT_TRAFFIC_PORT)
         if not 1024 <= target_port <= 65535:
             return {"ok": False, "reason": f"端口非法：{target_port}"}
@@ -313,7 +328,11 @@ class TrafficCapture:
         except Exception as exc:  # noqa: BLE001 - 设备环境配置失败时整体回滚
             await self.stop()
             self._last_error = str(exc)
-            return {"ok": False, "reason": f"设备抓包环境配置失败：{exc}"}
+            return {
+                "ok": False,
+                "root_unavailable": self._root_unavailable,
+                "reason": f"设备抓包环境配置失败：{exc}",
+            }
         self._last_error = ""
         self._started_at = time.time()
         self._log(
@@ -376,6 +395,8 @@ class TrafficCapture:
         """定期校验：进程存活、设备仍走代理且 root/CA 正常；异常时重建。"""
         if not self.running:
             return
+        if self._root_unavailable:
+            return
         traffic_mod.prune_log(self.log_path)
         proxy = ""
         with suppress(Exception):
@@ -425,6 +446,7 @@ class TrafficCapture:
             "log_path": str(self.log_path),
             "mitmdump": self._find_mitmdump() or "",
             "error": self._last_error,
+            "root_unavailable": self._root_unavailable,
             "started_at": self._started_at,
         }
 

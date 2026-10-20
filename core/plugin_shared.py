@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import os
+import stat
 import time
+from pathlib import Path
 from typing import Any
 
 
@@ -22,6 +25,27 @@ _INBOX_KEYWORDS: tuple[tuple[str, int], ...] = (
     ("未读", 50),
 )
 _INBOX_EXCLUDE_WORDS = ("免打扰", "通知栏", "设置", "消息设置", "勿扰")
+
+
+def ensure_executable(path: str | Path) -> bool:
+    """给插件自带二进制补上可执行位（默认 u/g/o 都可执行）。
+
+    AstrBot 从插件市场/zip 安装时可能丢失文件权限，导致 ``adb`` 无法启动
+    （``Permission denied``）；插件加载时调用本函数修复。文件不存在或不是普通
+    文件时返回 False，已具备权限时直接返回 True。
+    """
+    candidate = Path(path)
+    try:
+        info = candidate.stat()
+        if not stat.S_ISREG(info.st_mode):
+            return False
+        wanted = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+        if info.st_mode & wanted == wanted:
+            return True
+        os.chmod(candidate, info.st_mode | wanted)
+        return True
+    except OSError:
+        return False
 
 
 def _format_time(ts: float) -> str:

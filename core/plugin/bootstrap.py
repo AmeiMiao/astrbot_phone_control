@@ -168,6 +168,7 @@ from .shared import (
     _read_plugin_version,
     PLUGIN_NAME,
     BUNDLED_ADB,
+    ensure_executable,
     PHONE_KEYWORDS,
     plugin_root_dir,
     _GUIDANCE,
@@ -201,6 +202,7 @@ class BootstrapMixin:
         adb_home = self.data_dir / "adbhome"
         adb_home.mkdir(parents=True, exist_ok=True)
 
+        self._ensure_bundled_executables()
         adb_path = self._resolve_adb_path(initial)
         self.adb = AdbClient(
             adb_path,
@@ -483,6 +485,12 @@ class BootstrapMixin:
                     await self.adb.close()
                 except Exception as exc:  # noqa: BLE001 - 关闭失败只记录
                     logger.warning("关闭 ADB 客户端失败：%s", exc)
+
+    def _ensure_bundled_executables(self) -> None:
+        """修复市场/zip 安装丢失的可执行位（adb 需要 +x 才能启动）。"""
+        bundled = plugin_root_dir() / BUNDLED_ADB
+        if bundled.is_file() and not ensure_executable(bundled):
+            logger.warning("无法设置插件自带 adb 的可执行权限：%s", bundled)
 
     def _resolve_adb_path(self, config: PhoneConfig) -> Path:
         """解析 adb 可执行文件：配置优先，其次插件自带二进制。"""

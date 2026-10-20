@@ -13,6 +13,7 @@ from ..plugin_shared import (
     _INBOX_KEYWORDS,
     _format_time,
     _llm_response_text,
+    ensure_executable,
 )
 from ..share_policy import share_window_text
 

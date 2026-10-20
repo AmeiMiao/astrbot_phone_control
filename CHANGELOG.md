@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-10-20
+
+### Fixed
+
+- 市场/zip 默认安装可能丢失插件自带 `bin/linux-x86_64/adb` 的可执行位，导致
+  `Permission denied`、scrcpy 回退 ADB；插件加载时自动为自带二进制补齐 u/g/o 可执行位。
+- 设备无 root 时不再反复尝试抓包：`adb root` 失败后标记本次运行跳过抓包，保活循环
+  不再重试/刷告警；`/phone traffic` 状态可见 `root_unavailable`，其他功能不受影响。
+
 ## [0.0.4] - 2026-10-20
 
 ### Fixed

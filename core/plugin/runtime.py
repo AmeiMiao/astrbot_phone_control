@@ -431,6 +431,8 @@ class RuntimeMixin:
             if self._traffic.running:
                 await self._traffic.stop()
             return
+        if getattr(self._traffic, "root_unavailable", False):
+            return
         if self._traffic.running:
             await self._traffic.ensure_device()
             return
@@ -447,6 +449,8 @@ class RuntimeMixin:
                 result.get("port"),
                 result.get("log_path"),
             )
+        elif result.get("root_unavailable"):
+            logger.warning("抓包跳过：%s；本次运行不再尝试", result.get("reason"))
         else:
             logger.warning("抓包启动失败：%s", result.get("reason"))
 
@@ -505,6 +509,8 @@ class RuntimeMixin:
                 if traffic_config is None or not traffic_config.enabled:
                     if self._traffic.running:
                         await self._traffic.stop()
+                    continue
+                if getattr(self._traffic, "root_unavailable", False):
                     continue
                 if not self._traffic.running:
                     await self._ensure_traffic_started()
