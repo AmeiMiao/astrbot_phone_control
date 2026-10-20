@@ -1076,6 +1076,7 @@ def test_traffic_config_defaults_and_parsing():
     assert traffic.port == 18080
     assert traffic.body_chars == 1200
     assert traffic.keep_seconds == 900
+    assert traffic.mitmdump_path == ""
 
     warnings: list[str] = []
     tuned = PhoneConfig.from_mapping(

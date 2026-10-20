@@ -482,6 +482,7 @@ class TrafficSettings:
     port: int = DEFAULT_TRAFFIC_PORT
     body_chars: int = DEFAULT_TRAFFIC_BODY_CHARS
     keep_seconds: int = DEFAULT_TRAFFIC_KEEP_SECONDS
+    mitmdump_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -1272,6 +1273,9 @@ class PhoneConfig:
                 minimum=60,
                 maximum=86400,
             ),
+            mitmdump_path=str(
+                _pick(traffic_card, source, "mitmdump_path") or ""
+            ).strip(),
         )
 
         memory_card = card("memory")

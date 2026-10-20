@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-10-20
+
+### Fixed
+
+- 修复插件安装时依赖冲突：`requirements.txt` 不再声明 `mitmproxy`。AstrBot Core 固定
+  `cryptography==50.0.1`，而 mitmproxy 12.x 要求 `cryptography<=48.1`，自动安装会被核心
+  依赖保护拦截并导致插件安装失败。
+- 抓包依赖改为可选项：新增 `requirements-traffic.txt` 与 `traffic.mitmdump_path` 配置；
+  需要抓包时用独立 venv 安装 mitmproxy，并把该配置指向 `venv/bin/mitmdump`，不影响
+  AstrBot 核心依赖。
+
 ## [0.0.3] - 2026-10-20
 
 ### Fixed

@@ -21,7 +21,7 @@ Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`，或
 | 组件 | 用途 | 许可证 | 说明 |
 | --- | --- | --- | --- |
 | [AstrBot](https://github.com/AstrBotDevs/AstrBot) | 插件宿主框架（4.27.1–4.29.x） | **AGPL-3.0** + 项目 EULA | 本插件仅通过 AstrBot 公开的插件 API（Star/Context/FunctionTool/hook 等）运行，不包含 AstrBot 源代码；AstrBot 及其依赖的许可证以 AstrBot 仓库为准 |
-| [mitmproxy](https://github.com/mitmproxy/mitmproxy) | 手机流量抓包与解密（`traffic.enabled`） | **MIT** | 通过 `requirements.txt` 作为可选运行依赖（`mitmproxy>=12,<13`），需在容器内安装；插件调用其 `mitmdump` 与 addon API |
+| [mitmproxy](https://github.com/mitmproxy/mitmproxy) | 手机流量抓包与解密（`traffic.enabled`） | **MIT** | 可选运行依赖（`requirements-traffic.txt`，`mitmproxy>=12,<13`）；因 AstrBot Core 固定 cryptography==50.0.1、mitmproxy 12.x 要求 cryptography<=48.1，需用独立 venv 安装并通过 `traffic.mitmdump_path` 指定，不随插件自动安装 |
 | [PyAV](https://github.com/PyAV-Org/PyAV)（`av`） | scrcpy 视频镜像的实时解码（可选） | **BSD-3-Clause** | 不随插件分发，运行环境安装时生效；缺失时自动回退宿主机 `ffmpeg` 管道 |
 | [FFmpeg](https://ffmpeg.org/) | 视频镜像回退解码（可选） | **LGPL-2.1-or-later / GPL-2.0-or-later**（取决于发行构建） | 由宿主机/容器提供，不随插件分发；具体许可证以所用构建为准 |
 | [minitouch](https://github.com/DeviceFarmer/minitouch) | 可选 touch 注入后端 | **Apache-2.0**（Copyright © CyberAgent, Inc.） | 用户自备与模拟器架构匹配的 binary，插件仅在用户显式配置路径时推送到设备运行，不内置二进制 |

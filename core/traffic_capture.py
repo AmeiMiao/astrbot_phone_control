@@ -80,7 +80,12 @@ class TrafficCapture:
     def _find_mitmdump(self) -> str:
         if self._mitmdump:
             found = shutil.which(self._mitmdump)
-            return found or ""
+            if found:
+                return found
+            candidate = Path(self._mitmdump).expanduser()
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+            return ""
         found = shutil.which("mitmdump")
         if found:
             return found
@@ -254,7 +259,10 @@ class TrafficCapture:
         if not mitmdump:
             return {
                 "ok": False,
-                "reason": "未安装 mitmproxy（请在容器执行 pip3 install mitmproxy）",
+                "reason": (
+                    "未找到 mitmdump：请用独立 venv 安装 mitmproxy 后，"
+                    "把 traffic.mitmdump_path 指向该 venv/bin/mitmdump"
+                ),
             }
         self._port = target_port
         self._body_chars = traffic_mod.normalize_body_chars(

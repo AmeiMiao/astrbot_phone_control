@@ -112,6 +112,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "traffic.port",
         "traffic.body_chars",
         "traffic.keep_seconds",
+        "traffic.mitmdump_path",
         "verification.max_attempts",
         "verification.total_timeout_seconds",
         "verification.attempt_timeout_seconds",

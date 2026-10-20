@@ -259,7 +259,10 @@ class BootstrapMixin:
         self.service.media = self._media_capture
         # 手机流量抓包（ADB + mitmproxy）：生命周期跟随插件。
         self._traffic = TrafficCapture(
-            adb=self.adb, data_dir=self.data_dir, logger=logger.info
+            adb=self.adb,
+            data_dir=self.data_dir,
+            logger=logger.info,
+            mitmdump=self.service.config.traffic.mitmdump_path,
         )
         self.service.traffic = self._traffic
         # 验证会话/人工接管控制器（先加载持久化状态，再启动调度器）。

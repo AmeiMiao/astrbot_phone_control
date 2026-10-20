@@ -819,6 +819,12 @@
         "default": 900,
         "description": "抓包记录保留秒数",
         "hint": "phone_traffic 默认只看最近这段窗口内的流量（60-86400，默认 900）"
+      },
+      "mitmdump_path": {
+        "type": "string",
+        "default": "",
+        "description": "mitmdump 可执行路径",
+        "hint": "留空则从 PATH/当前 Python 同目录查找 mitmdump。AstrBot Core 固定 cryptography==50.0.1，mitmproxy 12.x 要求 cryptography<=48.1，不能装进核心环境；请用独立 venv 安装 mitmproxy，把本项指向 venv/bin/mitmdump，或在容器 PATH 中提供该 binary。"
       }
     }
   },

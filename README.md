@@ -6,7 +6,7 @@
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.0.3` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.0.4` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -43,8 +43,9 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 - AstrBot `>= 4.27.1, < 5`（已在 4.29.1 验证）；
 - 一台开启 ADB 调试的安卓模拟器（或真机），AstrBot 容器可访问其 ADB 端口；
 - 插件自带 `bin/linux-x86_64/adb` 与 `bin/scrcpy-server-v5.0.1`，无需额外安装 adb/scrcpy；
-- 可选：`mitmproxy`（抓包识别）、PyAV 或宿主机 `ffmpeg`（scrcpy 视频镜像）、
-  ADBKeyboard（中文输入）、minitouch（可选 touch 后端）。详见 [第三方引用说明](THIRD_PARTY_NOTICES.md)。
+- 可选：`mitmproxy`（抓包识别，需独立 venv 安装，见使用手册）、PyAV 或宿主机 `ffmpeg`
+  （scrcpy 视频镜像）、ADBKeyboard（中文输入）、minitouch（可选 touch 后端）。
+  详见 [第三方引用说明](THIRD_PARTY_NOTICES.md)。
 
 ### 安装
 
