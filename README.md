@@ -1,11 +1,12 @@
 # astrbot_phone_control
 
+[![GitHub](https://img.shields.io/badge/GitHub-acat--fun%2Fastrbot__phone__control-181717.svg)](https://github.com/acat-fun/astrbot_phone_control)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.0.1` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.0.1` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -179,8 +180,9 @@ NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt
 - 本插件仅用于操作使用者自己拥有或获授权使用的设备与账号；请遵守目标 App 的服务条款
   与所在地法律法规。因使用本插件产生的账号、数据或法律风险由使用者自行承担。
 
-## 文档
+## 文档与仓库
 
+- 主仓库（GitHub）：<https://github.com/acat-fun/astrbot_phone_control>（Issues / PR 欢迎）
 - [完整使用手册](docs/使用手册.md)
 - [第三方组件与引用说明](THIRD_PARTY_NOTICES.md)
 - [许可证](LICENSE)
