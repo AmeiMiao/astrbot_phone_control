@@ -31,6 +31,7 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star
 from astrbot.api.web import error_response, json_response, request
+from astrbot.core.agent.message import TextPart
 from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.utils.astrbot_path import (
     get_astrbot_config_path,
@@ -508,7 +509,7 @@ class PhoneControlPlugin(
                 await self._enter_user_priority(event)
             self._begin_llm_metric(event, req)
             # 检测必须在注入 guidance 之前：任务会话看 cron payload，用户手机请求看
-            # 关键词/已有 marker（本方法稍后才会把【手机操控能力】写进 system_prompt）。
+            # 关键词/已有 marker（本方法稍后把【手机操控能力】追加到本轮临时内容块）。
             if authorized and looks_like_phone:
                 self._record_request_tokens(event, req)
                 self._maybe_warm_scrcpy(event, req)
@@ -553,9 +554,19 @@ class PhoneControlPlugin(
                 except Exception:  # noqa: BLE001 - 验证状态读取失败不影响提示词
                     pass
             section = "\n\n".join(sections)
-            current = str(getattr(req, "system_prompt", "") or "")
-            if "【手机操控能力】" in current:
-                return
-            req.system_prompt = (current + "\n\n" + section).strip()
+            # 动态内容不写 system_prompt（每轮变化会破坏模型前缀缓存），改为追加到
+            # 本轮请求的临时用户内容块，且不持久化到会话历史。
+            parts = getattr(req, "extra_user_content_parts", None)
+            if parts is None:
+                parts = []
+                try:
+                    req.extra_user_content_parts = parts
+                except Exception:  # noqa: BLE001 - 鸭子类型请求不可写时跳过注入
+                    return
+            for part in parts:
+                text = part if isinstance(part, str) else getattr(part, "text", "")
+                if text and "【手机操控能力" in str(text):
+                    return
+            parts.append(TextPart(text=section).mark_as_temp())
         except Exception as exc:  # noqa: BLE001 - 提示词注入失败不应影响对话
             logger.warning("注入手机能力提示词失败：%s", exc)

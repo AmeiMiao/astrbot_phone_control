@@ -12,21 +12,20 @@ usage 对账源：
 - :func:`fetch_window_usage`：按会话 UMO 列表汇总最近时间窗口内的实际 usage，
   供 ``/phone quota audit`` 对照插件记账。
 
-本模块只依赖标准库；``astrbot``/``sqlmodel`` 均在查询函数内部延迟导入，本地无
-AstrBot 环境也能导入与单测。查询只读，不写数据库，失败不抛异常由调用方降级。
+日志统一使用 ``from astrbot.api import logger``；``sqlmodel`` 在查询函数内部延迟导入。
+查询只读，不写数据库，失败不抛异常由调用方降级。
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
 import math
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from astrbot.api import logger
 
 # Agent run 起始墙钟查询下界容差：provider_stats.start_time 由 AgentRunner 在构造
 # 时用 time.time() 写入，可能略早于插件 on_llm_request 记录的 started_wall；5s 容差

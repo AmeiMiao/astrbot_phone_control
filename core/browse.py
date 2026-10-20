@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import logging
 import re
 import tempfile
 import time
@@ -22,6 +21,8 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+
+from astrbot.api import logger
 
 from .apps import AppProfile, resolve_app
 from .config import DEFAULT_SETTLE_SECONDS, BrowseSettings
@@ -32,8 +33,6 @@ from .errors import (
     PhoneControlError,
 )
 from .models import BrowseRequest, BrowseResult, FeedItem, ScreenSnapshot, UiNode
-
-_module_logger = logging.getLogger("astrbot_phone_control.browse")
 
 _AUTHOR_PATTERNS = (
     re.compile(r"^@(.{1,32})$"),
@@ -99,7 +98,7 @@ class BrowseSession:
         actions: Any,
         *,
         settings: BrowseSettings | None = None,
-        logger: Callable[[str], None] | None = None,
+        log_fn: Callable[[str], None] | None = None,
         screenshot_dir: str | Path | None = None,
     ) -> None:
         """初始化浏览会话。
@@ -107,12 +106,12 @@ class BrowseSession:
         Args:
             actions: ``core.actions.DeviceActions`` 实例（测试可传鸭子类型）。
             settings: 浏览参数快照。
-            logger: 日志输出回调（默认写标准库 logger）。
+            log_fn: 日志输出回调（默认写 astrbot logger）。
             screenshot_dir: 截图落盘目录；默认放系统临时目录下。
         """
         self.actions = actions
         self.settings = settings or BrowseSettings()
-        self._log = logger or (lambda message: _module_logger.info(message))
+        self._log = log_fn or (lambda message: logger.info(message))
         self.screenshot_dir = (
             Path(screenshot_dir)
             if screenshot_dir is not None

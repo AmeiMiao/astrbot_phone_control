@@ -291,7 +291,7 @@ class LearningStore:
     def render_for_prompt(
         self, limit: int = 5, *, max_chars: int = DEFAULT_RENDER_CHARS
     ) -> str:
-        """把最近 N 条学习记录渲染成可塞进系统提示词的中文摘要。
+        """把最近 N 条学习记录渲染成本轮请求临时内容块的中文摘要。
 
         Args:
             limit: 最多渲染条数。

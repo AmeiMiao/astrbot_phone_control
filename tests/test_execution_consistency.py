@@ -26,7 +26,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("astrbot")
+_astrbot = pytest.importorskip("astrbot")
+if getattr(_astrbot, "_acat_local_stub", False):
+    pytest.skip("本地无真实 AstrBot，跳过容器级用例", allow_module_level=True)
 
 
 def _load_plugin_main():
@@ -228,7 +230,20 @@ def _seed_memory_markers(monkeypatch, plugin) -> dict[str, str]:
 
 
 def _injection_request(prompt: str = "") -> types.SimpleNamespace:
-    return types.SimpleNamespace(system_prompt="", prompt=str(prompt), contexts=[])
+    return types.SimpleNamespace(
+        system_prompt="",
+        prompt=str(prompt),
+        contexts=[],
+        extra_user_content_parts=[],
+    )
+
+
+def _injected_text(req: types.SimpleNamespace) -> str:
+    """取本轮注入的临时用户内容块文本（不读 system_prompt）。"""
+    return "\n".join(
+        str(getattr(part, "text", ""))
+        for part in getattr(req, "extra_user_content_parts", None) or []
+    )
 
 
 # ----------------------------------------------------------------------
@@ -513,8 +528,9 @@ def test_unauthorized_request_injects_nothing(tmp_path, monkeypatch):
             event = FakeEvent(role="member", text="帮我打开B站看视频")
             req = _injection_request("帮我打开B站看视频")
             await plugin.inject_phone_guidance(event, req)
-            prompt = req.system_prompt
-            assert "【手机操控能力】" not in prompt
+            prompt = _injected_text(req)
+            assert req.system_prompt == ""
+            assert prompt == ""
             for marker in markers.values():
                 assert marker not in prompt
             assert calls["record_tokens"] == 0
@@ -534,9 +550,14 @@ def test_plain_chat_only_injects_capability_guide(tmp_path, monkeypatch):
             event = FakeEvent(role="admin", text="今天天气怎么样")
             req = _injection_request("今天天气怎么样")
             await plugin.inject_phone_guidance(event, req)
-            prompt = req.system_prompt
-            # 指南对授权用户始终可用
+            prompt = _injected_text(req)
+            assert req.system_prompt == ""
+            # 指南对授权用户始终可用，且以临时内容块追加（不写系统提示词）
             assert "【手机操控能力】" in prompt
+            assert all(
+                getattr(part, "_no_save", False) is True
+                for part in req.extra_user_content_parts
+            )
             # 普通对话不扩大上下文：手机活动记忆一律不注入
             for marker in markers.values():
                 assert marker not in prompt
@@ -557,7 +578,8 @@ def test_phone_request_injects_activity_memory(tmp_path, monkeypatch):
             )
             req = _injection_request("帮我打开B站看两条视频")
             await plugin.inject_phone_guidance(event, req)
-            prompt = req.system_prompt
+            prompt = _injected_text(req)
+            assert req.system_prompt == ""
             assert "【手机操控能力】" in prompt
             for marker in markers.values():
                 assert marker in prompt
@@ -586,7 +608,8 @@ def test_autonomous_task_injects_activity_memory(tmp_path, monkeypatch):
             )
             req = _injection_request()
             await plugin.inject_phone_guidance(event, req)
-            prompt = req.system_prompt
+            prompt = _injected_text(req)
+            assert req.system_prompt == ""
             assert "【手机操控能力】" in prompt
             for marker in markers.values():
                 assert marker in prompt

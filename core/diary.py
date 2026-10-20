@@ -8,14 +8,14 @@
      "note": "", "summary": "..."}
 
 条目超过 ``max_entries`` 时整体重写，只保留最近条目。读写统一加 asyncio 锁，
-避免并发命令把文件写坏。本模块只依赖标准库。
+避免并发命令把文件写坏。除日志统一使用 ``from astrbot.api import logger``
+外只依赖标准库。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import time
 import uuid
@@ -23,9 +23,9 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .models import BrowseResult, FeedItem
+from astrbot.api import logger
 
-logger = logging.getLogger("astrbot_phone_control.diary")
+from .models import BrowseResult, FeedItem
 
 DIARY_FILENAME = "diary.jsonl"
 DEFAULT_MAX_ENTRIES = 500
@@ -185,7 +185,7 @@ class PhoneDiary:
         return "\n".join(parts).lower()
 
     def render_for_prompt(self, limit: int = 5, *, max_chars: int = 1200) -> str:
-        """把最近条目渲染成适合塞进系统提示词的中文摘要。"""
+        """把最近条目渲染成适合作为本轮请求临时内容块的中文摘要。"""
         entries = self.recent(limit)
         if not entries:
             return ""

@@ -1883,7 +1883,7 @@ class PhoneService:
             self._browse_session = BrowseSession(
                 self.actions,
                 settings=settings,
-                logger=self._log,
+                log_fn=self._log,
                 screenshot_dir=self.screenshots_dir,
             )
         return self._browse_session

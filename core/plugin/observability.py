@@ -553,6 +553,10 @@ class ObservabilityMixin:
             str(getattr(req, "system_prompt", "") or ""),
             str(getattr(req, "prompt", "") or ""),
         ]
+        for part in getattr(req, "extra_user_content_parts", None) or []:
+            text = part if isinstance(part, str) else getattr(part, "text", "")
+            if text:
+                parts.append(str(text))
         contexts = getattr(req, "contexts", None) or []
         for context in contexts:
             if isinstance(context, dict):

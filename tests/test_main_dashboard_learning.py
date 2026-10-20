@@ -15,7 +15,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("astrbot")
+_astrbot = pytest.importorskip("astrbot")
+if getattr(_astrbot, "_acat_local_stub", False):
+    pytest.skip("本地无真实 AstrBot，跳过容器级用例", allow_module_level=True)
 
 
 def _load_plugin_main():

@@ -506,7 +506,7 @@ class AppMemoryStore:
         limit: Any = DEFAULT_PROMPT_LIMIT,
         max_chars: Any = DEFAULT_PROMPT_CHARS,
     ) -> str:
-        """渲染可注入系统提示词的 App 使用经验摘要。
+        """渲染可注入本轮请求临时内容块的 App 使用经验摘要。
 
         按最近更新的 App 排序，每个 App 取最近的 1-2 条经验，拼成
         「【App 使用经验】」开头的多行中文文本。

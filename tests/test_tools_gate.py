@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-import logging
 import sys
 import types
 from pathlib import Path
@@ -30,11 +29,17 @@ def _third_party_available() -> bool:
         import pydantic  # noqa: F401
     except ImportError:
         return False
+    if getattr(astrbot.api, "_acat_local_stub", False):
+        return False
     return True
 
 
 def _install_import_stubs() -> list[str]:
     """为本地环境注册最小的 astrbot/mcp/pydantic 桩模块，返回新增模块名。"""
+    # conftest 的 astrbot.api.logger 桩不含工具层符号，先移除再注册完整桩。
+    for name in [n for n in list(sys.modules) if n == "astrbot" or n.startswith("astrbot.")]:
+        if getattr(sys.modules[name], "_acat_local_stub", False):
+            sys.modules.pop(name, None)
     added: list[str] = []
 
     def register(name: str, module: types.ModuleType) -> types.ModuleType:
@@ -81,13 +86,34 @@ def _install_import_stubs() -> list[str]:
             self.data = data
             self.mimeType = mimeType
 
+    class NullLogger:
+        """测试用静默 logger。"""
+
+        def debug(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def info(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def warning(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def error(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def exception(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def critical(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
     astrbot = types.ModuleType("astrbot")
     astrbot.__path__ = []  # type: ignore[attr-defined]
     register("astrbot", astrbot)
 
     api = types.ModuleType("astrbot.api")
     api.FunctionTool = FunctionTool
-    api.logger = logging.getLogger("astrbot.stub")
+    api.logger = NullLogger()
     register("astrbot.api", api)
 
     api_event = types.ModuleType("astrbot.api.event")

@@ -10,16 +10,18 @@ AstrBot 下发的是可变配置 dict（WebUI 的 object 卡片会嵌套成子 d
 
 所有数值做范围收敛、所有布尔做宽松解析；非法值回退默认值并记录 warning。
 ADB 主机与端口是启动必填项，未配置时 :func:`require_configured` 抛异常让插件
-加载失败（fail-fast）。本模块只依赖标准库，便于本地单测。
+加载失败（fail-fast）。日志统一使用 ``from astrbot.api import logger``；
+其余仅依赖标准库，便于本地单测。
 """
 
 from __future__ import annotations
 
-import logging
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+
+from astrbot.api import logger
 
 from .errors import AdbNotConfiguredError, PhoneControlError
 from .verification import (
@@ -57,8 +59,6 @@ from .novelty import (
     DEFAULT_THRESHOLD as DEFAULT_NOVELTY_THRESHOLD,
     NoveltySettings,
 )
-
-logger = logging.getLogger("astrbot_phone_control.config")
 
 DEFAULT_ADB_HOST = ""
 DEFAULT_ADB_PORT = 0

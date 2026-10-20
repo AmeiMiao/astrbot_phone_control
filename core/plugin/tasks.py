@@ -411,11 +411,15 @@ class TasksMixin:
             return True
         if self.service.is_task_session(event):
             return True
-        text = (
-            str(getattr(req, "system_prompt", "") or "")
-            + "\n"
-            + str(getattr(req, "prompt", "") or "")
-        ).lower()
+        parts = [
+            str(getattr(req, "system_prompt", "") or ""),
+            str(getattr(req, "prompt", "") or ""),
+        ]
+        for part in getattr(req, "extra_user_content_parts", None) or []:
+            text = part if isinstance(part, str) else getattr(part, "text", "")
+            if text:
+                parts.append(str(text))
+        text = "\n".join(parts).lower()
         return any(keyword in text for keyword in PHONE_KEYWORDS)
 
     def _is_phone_request(self, event: AstrMessageEvent, req: Any) -> bool:
@@ -428,11 +432,15 @@ class TasksMixin:
         except Exception:  # noqa: BLE001 - 鸭子类型事件
             pass
         marker = "【手机操控能力"
-        system_prompt = str(getattr(req, "system_prompt", "") or "")
-        if marker in system_prompt:
-            return True
-        prompt = str(getattr(req, "prompt", "") or "")
-        return marker in prompt
+        texts = [
+            str(getattr(req, "system_prompt", "") or ""),
+            str(getattr(req, "prompt", "") or ""),
+        ]
+        for part in getattr(req, "extra_user_content_parts", None) or []:
+            text = part if isinstance(part, str) else getattr(part, "text", "")
+            if text:
+                texts.append(str(text))
+        return any(marker in text for text in texts)
 
     async def _auto_cleanup_after_task(self, event: AstrMessageEvent) -> None:
         """玩完手机后回桌面并清理后台（确定性收尾，不依赖模型主动调用工具）。

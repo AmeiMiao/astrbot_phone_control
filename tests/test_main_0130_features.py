@@ -17,7 +17,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("astrbot")
+_astrbot = pytest.importorskip("astrbot")
+if getattr(_astrbot, "_acat_local_stub", False):
+    pytest.skip("本地无真实 AstrBot，跳过容器级用例", allow_module_level=True)
 
 
 def _load_plugin_main():
@@ -216,11 +218,19 @@ def test_app_memory_tools_and_prompt_injection(tmp_path, monkeypatch):
             monkeypatch.setattr(plugin, "_record_request_tokens", lambda *a, **k: None)
             # 注入判定按请求文本区分手机请求与普通对话：手机请求才带手机活动记忆
             req = types.SimpleNamespace(
-                system_prompt="", prompt="打开B站看视频", contexts=[]
+                system_prompt="",
+                prompt="打开B站看视频",
+                contexts=[],
+                extra_user_content_parts=[],
             )
             await plugin.inject_phone_guidance(event, req)
-            assert "【App 使用经验】" in req.system_prompt
-            assert "【手机操控能力】" in req.system_prompt
+            injected = "\n".join(
+                str(getattr(part, "text", ""))
+                for part in req.extra_user_content_parts
+            )
+            assert req.system_prompt == ""
+            assert "【App 使用经验】" in injected
+            assert "【手机操控能力】" in injected
         finally:
             await _cleanup(plugin)
 
@@ -241,9 +251,16 @@ def test_app_memory_can_be_disabled(tmp_path, monkeypatch):
             monkeypatch.setattr(plugin, "_begin_llm_metric", lambda *a, **k: None)
             monkeypatch.setattr(plugin, "_record_request_tokens", lambda *a, **k: None)
             event = FakeEvent(text="随便聊聊")
-            req = types.SimpleNamespace(system_prompt="", prompt="", contexts=[])
+            req = types.SimpleNamespace(
+                system_prompt="", prompt="", contexts=[], extra_user_content_parts=[]
+            )
             await plugin.inject_phone_guidance(event, req)
-            assert "【App 使用经验】" not in req.system_prompt
+            injected = "\n".join(
+                str(getattr(part, "text", ""))
+                for part in req.extra_user_content_parts
+            )
+            assert req.system_prompt == ""
+            assert "【App 使用经验】" not in injected
         finally:
             await _cleanup(plugin)
 
