@@ -69,7 +69,7 @@ _PHONE_CONTROL_TOOLS = frozenset(
 
 
 _GUIDANCE = (
-    "【手机操控能力】30 个 phone_* 工具；先 phone_skill 读手册。\n"
+    "【手机操控能力】31 个 phone_* 工具；先 phone_skill 读手册。\n"
     "回复：默认 1–2 句、≤80 字；任务结果只给 1–3 个要点，不复述过程/工具输出"
     "（用户要求详情除外）。\n"
     "静默：仅主人可用；后台任务静默，完成后一次性汇报。\n"
@@ -176,6 +176,7 @@ _HELP_TEXT = """手机操控插件指令：
 /phone stop [job_id|all]          停止本插件后台/持续刷任务，回桌面并清理后台
 /phone learn [关键词|条数]         查看 AI 在手机上学到的内容档案
 /phone traffic [status|tail [n]|on|off]  查看抓包状态/最近流量，或开关手机流量抓包
+/phone wg [status|start|stop|restart|config]  查看/开关 WireGuard 组网，config 显示导入用配置
 /phone verify [status|resume <id>|cancel <id>]  查看/恢复/取消验证等待（人工协助）
 /phone watch [秒数] [问题]        识别当前正在播放的视频/直播/音乐（声音转写+关键画面）
 /phone novelty [status|reset]     查看内容新鲜感/厌倦感状态（阈值、疲劳主题）或清空状态

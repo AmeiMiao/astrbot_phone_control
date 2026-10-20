@@ -49,7 +49,7 @@ from ..config import (
     PhoneConfig,
     require_configured,
 )
-from ..config_apply import ACTION_START, ACTION_STOP, build_apply_plan
+from ..config_apply import ACTION_RESTART, ACTION_START, ACTION_STOP, build_apply_plan
 from ..diary import PhoneDiary
 from ..interactions import (
     KIND_COMMENT,
@@ -552,6 +552,105 @@ class RuntimeMixin:
                 raise
             except Exception as exc:  # noqa: BLE001 - 保活失败只记录
                 logger.warning("抓包保活异常：%s", exc)
+
+    # ---- WireGuard 组网 -------------------------------------------------
+
+    async def _ensure_wireguard_started(self, *, force: bool = False) -> bool:
+        """按配置启动/保活 WireGuard helper（禁用时确保停止）。
+
+        确定性不可用（helper 缺失、配置非法等）由 manager 记录原因并停止自动重试，
+        临时失败按 manager 的退避时间重试；本方法只负责驱动，不重复告警。
+        """
+        manager = getattr(self, "_wireguard", None)
+        if manager is None:
+            return False
+        try:
+            settings = self.service.config.wireguard
+        except Exception as exc:  # noqa: BLE001 - 配置解析失败时不启动
+            logger.warning("WireGuard：读取配置失败：%s", exc)
+            return False
+        if not settings.enabled:
+            if manager.running or manager.adb_over_wg:
+                await manager.stop()
+            return False
+        if force:
+            manager.reset_unavailable("配置变化")
+        if manager.running:
+            await manager.ensure_healthy()
+            return manager.running
+        if manager.unavailable or not manager.retry_ready:
+            return False
+        result = await manager.start()
+        return bool(result.get("ok"))
+
+    def _start_wireguard_keepalive(self) -> None:
+        """启动 WireGuard 保活循环（15 秒一次，读实时配置）。"""
+        task = getattr(self, "_wireguard_keepalive_task", None)
+        if task is not None and not task.done():
+            return
+        try:
+            self._wireguard_keepalive_task = asyncio.create_task(
+                self._wireguard_keepalive_loop(),
+                name="astrbot_phone_control_wireguard_keepalive",
+            )
+        except RuntimeError:  # 没有运行中的事件循环（单测直接调用）
+            self._wireguard_keepalive_task = None
+
+    async def _wireguard_keepalive_loop(self) -> None:
+        """保活 + 退避重试：状态文件过期/进程退出按临时失败处理。"""
+        try:
+            while True:
+                await asyncio.sleep(15)
+                manager = getattr(self, "_wireguard", None)
+                if manager is None:
+                    continue
+                try:
+                    settings = self.service.config.wireguard
+                except Exception:  # noqa: BLE001 - 配置异常时跳过本轮
+                    continue
+                if not settings.enabled:
+                    if manager.running or manager.adb_over_wg:
+                        await manager.stop()
+                    continue
+                # 确定性不可用或临时失败退避未到期：静默跳过，不刷 WARN。
+                if manager.unavailable or not manager.retry_ready:
+                    continue
+                if not manager.running:
+                    await self._ensure_wireguard_started()
+                    continue
+                health = manager.health()
+                if not health.get("ok"):
+                    await manager.ensure_healthy()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 保活失败只记录
+            logger.warning("WireGuard 保活异常：%s", exc)
+
+    async def _apply_wireguard_config(self, action: str, notes: list[str]) -> None:
+        """配置热应用：按动作停止/启动/重启 WireGuard helper。"""
+        manager = getattr(self, "_wireguard", None)
+        if manager is None:
+            return
+        if action == ACTION_STOP:
+            await manager.stop()
+            notes.append("WireGuard：helper 已停止并恢复 ADB 目标")
+            return
+        if action not in {ACTION_START, ACTION_RESTART}:
+            return
+        manager.reset_unavailable("配置变化")
+        if action == ACTION_RESTART:
+            result = await manager.restart()
+        else:
+            result = await manager.start()
+        if result.get("ok"):
+            notes.append("WireGuard：helper 已按新配置就绪")
+        else:
+            reason = str(
+                result.get("reason")
+                or result.get("unavailable_reason")
+                or "未提供原因"
+            )
+            notes.append(f"WireGuard：启动失败（{reason}）")
 
     def _maybe_warm_scrcpy(self, event: AstrMessageEvent, req: Any) -> None:
         """手机相关请求时后台预热 scrcpy（60s 最多一次，不阻塞 LLM）。"""

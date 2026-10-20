@@ -59,6 +59,15 @@ from .novelty import (
     DEFAULT_THRESHOLD as DEFAULT_NOVELTY_THRESHOLD,
     NoveltySettings,
 )
+from .wireguard import (
+    DEFAULT_ADB_LOCAL_PORT as DEFAULT_WIREGUARD_ADB_LOCAL_PORT,
+    DEFAULT_INTERFACE_ADDRESS as DEFAULT_WIREGUARD_INTERFACE_ADDRESS,
+    DEFAULT_LISTEN_PORT as DEFAULT_WIREGUARD_LISTEN_PORT,
+    DEFAULT_MODE as DEFAULT_WIREGUARD_MODE,
+    DEFAULT_PHONE_WG_IP as DEFAULT_WIREGUARD_PHONE_WG_IP,
+    MODES as WIREGUARD_MODES,
+    WireGuardSettings,
+)
 
 DEFAULT_ADB_HOST = ""
 DEFAULT_ADB_PORT = 0
@@ -597,6 +606,7 @@ class PhoneConfig:
         default_factory=VerificationSettings
     )
     control: ControlSettings = field(default_factory=ControlSettings)
+    wireguard: WireGuardSettings = field(default_factory=WireGuardSettings)
     prompt: PromptSettings = field(default_factory=PromptSettings)
     novelty: NoveltySettings = field(default_factory=NoveltySettings)
     debug: DebugSettings = field(default_factory=DebugSettings)
@@ -1278,6 +1288,82 @@ class PhoneConfig:
             ).strip(),
         )
 
+        wireguard_card = card("wireguard")
+        wireguard_mode = _as_choice(
+            _pick(wireguard_card, source, "mode"),
+            DEFAULT_WIREGUARD_MODE,
+            "wireguard.mode",
+            warn_fn,
+            WIREGUARD_MODES,
+        )
+        wireguard = WireGuardSettings(
+            enabled=_as_bool(
+                _pick(wireguard_card, source, "enabled"),
+                False,
+                "wireguard.enabled",
+                warn_fn,
+            ),
+            mode=wireguard_mode,
+            listen_port=_as_int(
+                _pick(wireguard_card, source, "listen_port"),
+                DEFAULT_WIREGUARD_LISTEN_PORT,
+                "wireguard.listen_port",
+                warn_fn,
+                minimum=0,
+                maximum=65535,
+            ),
+            interface_address=_as_str(
+                _pick(wireguard_card, source, "interface_address"),
+                DEFAULT_WIREGUARD_INTERFACE_ADDRESS[wireguard_mode],
+                "wireguard.interface_address",
+                warn_fn,
+            ),
+            server_endpoint=_as_str(
+                _pick(wireguard_card, source, "server_endpoint"),
+                "",
+                "wireguard.server_endpoint",
+                warn_fn,
+            ),
+            public_endpoint=_as_str(
+                _pick(wireguard_card, source, "public_endpoint"),
+                "",
+                "wireguard.public_endpoint",
+                warn_fn,
+            ),
+            server_public_key=_as_str(
+                _pick(wireguard_card, source, "server_public_key"),
+                "",
+                "wireguard.server_public_key",
+                warn_fn,
+            ),
+            preshared_key=_as_str(
+                _pick(wireguard_card, source, "preshared_key"),
+                "",
+                "wireguard.preshared_key",
+                warn_fn,
+            ),
+            phone_wg_ip=_as_str(
+                _pick(wireguard_card, source, "phone_wg_ip"),
+                DEFAULT_WIREGUARD_PHONE_WG_IP[wireguard_mode],
+                "wireguard.phone_wg_ip",
+                warn_fn,
+            ),
+            adb_local_port=_as_int(
+                _pick(wireguard_card, source, "adb_local_port"),
+                DEFAULT_WIREGUARD_ADB_LOCAL_PORT,
+                "wireguard.adb_local_port",
+                warn_fn,
+                minimum=0,
+                maximum=65535,
+            ),
+            auto_adb=_as_bool(
+                _pick(wireguard_card, source, "auto_adb"),
+                False,
+                "wireguard.auto_adb",
+                warn_fn,
+            ),
+        )
+
         memory_card = card("memory")
         raw_memory_backend = _pick(memory_card, source, "backend")
         memory_backend_text = str(raw_memory_backend or "").strip().lower()
@@ -1465,6 +1551,7 @@ class PhoneConfig:
             verification=verification,
             model=model,
             control=control,
+            wireguard=wireguard,
             prompt=prompt,
             novelty=novelty,
             debug=debug,

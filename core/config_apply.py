@@ -153,6 +153,17 @@ RECONCILE_KEYS: frozenset[str] = frozenset(
         "auto.random_interval_max",
         "auto.random_probability",
         "auto.continuous_enabled",
+        "wireguard.enabled",
+        "wireguard.mode",
+        "wireguard.listen_port",
+        "wireguard.interface_address",
+        "wireguard.server_endpoint",
+        "wireguard.public_endpoint",
+        "wireguard.server_public_key",
+        "wireguard.preshared_key",
+        "wireguard.phone_wg_ip",
+        "wireguard.adb_local_port",
+        "wireguard.auto_adb",
     }
 )
 
@@ -177,6 +188,7 @@ _RANDOM_FIELDS = (
 ACTION_NONE = ""
 ACTION_START = "start"
 ACTION_STOP = "stop"
+ACTION_RESTART = "restart"
 
 
 def config_field_paths() -> frozenset[str]:
@@ -207,6 +219,8 @@ class ConfigApplyPlan:
     random_changed: bool = False
     continuous_action: str = ACTION_NONE
     live_screen_action: str = ACTION_NONE
+    wireguard_changed: bool = False
+    wireguard_action: str = ACTION_NONE
     notes: tuple[str, ...] = ()
 
     @property
@@ -219,6 +233,8 @@ class ConfigApplyPlan:
             or self.random_changed
             or self.continuous_action
             or self.live_screen_action
+            or self.wireguard_changed
+            or self.wireguard_action
         )
 
     @property
@@ -278,6 +294,16 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
         live_screen_action = (
             ACTION_START if current.perception.live_screen_enabled else ACTION_STOP
         )
+    # WireGuard helper 的配置在子进程启动时固化：任何 wireguard 字段变化都需要
+    # 停止/启动/按新配置重启，不能只靠「每次使用时读取」。
+    wireguard_changed = previous.wireguard != current.wireguard
+    wireguard_action = ACTION_NONE
+    if wireguard_changed and current.wireguard.enabled:
+        wireguard_action = (
+            ACTION_RESTART if previous.wireguard.enabled else ACTION_START
+        )
+    elif wireguard_changed and previous.wireguard.enabled:
+        wireguard_action = ACTION_STOP
 
     notes: list[str] = []
     if adb_changed:
@@ -302,6 +328,14 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
             notes.append("自主浏览：已关闭自动创建，已有 cron 任务可用 /phone auto off 删除")
     if random_changed:
         notes.append("随机玩手机：已按新配置重新排程")
+    if wireguard_action == ACTION_START:
+        notes.append("WireGuard：已开启，helper 将按新配置启动")
+    elif wireguard_action == ACTION_RESTART:
+        notes.append("WireGuard：配置已更新，helper 按新配置重启")
+    elif wireguard_action == ACTION_STOP:
+        notes.append("WireGuard：已关闭，helper 停止并恢复 ADB 目标")
+    elif wireguard_changed:
+        notes.append("WireGuard：配置已更新（当前未启用）")
 
     return ConfigApplyPlan(
         adb_changed=adb_changed,
@@ -310,5 +344,7 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
         random_changed=random_changed,
         continuous_action=continuous_action,
         live_screen_action=live_screen_action,
+        wireguard_changed=wireguard_changed,
+        wireguard_action=wireguard_action,
         notes=tuple(notes),
     )

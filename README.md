@@ -6,7 +6,7 @@
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.0.6` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.1.1` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -14,7 +14,7 @@
 
 `astrbot_phone_control` 是 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的手机操控插件。
 它通过远程 ADB（可选 scrcpy / minitouch 后端）操作一台安卓模拟器，把「看屏幕、点滑动、
-输入、打开 App、理解内容、记录记忆」封装成 30 个 LLM 工具，并提供 `/phone` 命令族、
+输入、打开 App、理解内容、记录记忆」封装成 31 个 LLM 工具，并提供 `/phone` 命令族、
 定时自主任务、只读监控面板与配置热应用。
 
 插件不绑定具体 App：内置抖音 / B 站 / 小黑盒画像，其余任意已安装 App 用通用文本抽取兜底。
@@ -33,8 +33,13 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
   最近操作 / 时效过滤），视觉信息用截图/OCR 兜底；`phone_traffic` 可查原始流量与分享链接。
 - **流媒体内容识别**：录制设备播放声音 + 关键画面描述，看懂视频/直播/音乐（需要 STT/视觉 Provider）。
 - **Token 对账**：按 AstrBot `provider_stats` 实际 usage 对账，滚动窗口额度可选（默认不限制）。
+- **WireGuard 组网**：插件内置 userspace WG helper（容器无需 `NET_ADMIN`/`/dev/net/tun`）：
+  `client` 连接已有 WG 服务器，或 `server` 让装了 WireGuard App 的手机接入；
+  `/phone wg config` 输出服务器 Peer 片段 / 手机端完整配置，可选 `auto_adb` 把 ADB 目标切到
+  WG 隧道。注意 ADB over WG 受 Android VpnService 按 UID 分流限制（手机官方 WG App 场景下
+  adbd 回包不走隧道），详见使用手册「WireGuard 组网 → 已知限制」。
 - **安全与运维**：管理员/主人白名单、统一设备执行入口（授权/占用/暂停/取消代次/期限）、
-  只读 Dashboard、抓包日志打码与轮转。
+  只读 Dashboard、抓包日志打码与轮转；WG 私钥落盘 0600。
 
 ## 快速开始
 
@@ -45,6 +50,8 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 - 插件自带 `bin/linux-x86_64/adb` 与 `bin/scrcpy-server-v5.0.1`，无需额外安装 adb/scrcpy；
 - 可选：`mitmproxy`（抓包识别，需独立 venv 安装，见使用手册）、PyAV 或宿主机 `ffmpeg`
   （scrcpy 视频镜像）、ADBKeyboard（中文输入）、minitouch（可选 touch 后端）。
+- 可选：WireGuard 组网使用插件自带 userspace helper `bin/linux-x86_64/phone-wg`
+  （无需 `NET_ADMIN`/`/dev/net/tun`；密钥与 helper 配置写入插件数据目录 `wireguard/`，文件 0600）。
   详见 [第三方引用说明](THIRD_PARTY_NOTICES.md)。
 
 ### 安装
@@ -80,6 +87,7 @@ AI：返回设备连接、前台 App、电量与分辨率
 | 权限与安全 | 管理员/白名单/主人；浏览与任务结束清理；评论/回复/发帖开关与限额 |
 | 屏幕感知 | UI 节点上限、dump/截图模式、实时屏幕、OCR/验证超时、感知来源 |
 | 控制/感知后端 | auto/adb/scrcpy；scrcpy 视频镜像参数；可选 minitouch |
+| WireGuard 组网 | enabled/mode(client/server)/listen_port/interface_address/server_endpoint(client)/public_endpoint(server)/server_public_key/PSK/phone_wg_ip/adb_local_port/auto_adb |
 | 信息流浏览 | 默认 App、条数、滑动节奏、截图与日记开关 |
 | 自主浏览 / 随机玩 / 持续刷 | 定时任务、随机间隔与概率、持续刷间隔/预算/偏好 App |
 | 刷手机/学习模型 | 自主任务专用 Provider（用户对话不受影响） |
@@ -103,13 +111,14 @@ AI：返回设备连接、前台 App、电量与分辨率
 /phone continuous on|off|status          持续刷手机
 /phone play [tokens]                     立即静默玩手机一轮
 /phone traffic [status|tail|on|off]      抓包状态/最近流量/开关
+/phone wg [status|start|stop|restart|config]  WireGuard 组网状态/开关/导入用配置
 /phone verify [status|resume|cancel <id>] 验证与人工协助
 /phone quota [audit [小时]]              token 额度与对账
 /phone novelty [status|reset]            内容新鲜感状态
 /phone stop [job_id|all]                 停止任务并回桌面清理后台
 ```
 
-完整命令、30 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
+完整命令、31 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
 
 ## 安全与隐私
 
@@ -119,6 +128,9 @@ AI：返回设备连接、前台 App、电量与分辨率
 - 抓包仅在本机模拟器上通过 mitmproxy 进行，日志正文截断、URL 敏感参数打码、日志轮转；
   截图、日记、学习档案等数据均写入插件数据目录 `data/plugin_data/astrbot_phone_control/`。
 - 验证码、短信/邮箱验证码、人脸与实名认证等账号安全操作始终交由用户处理。
+- WireGuard 私钥与 helper 配置只写插件数据目录 `wireguard/`（keys.json / phone-wg.json，
+  0600），不写入日志；server 模式需自行把 UDP `listen_port` 暴露到手机可达的网络，
+  对端 `AllowedIPs` 按最小网段配置，公网部署建议配合防火墙与 PSK。
 
 ## 目录结构
 
@@ -127,12 +139,13 @@ main.py                插件入口：入口类 PhoneControlPlugin + AstrBot 命
 core/plugin/           插件运行逻辑 mixins（装配/生命周期、命令、任务、设备钩子、后端、监控、记忆、记账）
 core/service.py        能力门面 PhoneService（状态/UI/截图/浏览/日记/分享/抓包页面内容）
 core/verification_controller.py  验证会话控制器（尝试次数/总时限/人工接管/持久化）
-core/tools/            30 个 LLM 工具实现（按域拆分）
+core/wireguard.py      WireGuard 组网：X25519 密钥、helper 配置/状态文件、子进程生命周期、ADB over WG
+core/tools/            31 个 LLM 工具实现（按域拆分）
 core/*.py              设备层与纯逻辑模块（ADB/UI/动作/配置/抓包/记忆/新鲜感等）
 skills/                AI 行为手册（自主浏览、互动、验证、媒体、整理）
 views/dashboard/       只读监控面板与学习记录页
 docs/使用手册.md        完整功能、配置、工具、命令与 FAQ
-bin/                   自带 adb 与 scrcpy-server（含第三方 NOTICE）
+bin/                   自带 adb、scrcpy-server 与 phone-wg helper（含第三方 NOTICE）
 ```
 
 各模块职责详见 [使用手册 · 目录结构](docs/使用手册.md#目录结构)。
@@ -149,7 +162,7 @@ pip install -r requirements.txt
 
 - 插件要求 Python 3.10+（AstrBot 4.29 运行环境）；
 - 完整测试与 UAT 验证需要在包含 AstrBot 依赖的容器内执行 `python3 -m pytest tests -q`；
-- 修改代码前请阅读 `AGENTS.md`/仓库约定（若存在），提交保持中文信息与 LF 行尾。
+- 修改代码前请阅读仓库内开发约定（若存在），提交保持中文信息与 LF 行尾。
 
 ## 常见问题
 

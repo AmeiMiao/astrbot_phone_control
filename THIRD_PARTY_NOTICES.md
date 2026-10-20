@@ -10,6 +10,7 @@
 | --- | --- | --- | --- |
 | **adb**（Android platform-tools） | AOSP Android SDK Platform-Tools | **Apache-2.0** | 位于 `bin/linux-x86_64/adb`，原样分发未修改。版权归 Google LLC 及 Android 项目贡献者；许可证与 NOTICE 全文见 `bin/linux-x86_64/NOTICE.txt`（来源 sdk-repo-linux-platform-tools.zip） |
 | **scrcpy-server** | [scrcpy](https://github.com/Genymobile/scrcpy) v5.0.1 | **Apache-2.0** | 位于 `bin/scrcpy-server-v5.0.1`，为 scrcpy 项目发布的 server 构建产物，未修改；通过 adb 推送到设备的 `/data/local/tmp` 以 `app_process` 运行。版权：Copyright (c) 2018 Genymobile、Copyright (c) 2018-2026 Romain Vimont 及 scrcpy 贡献者。详见 `bin/scrcpy-server-NOTICE.txt` |
+| **phone-wg**（WireGuard userspace helper） | 本仓库 `helper/phone-wg` 源码构建；静态链接 [wireguard-go](https://git.zx2c4.com/wireguard-go/) `v0.0.0-20261006164505-2631ce99a06f` 与 [gVisor](https://gvisor.dev/) `v0.0.0-20250503011706-39ed1f5ac29c` | **MIT + Apache-2.0** | 位于 `bin/linux-x86_64/phone-wg`，linux/amd64 静态 ELF；wireguard-go 为 **MIT**，gVisor netstack 为 **Apache-2.0**，编译时未修改上游代码。静态链接组件清单与许可证声明见「四、phone-wg 静态链接的第三方组件」 |
 
 Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`，或
 <https://www.apache.org/licenses/LICENSE-2.0>。
@@ -37,3 +38,50 @@ Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`，或
 - 插件中出现的 App 名称、图标与商标（抖音、哔哩哔哩、小黑盒、微信等）仅用于识别模拟器
   上用户自行安装的应用，归各权利人所有；本插件与这些 App 的运营方无隶属或合作关系。
 - 若您是某第三方组件的权利人，认为本项目的引用/分发方式需要调整，请通过仓库 Issue 联系。
+
+## 四、phone-wg 静态链接的第三方组件
+
+`bin/linux-x86_64/phone-wg` 由本仓库 `helper/phone-wg` 的 Go 源码构建，静态链接以下组件
+（Go 编译产物不保留动态依赖，许可证声明随二进制分发）：
+
+| 组件 | 版本 | 许可证 | 版权/说明 |
+| --- | --- | --- | --- |
+| [wireguard-go](https://git.zx2c4.com/wireguard-go/) | `v0.0.0-20261006164505-2631ce99a06f` | **MIT** | Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.；提供 WireGuard 协议实现、`tun/netstack` 与设备配置文本协议 |
+| [gVisor](https://gvisor.dev/)（`gvisor.dev/gvisor` 的 netstack/tcpip） | `v0.0.0-20250503011706-39ed1f5ac29c` | **Apache-2.0** | Copyright 2018 The gVisor Authors；提供用户态 TCP/IP 协议栈 |
+| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | `v0.37.0` | **BSD-3-Clause** | Copyright 2009 The Go Authors；提供 Curve25519 密钥派生 |
+| [golang.org/x/net](https://pkg.go.dev/golang.org/x/net) | `v0.39.0` | **BSD-3-Clause** | Copyright 2009 The Go Authors；提供 ICMP/IPv4 报文处理 |
+| [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | `v0.32.0` | **BSD-3-Clause** | Copyright 2009 The Go Authors；提供系统调用封装 |
+| [golang.org/x/time](https://pkg.go.dev/golang.org/x/time) | `v0.7.0` | **BSD-3-Clause** | Copyright 2009 The Go Authors |
+| [github.com/google/btree](https://github.com/google/btree) | `v1.1.2` | **Apache-2.0** | Copyright 2014 Google LLC |
+| Go 运行时与标准库 | Go 1.26 工具链 | **BSD-3-Clause** | Copyright 2009 The Go Authors |
+| `golang.zx2c4.com/wintun` | `v0.0.0-20230126152724-0fa3db229ce2` | **MIT** | 仅 wireguard-go 的 Windows 构建使用，linux/amd64 产物不包含该模块代码 |
+
+Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt` 或
+<https://www.apache.org/licenses/LICENSE-2.0>；BSD-3-Clause 许可证全文见
+<https://go.dev/LICENSE>。
+
+wireguard-go 的 MIT 许可证全文：
+
+```text
+Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+gVisor 的声明：Copyright 2018 The gVisor Authors，许可证为 Apache-2.0（全文同上）。

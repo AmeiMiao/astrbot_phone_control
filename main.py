@@ -11,7 +11,7 @@
   设备钩子、实时屏幕/后端、抓包、监控面板、记忆同步、token 记账）；
 * ``core/service.py`` 是对工具/命令暴露的能力门面（状态、UI 树、截图、浏览、日记等）；
 * ``core/verification_controller.py`` 是验证会话/人工接管控制器；
-* ``core/tools/`` 是 30 个 LLM 工具的实现包；
+* ``core/tools/`` 是 31 个 LLM 工具的实现包；
 * ``core/adb.py``、``core/ui.py``、``core/actions.py`` 是设备层（ADB/UI/动作）。
 """
 
@@ -211,7 +211,7 @@ class PhoneControlPlugin(
 ):
     """AstrBot 手机操控插件。"""
 
-    _CONTROL_SUBS = frozenset({"stop", "verify"})
+    _CONTROL_SUBS = frozenset({"stop", "verify", "wg"})
     _HELP_SUBS = frozenset({"", "help", "-h", "--help", "?", "？"})
 
     async def terminate(self) -> None:

@@ -107,6 +107,8 @@ from ..page_content import (
 )
 from ..traffic import extract_share_links, infer_flow_hints, mask_url, render_traffic
 from ..traffic_capture import TrafficCapture
+from ..wireguard import BUNDLED_HELPER as BUNDLED_WIREGUARD_HELPER
+from ..wireguard import WireGuardManager
 from ..share_policy import (
     classify_session_umo,
     is_recent_interaction,
@@ -352,6 +354,20 @@ class BootstrapMixin:
             mitmdump=self.service.config.traffic.mitmdump_path,
         )
         self.service.traffic = self._traffic
+        # WireGuard 组网：userspace helper 生命周期跟随插件；auto_adb 开启时
+        # helper 健康后把 ADB 目标切到 WG 隧道本地端口，停止/异常时恢复。
+        self._wireguard = WireGuardManager(
+            data_dir=self.data_dir,
+            settings_provider=lambda: self.service.config.wireguard,
+            adb=self.adb,
+            adb_target_provider=lambda: {
+                "host": self.service.config.adb.host,
+                "port": self.service.config.adb.port,
+                "serial": self.service.config.adb.serial,
+            },
+            config_patch=self._apply_config_patch,
+        )
+        self.service.wireguard = self._wireguard
         # 验证会话/人工接管控制器（先加载持久化状态，再启动调度器）。
         self._verification = PhoneVerification(self)
         self.service.verification = self._verification
@@ -473,6 +489,13 @@ class BootstrapMixin:
         except Exception as exc:  # noqa: BLE001 - 抓包失败不能阻塞插件启用
             logger.warning("抓包启动失败：%s", exc)
         self._start_traffic_keepalive()
+        try:
+            await asyncio.wait_for(self._ensure_wireguard_started(), timeout=30)
+        except asyncio.TimeoutError:
+            logger.warning("WireGuard 启动超时（30s），保活循环会继续按退避重试")
+        except Exception as exc:  # noqa: BLE001 - WireGuard 失败不能阻塞插件启用
+            logger.warning("WireGuard 启动失败：%s", exc)
+        self._start_wireguard_keepalive()
         if not self._verification.paused:
             self._start_random_play_loop()
             self._start_screenshot_cleanup_loop()
@@ -541,6 +564,20 @@ class BootstrapMixin:
             await self._traffic.stop()
         except Exception as exc:  # noqa: BLE001 - 抓包清理失败不影响停用
             logger.warning("抓包停止失败：%s", exc)
+        wireguard_task = getattr(self, "_wireguard_keepalive_task", None)
+        self._wireguard_keepalive_task = None
+        if wireguard_task is not None and not wireguard_task.done():
+            wireguard_task.cancel()
+            try:
+                await wireguard_task
+            except asyncio.CancelledError:
+                pass
+        try:
+            wireguard = getattr(self, "_wireguard", None)
+            if wireguard is not None:
+                await wireguard.stop()
+        except Exception as exc:  # noqa: BLE001 - WireGuard 停止失败不影响停用
+            logger.warning("WireGuard 停止失败：%s", exc)
         try:
             await self._verification.shutdown()
         except Exception as exc:  # noqa: BLE001 - 验证状态保存失败不影响停用
@@ -592,10 +629,13 @@ class BootstrapMixin:
                     logger.warning("关闭 ADB 客户端失败：%s", exc)
 
     def _ensure_bundled_executables(self) -> None:
-        """修复市场/zip 安装丢失的可执行位（adb 需要 +x 才能启动）。"""
+        """修复市场/zip 安装丢失的可执行位（adb / phone-wg 需要 +x 才能启动）。"""
         bundled = plugin_root_dir() / BUNDLED_ADB
         if bundled.is_file() and not ensure_executable(bundled):
             logger.warning("无法设置插件自带 adb 的可执行权限：%s", bundled)
+        helper = plugin_root_dir() / BUNDLED_WIREGUARD_HELPER
+        if helper.is_file() and not ensure_executable(helper):
+            logger.warning("无法设置 WireGuard helper 的可执行权限：%s", helper)
 
     def _resolve_adb_path(self, config: PhoneConfig) -> Path:
         """解析 adb 可执行文件：配置优先，其次插件自带二进制。"""
@@ -848,6 +888,14 @@ class BootstrapMixin:
             except Exception as exc:  # noqa: BLE001 - 抓包重启失败只记录
                 logger.warning("配置热应用：抓包重启失败：%s", exc)
                 notes.append("抓包：重启失败（详见插件日志）")
+
+        # 9) WireGuard 组网：开关/角色/密钥/端口等变化 → 停止、启动或按新配置重启。
+        if plan.wireguard_changed:
+            try:
+                await self._apply_wireguard_config(plan.wireguard_action, notes)
+            except Exception as exc:  # noqa: BLE001 - 重启失败只记录
+                logger.warning("配置热应用：WireGuard 应用失败：%s", exc)
+                notes.append(f"WireGuard：配置已保存，但 helper 应用失败：{exc}")
 
         if plan.changed:
             logger.info("配置热应用完成：%s", "；".join(plan.notes) or "运行态已更新")

@@ -8,6 +8,7 @@
 *.jpg binary
 *.apk binary
 bin/linux-x86_64/adb binary
+bin/linux-x86_64/phone-wg binary
 
 bin/linux-x86_64/NOTICE.txt -diff -text
 

@@ -40,6 +40,7 @@ from .verification_tools import PhoneBypassVerifyTool
 from .solve import PhoneSolveVerificationTool
 from .screen_ai import PhoneLiveScreenTool, PhoneReadScreenTool, PhoneWatchMediaTool
 from .traffic import PhoneTrafficTool
+from .wireguard import PhoneWireguardTool
 
 
 # 工具名常量：插件入口注册与测试断言共用，避免拼写漂移。
@@ -47,6 +48,7 @@ TOOL_NAMES = (
     "phone_status",
     "phone_screen",
     "phone_traffic",
+    "phone_wireguard",
     "phone_tap",
     "phone_long_press",
     "phone_swipe",
@@ -87,6 +89,10 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
     "phone_traffic": (
         "看抓包识别页面：scope=page（当前前台页面）/recent（最近全部流量）；"
         "图文/布局用截图兜底。"
+    ),
+    "phone_wireguard": (
+        "WireGuard 组网：status 状态；start/stop/restart 开关/重启 helper；"
+        "config 显示导入用配置（client=服务器 Peer 片段，server=手机端完整配置）。"
     ),
     "phone_tap": "点击：按坐标 (x,y) 或 text/desc 定位后点击。",
     "phone_long_press": "长按：坐标或 text/desc 定位，duration_ms 为按压时长。",
@@ -216,6 +222,7 @@ def build_phone_tools(service: Any) -> list[FunctionTool]:
         PhoneStatusTool(service=service),
         PhoneScreenTool(service=service),
         PhoneTrafficTool(service=service),
+        PhoneWireguardTool(service=service),
         PhoneTapTool(service=service),
         PhoneLongPressTool(service=service),
         PhoneSwipeTool(service=service),

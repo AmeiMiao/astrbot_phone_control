@@ -4,6 +4,45 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-21
+
+### Added
+
+- WireGuard 组网（client/server）：插件内置 userspace Go helper
+  （`bin/linux-x86_64/phone-wg`，容器无需 `NET_ADMIN`/`/dev/net/tun`），新增 `wireguard`
+  配置卡（enabled/mode/listen_port/interface_address/server_endpoint/public_endpoint/
+  server_public_key/preshared_key/phone_wg_ip/adb_local_port/auto_adb）。
+- X25519 密钥生成与 WireGuard 私钥 clamp；client/server/phone 三套密钥持久化到
+  `plugin_data/astrbot_phone_control/wireguard/keys.json`（0600，目录 0700）。
+  client 模式 `/phone wg config` 输出服务器侧需添加的 Peer 片段；server 模式自动生成
+  手机密钥并输出手机端完整 WireGuard 配置（可复制导入手机 WG App）。
+- `/phone wg [status|start|stop|restart|config]` 命令与 LLM 工具 `phone_wireguard`
+  （工具数 30 → 31）；`/phone status` 追加 WireGuard 摘要。
+- ADB over WG：helper 转发 `127.0.0.1:<adb_local_port>` → `<phone_wg_ip>:5555`；
+  `auto_adb=true` 时 helper 健康后自动把 ADB 目标切到隧道，停止/异常/配置变化时恢复。
+- helper 生命周期跟随插件（初始化启动、配置热应用重启/停止、terminate 停止并恢复
+  ADB 目标）；helper stderr 转发 AstrBot 日志；确定性失败（helper 缺失、配置/密钥非法、
+  helper 退出码 2/3）只告警一次并停止自动重试，临时失败按 30 秒起指数退避、连续 4 次
+  失败收敛为不可用。
+- 新增 `tests/test_wireguard.py` 与 `tests/test_wireguard_lifecycle.py`：密钥/配置/状态
+  解析/热应用分类单测，以及 fake helper 覆盖的启动/停止/失败分流/健康判定/ADB 切换。
+- README 与使用手册新增「WireGuard 组网」章节（client/server 用法、手机端配置导入、
+  ADB over WG、安全注意与故障排查）。
+
+### Changed
+
+- `wireguard` 配置卡按角色区分显示：`server` 模式仅显示监听端口/手机可达地址等 server 项，
+  `client` 模式仅显示要连接的服务器地址/公钥等 client 项（schema `condition` 按 `mode` 显隐），
+  通用项两种模式都显示；使用手册配置表增加「适用模式」列。
+
+### 已知限制
+
+- ADB over WG 受 Android `VpnService` 按 UID 分流限制：官方 WireGuard App 场景下 adbd
+  （shell UID 2000）的响应不走 VPN 隧道，隧道侧只能发出 SYN、收不到回包（UAT MuMu
+  Android 12 实测）。因此 0.1.0 的手机侧验证范围为「安装 App / 导入配置 / 建立隧道 /
+  与服务器握手」；ADB over WG 端到端适用于 Linux/容器等标准 WG 对端，或手机以 root 级
+  全局 WireGuard（非 VpnService）接入的场景。普通 App 自身发起的流量仍可经隧道互通。
+
 ## [0.0.6] - 2026-10-20
 
 ### Fixed

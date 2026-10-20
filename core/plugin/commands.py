@@ -203,6 +203,7 @@ class CommandsMixin:
             "quota",
             "learn",
             "novelty",
+            "wg",
         }:
             await self._say(
                 event,
@@ -211,7 +212,7 @@ class CommandsMixin:
             )
             return
         quota_error = self.service.quota_error_text()
-        if quota_error and sub not in {"help", "quota", "stop", "learn", "continuous", "traffic", "novelty"}:
+        if quota_error and sub not in {"help", "quota", "stop", "learn", "continuous", "traffic", "novelty", "wg"}:
             await self._say(event, quota_error)
             return
         if not config.adb.configured and sub not in {"help", "diary", "quota", "stop", "learn", "traffic", "novelty"}:
@@ -224,6 +225,9 @@ class CommandsMixin:
                     "\n- 用户任务优先：AI 自刷/后台任务已暂停（用户任务结束后自动恢复）"
                 )
             status_text += "\n- " + self.device_gate.status_text()
+            wireguard = getattr(self, "_wireguard", None)
+            if wireguard is not None:
+                status_text += "\n- " + wireguard.brief_text()
             await self._say(event, status_text)
         elif sub == "connect":
             info = await self.service.connect()
@@ -267,6 +271,8 @@ class CommandsMixin:
             await self._cmd_continuous(event, config, rest)
         elif sub == "traffic":
             await self._cmd_traffic(event, config, rest)
+        elif sub == "wg":
+            await self._cmd_wireguard(event, rest)
         elif sub == "verify":
             await self._cmd_verify(event, rest)
         elif sub == "learn":
@@ -872,3 +878,49 @@ class CommandsMixin:
                 "用法：/phone traffic [status|tail [n]|on|off]\n"
                 "status=查看抓包状态与最近流量；tail [n]=看最近 n 条；on/off=开关抓包",
             )
+
+    async def _cmd_wireguard(
+        self,
+        event: AstrMessageEvent,
+        rest: list[str],
+    ) -> None:
+        """``/phone wg [status|start|stop|restart|config]``：WireGuard 组网管理。"""
+        action = rest[0].lower() if rest else "status"
+        manager = getattr(self, "_wireguard", None)
+        if manager is None:
+            await self._say(event, "error: WireGuard 未初始化（插件装配异常）")
+            return
+        aliases = {
+            "status": "status",
+            "状态": "status",
+            "start": "start",
+            "开启": "start",
+            "stop": "stop",
+            "关闭": "stop",
+            "restart": "restart",
+            "重启": "restart",
+            "config": "config",
+            "配置": "config",
+        }
+        name = aliases.get(action)
+        if name is None:
+            await self._say(
+                event,
+                "用法：/phone wg [status|start|stop|restart|config]\n"
+                "status=查看 WireGuard 运行状态；start/stop/restart=开关/重启 helper；"
+                "config=查看导入用配置（client=服务器需添加的 Peer 片段，"
+                "server=手机端完整 WireGuard 配置）",
+            )
+            return
+        if name in {"start", "stop", "restart"}:
+            await self._say(event, f"正在执行 WireGuard {name}…")
+        try:
+            result = await manager.control(name)
+        except Exception as exc:  # noqa: BLE001 - 动作失败给可读错误
+            logger.warning("WireGuard 动作失败（%s）：%s", name, exc)
+            await self._say(event, f"error: WireGuard {name} 失败：{exc}")
+            return
+        text = str(result.get("text") or "")
+        if not result.get("ok") and not text.startswith("error:"):
+            text = f"error: {text}" if text else "error: WireGuard 动作失败"
+        await self._say(event, text)
