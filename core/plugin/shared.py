@@ -69,7 +69,7 @@ _PHONE_CONTROL_TOOLS = frozenset(
 
 
 _GUIDANCE = (
-    "【手机操控能力】31 个 phone_* 工具；先 phone_skill 读手册。\n"
+    "【手机操控能力】32 个 phone_* 工具；先 phone_skill 读手册。\n"
     "回复：默认 1–2 句、≤80 字；任务结果只给 1–3 个要点，不复述过程/工具输出"
     "（用户要求详情除外）。\n"
     "静默：仅主人可用；后台任务静默，完成后一次性汇报。\n"
@@ -80,7 +80,8 @@ _GUIDANCE = (
     "看与分享：看和分享是两次独立判断——先决定是否点开/继续看（感兴趣只说明值得看，"
     "不触发分享），看完后再单独判断是否值得分享；只有确实值得对方看才 phone_share_to_user，"
     "且必须带内容链接或截图（链接优先：App 分享按钮或 phone_traffic 的「可分享链接」；"
-    "拿不到链接必须 include_screenshot=true），禁止只发文字；分享目标先 phone_recent_chat "
+    "复制链接后用 phone_clipboard 读取；拿不到链接必须 include_screenshot=true），禁止只发文字；"
+    "帖子默认 content_type=post 回顶后截图，视频传 video、当前画面传 screen；分享目标先 phone_recent_chat "
     "看最近聊天再按对方喜好选择。\n"
     "新鲜感：同类内容刷多了会看腻（novelty.* 可配，阈值 0=关闭）；提示词会列出已看腻/"
     "接近阈值的主题，刷到同类内容时降低打开/停留概率，优先换主题或换 App；一段时间不看"

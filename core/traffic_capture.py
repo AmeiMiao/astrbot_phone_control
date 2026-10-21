@@ -73,6 +73,7 @@ class TrafficCapture:
         data_dir: str | Path,
         logger: Any = None,
         mitmdump: str = "",
+        keep_packages_provider=None,
     ) -> None:
         self.adb = adb
         self.root = Path(data_dir) / "traffic"
@@ -82,6 +83,7 @@ class TrafficCapture:
         self.mitm_log_path = self.root / "mitmdump.log"
         self._logger = logger
         self._mitmdump = mitmdump
+        self._keep_packages_provider = keep_packages_provider
         self._device_lease = None
         self._process_heartbeat = None
         self._proc: asyncio.subprocess.Process | None = None
@@ -308,27 +310,13 @@ class TrafficCapture:
         return False
 
     async def _force_stop_apps(self) -> int:
-        """结束已运行的第三方 App，让它们的新进程信任刚注入的系统 CA。"""
-        try:
-            output = await self.adb.shell("pm list packages -3", timeout=20)
-        except Exception:  # noqa: BLE001 - 取包失败就跳过
-            return 0
-        packages = [
-            line.strip().split(":")[-1]
-            for line in str(output or "").splitlines()
-            if line.strip().startswith("package:")
-        ]
-        # 批量 force-stop，避免几十次 adb 往返
-        commands = "; ".join(
-            f"am force-stop {package}" for package in packages[:80] if package
-        )
-        if not commands:
-            return 0
-        try:
-            await self.adb.shell(commands, timeout=45)
-        except Exception:  # noqa: BLE001 - 杀进程失败不阻塞抓包
-            return 0
-        return len(packages[:80])
+        """按统一保留规则重启应用，使其读取注入的系统 CA。"""
+        from .background import DEFAULT_KEEP_PACKAGES, clean_background
+        whitelist = self._keep_packages_provider() if self._keep_packages_provider else DEFAULT_KEEP_PACKAGES
+        report = await clean_background(self.adb, whitelist=whitelist)
+        if report["errors"]:
+            self._log("抓包初始化清理异常：" + "；".join(report["errors"]))
+        return report["stopped"]
 
     async def _setup_device_locked(self) -> None:
         """注入系统 CA、建立 reverse 与全局代理（需要 root；调用方持锁）。"""

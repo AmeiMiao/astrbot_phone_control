@@ -14,17 +14,18 @@ description: 手机整理手册：何时清理后台、两种清理模式、注�
 
 ## 两种清理模式（工具 `phone_clean_background`）
 
-- **留空 `package`**：执行 `am kill-all`，清理所有后台进程，**不影响当前前台 App**；
-- **填写 `package`**：对指定 App 执行 `am force-stop`，会彻底停止该 App
-  （只用于确实不再需要的 App）。
+- **留空 `package`**：按 `security.background_keep_packages` 逐包清理后台，保留当前前台、桌面与输入法；
+- **填写 `package`**：对指定 App 执行 `am force-stop`，会停止该 App；名单内应用与当前前台始终保留。
 
 ## 自动清理
 
-- 每次 `phone_browse` 浏览结束后，插件会自动静默执行一次 `am kill-all`
+- 每次 `phone_browse` 浏览结束后，插件会自动按保留名单清理一次后台
   （配置 `security.auto_clean_after_browse` 默认开启，不影响前台），不需要你额外操作。
-- 玩手机/控制类会话结束时，插件会自动按 HOME 回桌面并执行 `am kill-all`
+- 玩手机/控制类会话结束时，插件会自动按 HOME 回桌面并按保留名单逐包清理
   （配置 `security.auto_clean_after_task` 默认开启），也不要在汇报里提这件事。
 - 中途需要更彻底地按包名清理时，再手动调用 `phone_clean_background`。
+
+默认保留 WireGuard（`com.wireguard.android`）和 Tailscale（`com.tailscale.ipn`）；其他常驻应用可在保留名单追加完整包名。
 
 ## 注意事项
 

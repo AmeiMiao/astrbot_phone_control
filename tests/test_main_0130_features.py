@@ -969,7 +969,7 @@ def test_share_tool_user_task_defaults_current_session(tmp_path, monkeypatch):
 
 
 def test_share_tool_text_only_auto_screenshot(tmp_path, monkeypatch):
-    """纯文字分享不允许：没有链接时自动补当前内容截图（截图失败才报错）。"""
+    """纯文字分享不允许：没有链接时自动补帖子顶部截图（截图失败才报错）。"""
 
     async def scenario() -> None:
         plugin = _make_plugin(tmp_path, monkeypatch)
@@ -980,7 +980,7 @@ def test_share_tool_text_only_auto_screenshot(tmp_path, monkeypatch):
             async def fake_capture(*args, **kwargs):
                 return b"\x89PNG\r\n\x1a\n", shot, {}
 
-            monkeypatch.setattr(plugin.service, "capture", fake_capture)
+            monkeypatch.setattr(plugin.service, "capture_post_top", fake_capture)
             tool = PhoneShareToUserTool(service=plugin.service)
             event = FakeEvent(umo="webchat:FriendMessage:1", text="分享给我")
             star = FakeStarContext()
@@ -993,6 +993,43 @@ def test_share_tool_text_only_auto_screenshot(tmp_path, monkeypatch):
         finally:
             await _cleanup(plugin)
 
+    asyncio.run(scenario())
+
+
+def test_post_share_ignores_middle_screenshot_and_refuses_unconfirmed_top(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        try:
+            middle = tmp_path / "middle.png"
+            middle.write_bytes(b"middle")
+            calls = []
+            async def fail_top():
+                calls.append("top")
+                raise plugin_main.PhoneControlError("未确认帖子顶部")
+            monkeypatch.setattr(plugin.service, "capture_post_top", fail_top)
+            tool = PhoneShareToUserTool(service=plugin.service)
+            star = FakeStarContext()
+            event = FakeEvent(umo="webchat:FriendMessage:1")
+            result = await tool.call(FakeShareToolContext(event,star), text="帖子", screenshot_path=str(middle))
+            assert "未确认帖子顶部" in result
+            assert calls==["top"] and star.sent==[]
+        finally:await _cleanup(plugin)
+    asyncio.run(scenario())
+
+
+def test_video_share_preserves_existing_current_frame(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        try:
+            frame = tmp_path / "video.png"
+            frame.write_bytes(b"video")
+            async def forbidden_top():raise AssertionError("video must not scroll")
+            monkeypatch.setattr(plugin.service, "capture_post_top", forbidden_top)
+            tool = PhoneShareToUserTool(service=plugin.service)
+            star = FakeStarContext()
+            result = await tool.call(FakeShareToolContext(FakeEvent(umo="webchat:FriendMessage:1"),star),content_type="video",screenshot_path=str(frame))
+            assert "已分享" in result and star.sent==["webchat:FriendMessage:1"]
+        finally:await _cleanup(plugin)
     asyncio.run(scenario())
 
 
@@ -1204,7 +1241,7 @@ def test_share_tool_supports_link_and_falls_back_to_screenshot(tmp_path, monkeyp
             async def fake_capture(*args, **kwargs):
                 return b"\x89PNG\r\n\x1a\n", shot, {}
 
-            monkeypatch.setattr(plugin.service, "capture", fake_capture)
+            monkeypatch.setattr(plugin.service, "capture_post_top", fake_capture)
             tool = PhoneShareToUserTool(service=plugin.service)
             event = FakeEvent(umo="webchat:FriendMessage:1", text="分享给我")
             star = FakeStarContext()

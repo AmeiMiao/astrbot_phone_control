@@ -78,6 +78,7 @@ TYPE_INJECT_TEXT = 1
 TYPE_INJECT_TOUCH_EVENT = 2
 TYPE_INJECT_SCROLL_EVENT = 3
 TYPE_BACK_OR_SCREEN_ON = 4
+TYPE_GET_CLIPBOARD = 8
 TYPE_ROTATE_DEVICE = 11
 
 # Android 事件动作
@@ -459,6 +460,7 @@ class ScrcpyClient:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._state_lock = threading.RLock()
         self._control_send_lock = threading.Lock()
+        self._control_receive_lock = threading.Lock()
         self._frame_lock = threading.Lock()
         self._frames: deque[ScrcpyFrame] = deque(maxlen=_DEFAULT_BUFFER_FRAMES)
 
@@ -766,7 +768,7 @@ class ScrcpyClient:
         command = (
             f"CLASSPATH={self._remote_jar} app_process / {_SERVER_CLASS} {version} "
             "log_level=info "
-            f"{video_arg}audio=false control=true raw_stream=true{dummy_arg} "
+            f"{video_arg}audio=false control=true clipboard_autosync=false raw_stream=true{dummy_arg} "
             f"tunnel_forward=true cleanup=false scid={self._scid:x}{max_size_arg} "
             f"< /dev/null > {self._remote_log} 2>&1 & echo PID=$!"
         )
@@ -1551,6 +1553,59 @@ class ScrcpyClient:
         except OSError as exc:
             self._on_stream_lost(f"控制通道写入失败：{exc}")
             raise ScrcpyError(f"scrcpy 控制通道写入失败：{exc}") from exc
+
+    async def get_clipboard(self, *, timeout: float = 3.0) -> str:
+        """请求设备当前剪贴板，逐帧读取回应；不触发复制按键或改变剪贴板。"""
+        def receive() -> str:
+            with self._control_receive_lock:
+                sock = self._require_control()
+                deadline = time.monotonic() + timeout
+
+                def exact(size: int) -> bytes:
+                    data = bytearray()
+                    while len(data) < size:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0 or not select.select([sock], [], [], remaining)[0]:
+                            raise ScrcpyError("读取剪贴板超时，设备未回应")
+                        chunk = sock.recv(size - len(data))
+                        if not chunk:
+                            raise ScrcpyError("读取剪贴板时控制通道已关闭")
+                        data.extend(chunk)
+                    return bytes(data)
+
+                with self._control_send_lock:
+                    sock.sendall(bytes((TYPE_GET_CLIPBOARD, 0)))
+                while True:
+                    kind = exact(1)[0]
+                    if kind == 0:
+                        length = struct.unpack(">I", exact(4))[0]
+                        if length > (1 << 18) - 5:
+                            raise ScrcpyError("剪贴板回应长度超出协议限制")
+                        return exact(length).decode("utf-8")
+                    if kind == 1:
+                        exact(8)
+                    elif kind == 2:
+                        _id, length = struct.unpack(">HH", exact(4))
+                        exact(length)
+                    else:
+                        raise ScrcpyError(f"未知设备控制消息：{kind}")
+        try:
+            return await asyncio.to_thread(receive)
+        except asyncio.CancelledError:
+            sock = self._control_socket
+            if sock is not None:
+                with suppress(OSError):
+                    sock.shutdown(socket.SHUT_RDWR)
+            self._on_stream_lost("剪贴板读取已取消")
+            raise
+        except (OSError, ValueError, UnicodeError, ScrcpyError) as exc:
+            # 关闭本次流，避免迟到回应被下一次读取误认为新剪贴板。
+            sock = self._control_socket
+            if sock is not None:
+                with suppress(OSError):
+                    sock.shutdown(socket.SHUT_RDWR)
+            self._on_stream_lost(f"剪贴板读取失败：{exc}")
+            raise ScrcpyError(f"剪贴板读取失败：{exc}") from exc
 
     async def _send_touch(
         self,

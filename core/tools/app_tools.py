@@ -175,14 +175,6 @@ _MEMINFO_RE = re.compile(r"^(MemFree|MemAvailable):\s+(\d+)\s*kB\s*$", re.MULTIL
 _MEMINFO_COMMAND = "cat /proc/meminfo"
 
 
-_CLEAN_KILL_ALL_COMMAND = "am kill-all"
-
-
-def _clean_command(package: str) -> str:
-    """构造后台清理命令：留空包名 am kill-all，指定包名 am force-stop。"""
-    return f"am force-stop {package}" if package else _CLEAN_KILL_ALL_COMMAND
-
-
 def _parse_meminfo(text: str) -> dict[str, int]:
     """从 /proc/meminfo 解析 MemFree / MemAvailable（KB）。"""
     values: dict[str, int] = {}
@@ -226,8 +218,8 @@ class PhoneCleanBackgroundTool(_PhoneToolBase):
     name: str = "phone_clean_background"
     description: str = (
         "清理手机后台进程，适用于长时间刷手机、频繁切换 App 前或感觉卡顿时。"
-        "package 留空时执行 am kill-all 清理所有后台进程（不影响当前前台 App）；"
-        "填写包名时对该 App 执行 am force-stop。会返回清理前后 MemFree/MemAvailable "
+        "package 留空时逐包清理，保留白名单、桌面、输入法与当前前台；"
+        "填写包名时清理指定 App，保留项仍受保护。会返回清理前后 MemFree/MemAvailable "
         "对比、当前前台 App，并说明前台 App 未受影响。不要 force-stop 正在使用的前台 App。"
     )
     parameters: dict = Field(
@@ -238,7 +230,7 @@ class PhoneCleanBackgroundTool(_PhoneToolBase):
                     "type": "string",
                     "description": (
                         "要强制停止的 App 包名（字母/数字/点/下划线）；"
-                        "留空表示只清理后台（am kill-all，不动前台）。"
+                        "留空表示按白名单清理后台，保留当前前台。"
                     ),
                     "default": "",
                 },
@@ -259,19 +251,21 @@ class PhoneCleanBackgroundTool(_PhoneToolBase):
         adb = service.adb
         foreground_before = await self._foreground(service)
         before = await _read_meminfo(adb)
-        command = _clean_command(package)
         command_error = ""
+        report = {}
         try:
-            await adb.shell(command)
+            report = await service.clean_background(package=package)
         except PhoneControlError as exc:
             command_error = str(exc)
         after = await _read_meminfo(adb)
         foreground_after = await self._foreground(service)
         lines: list[str] = []
         if command_error:
-            lines.append(f"清理命令返回非 0（如实报告）：{command} → {command_error}")
+            lines.append(f"后台清理失败：{command_error}")
         else:
-            lines.append(f"已执行后台清理：{command}")
+            lines.append(f"后台清理：停止 {report.get('stopped', 0)} 个；保留 {', '.join(report.get('preserved', [])) or '系统入口'}")
+            if report.get("errors"):
+                lines.append("清理异常：" + "；".join(report["errors"]))
         lines.append("内存：" + _meminfo_delta(before, after))
         current = foreground_after or foreground_before or "未知"
         lines.append(f"当前前台 App：{current}（前台 App 未受影响）")

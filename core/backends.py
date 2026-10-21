@@ -974,11 +974,11 @@ class BackendManager:
         return False
 
     async def _ensure_scrcpy(
-        self, *, need_control: bool, need_perception: bool
+        self, *, need_control: bool, need_perception: bool, for_clipboard: bool = False
     ) -> None:
         if self._closed or self._scrcpy_client is not None:
             return
-        if self._scrcpy_unavailable and self._clock() < self._retry_at:
+        if not for_clipboard and self._scrcpy_unavailable and self._clock() < self._retry_at:
             return
         self._scrcpy_unavailable = False
         control, _scrcpy, perception = self._config_sections()
@@ -989,9 +989,9 @@ class BackendManager:
         ) or (
             need_perception and screen_source in {"auto", "scrcpy"}
         )
-        if not wants:
+        if not wants and not for_clipboard:
             return
-        video = self._wants_scrcpy_video(perception)
+        video = False if for_clipboard else self._wants_scrcpy_video(perception)
         try:
             client = await self._start_scrcpy(video=video)
         except Exception as exc:  # noqa: BLE001 - 失败回退 ADB，只告警一次
@@ -1154,6 +1154,21 @@ class BackendManager:
     async def control(self) -> ControlBackend:
         await self.ensure(need_control=True, need_perception=False)
         return self.control_backend
+
+    async def read_clipboard(self) -> str:
+        """按需使用控制通道读剪贴板，兼容设备控制/截图配置均为 ADB。"""
+        async with self._lifecycle_lock:
+            if self._closed:
+                raise BackendError("手机控制后端已关闭")
+            if self._scrcpy_client is not None:
+                caps = await self._refresh_scrcpy_caps()
+                if caps.get("control") is False:
+                    await self._stop_current_client()
+            await self._ensure_scrcpy(need_control=False, need_perception=False, for_clipboard=True)
+            if self._scrcpy_client is None:
+                raise BackendError(self.last_error or "剪贴板控制通道不可用")
+            self._last_activity = self._clock()
+            return await self._maybe_await(self._scrcpy_client.get_clipboard())
 
     async def perception(self) -> PerceptionBackend:
         await self.ensure(need_control=False, need_perception=True)

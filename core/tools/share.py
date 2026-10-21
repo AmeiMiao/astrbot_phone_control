@@ -31,7 +31,9 @@ class PhoneShareToUserTool(_PhoneToolBase):
         "（感兴趣只说明值得看，不触发分享），看完后再单独判断是否值得分享；"
         "不要因为感兴趣就同时看+分享。分享必须带内容链接或截图，禁止纯文字："
         "链接优先（App 分享按钮，或 phone_traffic 的「可分享链接」；工具会自动尝试"
-        "从最近抓包提取），拿不到链接会自动附当前内容截图。"
+        "从最近抓包提取）；复制链接后用 phone_clipboard 读取。"
+        "content_type=post（默认）附图前自动回到帖子顶部并确认，不能直接复用中途截图；"
+        "视频传 video、其他画面传 screen，保留当前画面。拿不到链接时自动附图。"
         "同一内容只发一次、短时间不要刷屏（建议每轮不超过 3 条，默认静默）。"
         "自刷/随机/持续刷任务必须先 phone_recent_chat 看最近群聊/私聊在聊什么，"
         "再按对方喜好选择具体 target（不要用固定目标）；未先查聊天记忆会被拒绝。"
@@ -42,6 +44,11 @@ class PhoneShareToUserTool(_PhoneToolBase):
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                "content_type": {
+                    "type": "string", "enum": ["post", "video", "screen"],
+                    "default": "post",
+                    "description": "post=帖子顶部截图（默认）；video=当前视频；screen=已确认的当前画面。",
+                },
                 "text": {
                     "type": "string",
                     "description": "分享正文（可留空；链接与截图至少有一个，禁止纯文字）。",
@@ -64,7 +71,7 @@ class PhoneShareToUserTool(_PhoneToolBase):
                 },
                 "screenshot_path": {
                     "type": "string",
-                    "description": "已保存的截图路径；留空时在需要附图时现截一张。",
+                    "description": "video/screen 可复用的截图路径；post 总是在回顶确认后重新截图。",
                     "default": "",
                 },
                 "target": {
@@ -87,6 +94,9 @@ class PhoneShareToUserTool(_PhoneToolBase):
         link = str(kwargs.get("link") or "").strip()
         include_screenshot = bool(kwargs.get("include_screenshot", False))
         screenshot_path = str(kwargs.get("screenshot_path") or "").strip()
+        content_type = str(kwargs.get("content_type") or "post").strip().lower()
+        if content_type not in {"post", "video", "screen"}:
+            return "error: content_type 必须是 post、video 或 screen"
         autonomous = self.service.is_autonomous_play(event)
         allowed, window = self.service.share_allowed_now()
         if autonomous and not allowed:
@@ -163,14 +173,17 @@ class PhoneShareToUserTool(_PhoneToolBase):
         if plan.screenshot_required:
             # 复用已有截图但文件不存在/读不到时，回退为现截一张，不能因路径失效
             # 把分享降级成纯文字。
-            use_existing = bool(plan.use_existing_screenshot and shot_path)
+            use_existing = bool(content_type != "post" and plan.use_existing_screenshot and shot_path)
             if use_existing and not Path(shot_path).is_file():
                 use_existing = False
             if use_existing:
                 pass
             else:
                 try:
-                    _data, shot_path, _meta = await self.service.capture()
+                    if content_type == "post":
+                        _data, shot_path, _meta = await self.service.capture_post_top()
+                    else:
+                        _data, shot_path, _meta = await self.service.capture()
                 except PhoneControlError as exc:
                     return f"error: 截图失败：{exc}"
             chain.file_image(str(shot_path))

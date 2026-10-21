@@ -391,6 +391,25 @@ def test_manager_adb_modes_do_not_start_scrcpy():
     assert calls == []
 
 
+def test_clipboard_can_start_control_only_with_both_adb_modes(tmp_path):
+    async def scenario():
+        client = FakeScrcpyClient()
+        async def clipboard():return "https://example.org/copied-current-post"
+        client.get_clipboard = clipboard
+        manager = BackendManager(
+            config_provider=lambda: _config({"control":{"backend":"adb"},"perception":{"screen_source":"adb"}}),
+            actions=FakeActions(), adb=None, data_dir=tmp_path, scrcpy_factory=lambda:client,
+        )
+        try:
+            assert await manager.read_clipboard()=="https://example.org/copied-current-post"
+            assert client.started_video is False
+            assert (await manager.control()).name=="adb"
+            assert (await manager.perception()).name=="adb"
+        finally:await manager.close()
+        assert client.stopped
+    asyncio.run(scenario())
+
+
 def test_manager_perception_only_starts_scrcpy():
     async def scenario():
         raw = {"control": {"backend": "adb"}, "perception": {"screen_source": "auto", "live_screen_enabled": True}}

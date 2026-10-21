@@ -363,6 +363,7 @@ class BootstrapMixin:
             data_dir=self.data_dir,
             logger=logger.info,
             mitmdump=self.service.config.traffic.mitmdump_path,
+            keep_packages_provider=lambda: self.service.config.security.background_keep_packages,
         )
         self.service.traffic = self._traffic
         # WireGuard 组网：userspace helper 生命周期跟随插件；auto_adb 开启时

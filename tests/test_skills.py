@@ -95,7 +95,7 @@ def test_render_housekeeping_skill():
     text = render_skill("phone-housekeeping")
     assert INJECTION_NOTICE in text
     assert "phone_clean_background" in text
-    assert "am kill-all" in text
+    assert "background_keep_packages" in text
     assert "am force-stop" in text
     assert "前台" in text
 

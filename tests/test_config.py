@@ -595,7 +595,8 @@ def test_conf_schema_task_cleanup_and_screen_source_defaults():
     assert security["auto_clean_after_browse"]["default"] is True
     assert security["auto_clean_after_task"]["type"] == "bool"
     assert security["auto_clean_after_task"]["default"] is True
-    assert "am kill-all" in security["auto_clean_after_task"]["hint"]
+    assert "保留" in security["auto_clean_after_task"]["hint"]
+    assert "com.wireguard.android" in security["background_keep_packages"]["default"]
     source = schema["perception"]["items"]["screen_source"]
     assert source["type"] == "string"
     assert source["default"] == "adb"

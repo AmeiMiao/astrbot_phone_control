@@ -215,6 +215,7 @@ class PhoneVerification:
             "phone_status",
             "phone_screen",
             "phone_screenshot",
+            "phone_clipboard",
             "phone_read_screen",
             "phone_live_screen",
             "phone_wait",

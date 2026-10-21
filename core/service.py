@@ -25,6 +25,7 @@ from .apps import (
     resolve_package,
 )
 from .browse import BrowseSession
+from .background import clean_background
 from .chat_memory import ChatMemory
 from .config import UNCONFIGURED_MESSAGE, PhoneConfig
 from .diary import PhoneDiary
@@ -2071,10 +2072,43 @@ class PhoneService:
         if not enabled:
             return
         try:
-            await self.adb.shell("am kill-all")
+            report = await self.clean_background()
+            if report["errors"]:
+                logger.warning("浏览结束后清理异常：%s", "；".join(report["errors"]))
             self._log("浏览结束后已自动清理后台进程")
         except PhoneControlError as exc:
             logger.warning("浏览结束后自动清理后台失败：%s", exc)
+
+    async def clean_background(self, *, package: str = "", preserve_foreground: bool = True, checkpoint=None) -> dict[str, Any]:
+        """所有清理入口共享当前白名单；浏览过程中保留当前前台。"""
+        self.guard_device("clean_background")
+        foreground = ""
+        if preserve_foreground:
+            foreground, _activity = await self.actions.foreground()
+            if not foreground:
+                raise ActionFailedError("无法确认当前前台应用，未执行后台清理")
+        return await clean_background(
+            self.adb, whitelist=self.config.security.background_keep_packages,
+            foreground=foreground, package=package, checkpoint=checkpoint or self.guard_device,
+        )
+
+    async def read_clipboard(self) -> str:
+        """通过 scrcpy 当前回应读取设备剪贴板，不使用缓存。"""
+        self.guard_device("clipboard")
+        self.ensure_configured()
+        manager = getattr(self, "backends", None)
+        if manager is None:
+            raise ActionFailedError("剪贴板控制通道尚未配置")
+        try:
+            text = await manager.read_clipboard()
+        except Exception as exc:
+            raise ActionFailedError(f"无法读取设备剪贴板：{exc}") from exc
+        self.guard_device("clipboard_done")
+        return text
+
+    async def capture_post_top(self):
+        from .share_screenshot import capture_post_top
+        return await capture_post_top(self)
 
     async def recall(self, query: str = "", *, limit: int = 5) -> str:
         """检索浏览日记并格式化成中文文本。"""

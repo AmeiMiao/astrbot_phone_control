@@ -24,6 +24,7 @@ from typing import Any
 from astrbot.api import logger
 
 from .errors import AdbNotConfiguredError, PhoneControlError
+from .background import DEFAULT_KEEP_PACKAGES
 from .verification import (
     DEFAULT_ATTEMPT_TIMEOUT_SECONDS,
     DEFAULT_MANUAL_WAIT_TIMEOUT_SECONDS,
@@ -330,6 +331,7 @@ class SecuritySettings:
     max_likes_per_session: int = 5
     auto_clean_after_browse: bool = True
     auto_clean_after_task: bool = True
+    background_keep_packages: tuple[str, ...] = DEFAULT_KEEP_PACKAGES
     owner_ids: tuple[str, ...] = ()
     allow_comments: bool = DEFAULT_ALLOW_COMMENTS
     allow_posts: bool = DEFAULT_ALLOW_POSTS
@@ -711,6 +713,14 @@ class PhoneConfig:
                 True,
                 "security.auto_clean_after_task",
                 warn_fn,
+            ),
+            background_keep_packages=(
+                DEFAULT_KEEP_PACKAGES
+                if _pick(security_card, source, "background_keep_packages") is None
+                else _as_str_list(
+                    _pick(security_card, source, "background_keep_packages"),
+                    "security.background_keep_packages", warn_fn,
+                )
             ),
             owner_ids=_as_str_list(
                 _pick(security_card, source, "owner_ids"),

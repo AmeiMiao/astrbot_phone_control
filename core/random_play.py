@@ -88,7 +88,8 @@ _SILENT_AND_SHARE = (
     "先决定要不要点开/继续看（感兴趣只说明值得看，不触发分享），看完后再单独判断"
     "是否值得分享；只有确实值得对方看才用 phone_share_to_user，且必须带内容链接或截图"
     "（链接优先：App 分享按钮或 phone_traffic 的「可分享链接」；拿不到链接必须 "
-    "include_screenshot=true），禁止只发文字；分享目标先 phone_recent_chat 看最近聊天"
+    "include_screenshot=true；复制链接后 phone_clipboard 读取），禁止只发文字；"
+    "帖子默认回顶截图，视频传 content_type=video、当前画面传 screen；分享目标先 phone_recent_chat 看最近聊天"
     "再按对方喜好自己选，同一内容只发一次、短时间别刷屏。"
 )
 

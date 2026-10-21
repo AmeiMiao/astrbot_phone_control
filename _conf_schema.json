@@ -70,13 +70,19 @@
         "type": "bool",
         "default": true,
         "description": "浏览结束自动清理后台",
-        "hint": "每次浏览（工具/命令/定时任务）结束后自动静默执行一次后台清理（am kill-all，不影响前台），失败只记日志；默认开启。"
+        "hint": "每次浏览结束后逐包清理后台，保留当前前台、桌面、输入法和后台保留名单；默认开启。"
       },
       "auto_clean_after_task": {
         "type": "bool",
         "default": true,
         "description": "任务结束回桌面并清理后台",
-        "hint": "玩手机/控制类任务（/phone play、随机玩手机、后台任务）结束时自动回桌面（HOME）并清理后台进程（am kill-all），不依赖 AI 主动调用清理工具；与只清后台、不动前台的 auto_clean_after_browse 不同；默认开启。"
+        "hint": "玩手机/控制类任务结束时回桌面并逐包清理应用，保留后台保留名单、桌面与输入法；默认开启。"
+      },
+      "background_keep_packages": {
+        "type": "list",
+        "default": ["com.wireguard.android", "com.tailscale.ipn"],
+        "description": "后台清理保留名单",
+        "hint": "填写需要常驻的完整包名。默认保留 WireGuard 与 Tailscale；停止手机、任务收尾、浏览清理、清理工具及抓包初始化均保留名单内应用。"
       },
       "allow_comments": {
         "type": "bool",

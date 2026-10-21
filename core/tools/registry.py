@@ -26,6 +26,7 @@ from .app_tools import (
     PhoneSkillTool,
 )
 from .share import PhoneShareToUserTool
+from .clipboard import PhoneClipboardTool
 from .content import (
     PhoneAppMemoryTool,
     PhoneAppRememberTool,
@@ -49,6 +50,7 @@ TOOL_NAMES = (
     "phone_screen",
     "phone_traffic",
     "phone_wireguard",
+    "phone_clipboard",
     "phone_tap",
     "phone_long_press",
     "phone_swipe",
@@ -81,6 +83,7 @@ TOOL_NAMES = (
 
 # 工具 schema 精简（仅压缩模型侧描述，不改变工具名/参数名/行为）
 _TOOL_DESC_COMPACT: dict[str, str] = {
+    "phone_clipboard": "读取设备当前剪贴板；复制分享链接后调用并核对帖子，再传给分享工具。不修改剪贴板。",
     "phone_status": "查看设备连接/前台 App/电量/分辨率；操作前可先确认设备。",
     "phone_screen": (
         "读屏幕：mode=ui（UI 树±截图）/image（仅快速画面）/both；"
@@ -110,7 +113,8 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
     ),
     "phone_share_to_user": (
         "看/分享两重判断：看完再决定是否分享；必须带链接或截图（禁纯文字），"
-        "链接优先抓包/分享接口，拿不到自动截图；目标先 phone_recent_chat 按聊天记忆选。"
+        "复制链接后用 phone_clipboard 读取；帖子默认 content_type=post 回顶确认后附图，"
+        "视频传 video，当前画面传 screen；目标先 phone_recent_chat 按聊天记忆选。"
     ),
     "phone_browse": "便捷采样：浏览 App 信息流并写入日记（不强制固定条数）。",
     "phone_learn": (
@@ -140,7 +144,7 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
         "等待 seconds 秒，不传/0 取配置 perception.wait_default_seconds、上限 "
         "perception.wait_max_seconds（可配置）；for_text 非空时等文本出现。"
     ),
-    "phone_clean_background": "清理后台：留空 am kill-all，填包名 force-stop。",
+    "phone_clean_background": "按白名单逐包清理后台，保留常驻服务和当前前台；可指定包名，保留项仍受保护。",
     "phone_skill": "读取内置 Skill 手册；name 空列出全部。",
     "phone_app_memory": (
         "查 App 使用经验（布局/入口/步骤）；操作不熟悉 App 或固定入口任务前先查。"
@@ -223,6 +227,7 @@ def build_phone_tools(service: Any) -> list[FunctionTool]:
         PhoneScreenTool(service=service),
         PhoneTrafficTool(service=service),
         PhoneWireguardTool(service=service),
+        PhoneClipboardTool(service=service),
         PhoneTapTool(service=service),
         PhoneLongPressTool(service=service),
         PhoneSwipeTool(service=service),

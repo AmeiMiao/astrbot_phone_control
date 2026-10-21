@@ -37,6 +37,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "security.max_likes_per_session",
         "security.auto_clean_after_browse",
         "security.auto_clean_after_task",
+        "security.background_keep_packages",
         "security.owner_ids",
         "security.allow_comments",
         "security.allow_posts",

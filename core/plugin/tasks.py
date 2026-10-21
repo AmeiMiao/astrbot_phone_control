@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-import re
 import time
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
@@ -266,7 +265,7 @@ class TasksMixin:
         self.device_gate.checkpoint(str(op))
 
     async def _cleanup_phone_home(self, *, guarded: bool = False) -> dict[str, Any]:
-        """强停最近任务与第三方应用，保留桌面和当前输入法，并验证清理结果。"""
+        """回桌面后按白名单清理第三方与最近任务，保留常驻应用。"""
         def check(op):
             if guarded:
                 self.device_gate.checkpoint(op)
@@ -280,26 +279,11 @@ class TasksMixin:
                 await self.adb.shell("input keyevent 3")
             await asyncio.sleep(0.4)
             check("cleanup_apps")
-            home = await self.adb.shell(
-                "cmd package resolve-activity --brief -a android.intent.action.MAIN "
-                "-c android.intent.category.HOME")
-            keyboard = await self.adb.shell("settings get secure default_input_method")
-            protected = {"android", "com.android.systemui"}
-            for value in (home, keyboard):
-                protected.update(re.findall(r"([A-Za-z][\w]*(?:\.[\w]+)+)/", str(value)))
-            packages = await self.adb.shell("pm list packages -3")
-            recents = await self.adb.shell("dumpsys activity recents")
-            targets = set(re.findall(r"^package:([\w.]+)$", str(packages), re.M))
-            targets.update(re.findall(r"(?:cmp=|realActivity=|mActivityComponent=|A=\d+:)([\w.]+)/", str(recents)))
-            for package in sorted(targets - protected):
-                check("cleanup_force_stop")
-                await self.adb.shell(f"am force-stop --user current {package}")
-                check("cleanup_force_stop_done")
-                alive = await self.adb.shell(f"pidof {package} || true")
-                if str(alive).strip():
-                    report["errors"].append(f"{package} 仍有进程")
-                else:
-                    report["stopped"] += 1
+            from ..background import clean_background
+            report = await clean_background(
+                self.adb, whitelist=self.service.config.security.background_keep_packages,
+                checkpoint=check if guarded else None,
+            )
             check("cleanup_done")
         except GateError:
             raise
@@ -482,10 +466,7 @@ class TasksMixin:
     async def _auto_cleanup_after_task(self, event: AstrMessageEvent) -> None:
         """玩完手机后回桌面并清理后台（确定性收尾，不依赖模型主动调用工具）。
 
-        只按 HOME 键和 ``am kill-all``：前者把前台 App 移入后台，后者清理后台进程，
-        避免 AI 忘记收尾时手机停留在某个 App 里持续耗电/播放。
-
-        HOME、等待与 ``am kill-all`` 全部在本次收尾自己的设备作用域内执行，并持有
+        HOME、等待与逐包清理全部在本次收尾自己的设备作用域内执行，并持有
         可让路租约：其他任务持租约时直接跳过；新任务需要设备时接管该租约，旧收尾
         在下一次门禁检查处停止，不会在新任务已拿到设备后继续清后台。
         """
