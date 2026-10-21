@@ -23,10 +23,11 @@ const (
 
 // config 对应插件写入的配置 JSON。未知字段由 encoding/json 默认忽略。
 type config struct {
-	Interface interfaceConfig `json:"interface"`
-	Peers     []peerConfig    `json:"peers"`
-	Forwards  []forwardConfig `json:"forwards"`
-	LogLevel  string          `json:"log_level"`
+	Interface   interfaceConfig `json:"interface"`
+	Peers       []peerConfig    `json:"peers"`
+	Forwards    []forwardConfig `json:"forwards"`
+	LogLevel    string          `json:"log_level"`
+	SocksListen string          `json:"socks_listen"`
 
 	// prefixes 是 interface.addresses 解析后的前缀（供 netstack 使用）。
 	prefixes []netip.Prefix
@@ -89,7 +90,22 @@ func (cfg *config) normalizeAndValidate() error {
 	if err := cfg.validatePeers(); err != nil {
 		return err
 	}
-	return cfg.validateForwards()
+	if err := cfg.validateForwards(); err != nil {
+		return err
+	}
+	if cfg.SocksListen != "" {
+		host, port, err := net.SplitHostPort(cfg.SocksListen)
+		n, parseErr := strconv.Atoi(port)
+		if err != nil || host != "127.0.0.1" || parseErr != nil || n < 1 || n > 65535 {
+			return errors.New("socks_listen 必须是 127.0.0.1:1–65535")
+		}
+		for _, fwd := range cfg.Forwards {
+			if n == fwd.listenPort {
+				return errors.New("SOCKS 与转发端口重复")
+			}
+		}
+	}
+	return nil
 }
 
 func (cfg *config) validateInterface() error {

@@ -376,13 +376,19 @@ class PhoneInputTextTool(_PhoneToolBase):
     name: str = "phone_input_text"
     description: str = (
         "向当前聚焦的输入框输入文本（支持中文，需设备安装 ADBKeyboard）；"
-        "press_enter 为 true 时输入后按回车。先点击输入框使其聚焦。"
+        "先点击编辑框使其聚焦。replace=true 替换实际输入，placeholder 不是旧内容。"
+        "输入后核对实际关键词；press_enter 仅验证后回车，App 有搜索按钮时保持 false。模拟器无需软键盘。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
             "type": "object",
             "properties": {
                 "text": {"type": "string", "description": "要输入的文本。"},
+                "replace": {
+                    "type": "boolean",
+                    "description": "是否清空当前聚焦框的实际输入后替换；默认追加。",
+                    "default": False,
+                },
                 "press_enter": {
                     "type": "boolean",
                     "description": "输入完成后是否按回车。",
@@ -400,8 +406,21 @@ class PhoneInputTextTool(_PhoneToolBase):
         if not text:
             return "error: text 不能为空"
         press_enter = bool(kwargs.get("press_enter", False))
-        await self.service.input_text(text, press_enter=press_enter)
-        return _ok(f"已输入文本（{len(text)} 字）" + ("并回车" if press_enter else ""))
+        if kwargs.get("replace", False):
+            await self.service.actions.clear_text()
+        await self.service.input_text(text, press_enter=False)
+        _rendered, snapshot = await self.service.screen()
+        verified = any(
+            node.focused and node.showing_hint is not True
+            and ("EditText" in node.class_name or "AutoCompleteTextView" in node.class_name)
+            and (node.text == text if kwargs.get("replace", False) else text in node.text)
+            for node in snapshot.nodes
+        )
+        if not verified:
+            return "文字输入命令已执行，但实际输入值未确认；先看当前截图核对聚焦和关键词，再提交搜索。"
+        if press_enter:
+            await self.service.press_key("enter")
+        return _ok(f"已核对输入关键词（{len(text)} 字）" + ("并回车；请核对搜索结果" if press_enter else "；按当前 App 的按钮或回车逻辑提交"))
 
 
 @dataclass

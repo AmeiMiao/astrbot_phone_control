@@ -1,4 +1,4 @@
-"""从 AstrBot AgentRunner 抄取单个 Agent run 的累计 usage（补 provider_stats 缺口）。
+"""采集 Agent run 的累计 usage，并按手机工具轮状态交付正文。
 
 AstrBot 4.29.1 中：
 
@@ -13,8 +13,8 @@ AstrBot 4.29.1 中：
 累计）写到事件的 ``phone_agent_usage`` extra 上，供插件对账使用；只有本次 run
 被插件标记为手机相关（``phone_usage_tracked``）时才写，避免影响普通对话。
 
-包装函数对调用方完全透明（原样 yield step 的输出、异常照常抛出），并保证只安装
-一次；插件卸载时调用 :func:`uninstall_agent_usage_capture` 还原原方法。
+授权手机会话的文本先缓冲到单轮结束；手机工具轮保持静默，最终回复按交付状态输出。
+统计和工具事件原样传递，异常照常抛出。包装只安装一次，卸载时还原原方法。
 """
 
 from __future__ import annotations
@@ -81,18 +81,39 @@ def install_agent_usage_capture(
 
     async def step_with_usage_capture(self: Any, *args: Any, **kwargs: Any):
         generator = original(self, *args, **kwargs)
+        event = getattr(getattr(self.run_context, "context", None), "event", None)
+        buffer_output = bool(
+            event
+            and (
+                event.get_extra("phone_quiet_run")
+                or event.get_extra("phone_output_candidate")
+            )
+        )
+        pending = []
         try:
             async for item in generator:
-                yield item
+                if buffer_output and getattr(item, "type", "") in {
+                    "streaming_delta",
+                    "llm_result",
+                }:
+                    pending.append(item)
+                else:
+                    yield item
+            # 工具轮正文是执行过程；只交付已完成任务的最终回复。
+            quiet = bool(event and event.get_extra("phone_quiet_run"))
+            if pending and (
+                not quiet
+                or (self.done() and not event.get_extra("phone_shared_current_run"))
+            ):
+                for item in pending:
+                    yield item
         finally:
             try:
                 event = getattr(
                     getattr(self.run_context, "context", None), "event", None
                 )
-                if event is None:
-                    return
                 try:
-                    capture = (
+                    capture = event is not None and (
                         bool(should_capture(event))
                         if should_capture is not None
                         else bool(event.get_extra("phone_usage_tracked"))

@@ -26,9 +26,7 @@ class _FakeProvider:
 
 
 def test_usage_payload_from_agent_stats():
-    payload = patch._usage_payload(
-        _FakeStats(_FakeUsage(100, 20, 5)), _FakeProvider()
-    )
+    payload = patch._usage_payload(_FakeStats(_FakeUsage(100, 20, 5)), _FakeProvider())
     assert payload == {
         "input_other": 100,
         "input_cached": 20,
@@ -57,3 +55,110 @@ def test_install_is_idempotent_and_uninstall_safe():
     assert installed in (True, False)
     assert patch.install_agent_usage_capture() is installed
     patch.uninstall_agent_usage_capture()
+
+
+def test_phone_tool_round_text_is_buffered_and_only_final_delivered(monkeypatch):
+    import asyncio
+    import sys
+    from types import SimpleNamespace
+
+    class Event:
+        def __init__(self):
+            self.extra = {"phone_quiet_run": True}
+
+        def get_extra(self, key):
+            return self.extra.get(key)
+
+        def set_extra(self, key, value):
+            self.extra[key] = value
+
+    class Runner:
+        def __init__(self, event):
+            self.run_context = SimpleNamespace(context=SimpleNamespace(event=event))
+            self.finished = False
+            self.stats = None
+
+        def done(self):
+            return self.finished
+
+        async def step(self):
+            yield SimpleNamespace(type="streaming_delta", text="我去搜一下")
+            yield SimpleNamespace(type="llm_result", text="我去搜一下")
+            yield SimpleNamespace(type="agent_stats", text="usage")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "astrbot.core.agent.runners.tool_loop_agent_runner",
+        SimpleNamespace(ToolLoopAgentRunner=Runner),
+    )
+    assert patch.install_agent_usage_capture()
+
+    async def run():
+        event = Event()
+        runner = Runner(event)
+        first = [item async for item in runner.step()]
+        assert [item.type for item in first] == ["agent_stats"]
+        runner.finished = True
+        final = [item async for item in runner.step()]
+        assert [item.type for item in final] == [
+            "agent_stats",
+            "streaming_delta",
+            "llm_result",
+        ]
+        event.extra["phone_shared_current_run"] = True
+        shared = [item async for item in runner.step()]
+        assert [item.type for item in shared] == ["agent_stats"]
+        event.extra["phone_quiet_run"] = False
+        regular = [item async for item in runner.step()]
+        assert [item.type for item in regular] == [
+            "streaming_delta",
+            "llm_result",
+            "agent_stats",
+        ]
+
+    try:
+        asyncio.run(run())
+    finally:
+        patch.uninstall_agent_usage_capture()
+
+
+def test_first_phone_tool_round_is_quiet_even_without_keyword_marker(monkeypatch):
+    import asyncio
+    import sys
+    from types import SimpleNamespace
+
+    class Event:
+        extra = {"phone_output_candidate": True}
+
+        def get_extra(self, key):
+            return self.extra.get(key)
+
+        def set_extra(self, key, value):
+            self.extra[key] = value
+
+    class Runner:
+        def __init__(self):
+            self.run_context = SimpleNamespace(context=SimpleNamespace(event=Event()))
+
+        def done(self):
+            return False
+
+        async def step(self):
+            yield SimpleNamespace(type="streaming_delta", text="我先去搜一下")
+            self.run_context.context.event.set_extra("phone_quiet_run", True)
+            yield SimpleNamespace(type="llm_result", text="我先去搜一下")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "astrbot.core.agent.runners.tool_loop_agent_runner",
+        SimpleNamespace(ToolLoopAgentRunner=Runner),
+    )
+    assert patch.install_agent_usage_capture()
+
+    async def run():
+        assert [x async for x in Runner().step()] == []
+
+    try:
+        asyncio.run(run())
+    finally:
+        patch.uninstall_agent_usage_capture()

@@ -253,3 +253,62 @@ def test_audio_placeholder_adapter_uses_real_stt_result_instead_of_claiming_audi
         assert "已使用语音转写" in result
 
     asyncio.run(run())
+
+
+def test_tool_task_return_does_not_end_content_capture(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        e = SimpleNamespace(unified_msg_origin="owner")
+        t = await asyncio.create_task(m.begin(e, kind="post", content_id="123"))
+        await asyncio.sleep(0.05)
+        assert m.current(e) is t
+        assert t["status"] == "active"
+        assert not t["_sampler"].done()
+        await m.close()
+        assert t["_sampler"].done()
+
+    asyncio.run(run())
+
+
+def test_slow_analysis_keeps_sampling_and_continues_from_cursor(tmp_path):
+    async def run():
+        s = service(tmp_path)
+        s.config = PhoneConfig.from_mapping(
+            {"media": {"audio_enabled": False, "frame_interval_seconds": 0.1}}
+        )
+        s.backends = SimpleNamespace(ensure=lambda: asyncio.sleep(0))
+        count = []
+
+        async def capture(**kw):
+            count.append(time.monotonic())
+            return b"frame", tmp_path / "screen.png", {}
+
+        s.capture = capture
+        m = ContentTasks(s)
+        e = SimpleNamespace(unified_msg_origin="owner")
+        t = await asyncio.create_task(m.begin(e, kind="video", content_id="video"))
+        # 提前时间原点，真实采帧在分析阶段继续运行。
+        t["_start"] -= 3
+        segments = []
+
+        async def understand(event, task, text, images, audio):
+            segments.append((text, list(images)))
+            before = len(count)
+            await asyncio.sleep(1.2)
+            assert len(count) > before
+            assert m.status()[0]["analyzing"] is True
+            return "内容摘要"
+
+        m.understand = understand
+        first = await asyncio.create_task(m.read(e, seconds=3))
+        assert first["understood_until"] == 3
+        assert first["captured_until"] > 3
+        await m.decide(e, "continue", "想了解后续")
+        t["_start"] -= 3
+        second = await asyncio.create_task(m.read(e, seconds=3))
+        assert second["understood_until"] == 6
+        assert "3.0–6.0" in segments[1][0]
+        await m.close()
+        assert t["_sampler"].done()
+
+    asyncio.run(run())

@@ -7,7 +7,8 @@
   可在无特权容器内运行；
 - 既可作 **WG client**（`endpoint` 指向远端 WG 服务端），也可作 **WG server**（监听 UDP 端口，
   接受手机等 WG client 接入，自动学习对端 endpoint 支持 roaming）；
-- 通过本地 `127.0.0.1:<port>` 到隧道内 `ip:port` 的 TCP 转发实现 ADB over WireGuard。
+- 通过本地 `127.0.0.1:<port>` 到隧道内 `ip:port` 的 TCP 转发实现 ADB over WireGuard；Android 官方 WG App 使用 [Phone WG Relay](../android-relay/README.md) 的普通 App UID 中转入口。
+- 可配置 `socks_listen=127.0.0.1:<port>`，使用 SOCKS5 CONNECT 动态访问 peer AllowedIPs 内的 IPv4/IPv6 地址。域名由客户端解析后传入 IP，UDP/IP 转发由独立网络网关提供。
 
 插件 Python 侧以子进程方式管理本 helper：写入配置 JSON、读取状态 JSON、按退出码与日志判断失败原因。
 
@@ -103,6 +104,7 @@ phone-wg version
 | `peers[].allowed_ips` | 必填非空，`0.0.0.0/0` 表示全隧道 |
 | `peers[].persistent_keepalive_seconds` | 持久保活间隔，`0` 表示关闭；非 0 时设备就绪后立即触发一次握手 |
 | `forwards[]` | 本地 TCP 转发：`listen` 必须为 `127.0.0.1:<port>`，`target` 必须落在某个 `allowed_ips` 内 |
+| `socks_listen` | 可选环回 SOCKS5 TCP 监听地址；与固定转发端口不同，留空关闭 |
 | `log_level` | `debug`/`info`/`warn`/`error`/`silent`，缺省 `info` |
 
 配置校验失败（非法 JSON、非法 base64/CIDR、重复监听端口、非法 endpoint、forward 目标不在

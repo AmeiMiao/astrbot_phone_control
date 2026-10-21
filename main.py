@@ -287,6 +287,7 @@ class PhoneControlPlugin(
                 self._live_last_activity = time.monotonic()
             self._note_backend_activity()
             event.set_extra("phone_active", True)
+            event.set_extra("phone_quiet_run", True)
             if name in _PHONE_CONTROL_TOOLS:
                 pending = list(event.get_extra("phone_control_pending") or [])
                 pending.append(name)
@@ -519,8 +520,11 @@ class PhoneControlPlugin(
                 authorized = check_admin_permission(event, config) is None
             except Exception:  # noqa: BLE001 - 权限判定异常按未授权处理
                 authorized = False
+            event.set_extra("phone_output_candidate", bool(authorized and config.adb.configured))
             is_task = self.service.is_task_session(event)
             looks_like_phone = self._looks_like_phone_request(event, req)
+            event.set_extra("phone_quiet_run", bool(authorized and (is_task or looks_like_phone)))
+            event.set_extra("phone_shared_current_run", False)
             if authorized and self._looks_like_user_phone_request(event):
                 await self._enter_user_priority(event)
             self._begin_llm_metric(event, req)

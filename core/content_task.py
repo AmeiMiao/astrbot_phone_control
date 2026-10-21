@@ -112,16 +112,7 @@ class ContentTasks:
                 heartbeat=time.time(),
             )
             self.active[task["owner"]] = task
-            runner = asyncio.current_task()
-
-            def runner_done(_):
-                if self.active.get(task["owner"]) is task:
-                    asyncio.create_task(
-                        self.finish_owner(task["owner"], abnormal=True),
-                        name="astrbot_phone_control_content_abandoned",
-                    )
-
-            runner.add_done_callback(runner_done)
+            # 内容归属整次 Agent run；收尾由 finish、on_agent_done 和服务关闭执行。
             self.write(task)
             try:
                 if kind == "video":
@@ -246,11 +237,17 @@ class ContentTasks:
         }
 
     async def read(self, event, task_id="", seconds=0):
+        task = self.current(event, task_id)
+        if task.get("_reader") is not None:
+            raise PhoneControlError("当前内容正在分析，请等待本段完成")
+        task["_reader"] = asyncio.current_task()
         try:
             return await self._read(event, task_id, seconds)
         except BaseException:
             await self.finish_owner(self.owner(event), abnormal=True)
             raise
+        finally:
+            task.pop("_reader", None)
 
     async def _read(self, event, task_id="", seconds=0):
         task = self.current(event, task_id)
@@ -335,6 +332,10 @@ class ContentTasks:
                 "task_id": task["id"],
                 "understood_until": task["cursor"],
                 "summary": result,
+                "available_images": len(self.post_material(task)[1]) if task["kind"] == "post" else 0,
+                "auto_save_images": self.service.config.browse.auto_save_images,
+                "captured_until": self.captured_until(task),
+                "note": "分析期间持续采集；续看从 understood_until 继续，包含分析期间的素材。",
                 "next": "独立判断 continue/read_comments/like/favorite/skip，结束调用 finish；看评论不等于回复",
             }
 
@@ -462,6 +463,11 @@ class ContentTasks:
         if task is None:
             return
         task["status"] = "failed" if abnormal else "completed"
+        reader = task.get("_reader")
+        if reader is not None and reader is not asyncio.current_task():
+            reader.cancel()
+            with suppress(asyncio.CancelledError):
+                await reader
         sampler = task.get("_sampler")
         if sampler is not None and sampler is not asyncio.current_task():
             sampler.cancel()
@@ -505,8 +511,25 @@ class ContentTasks:
                 ):
                     path.unlink()
 
+    @staticmethod
+    def captured_until(task):
+        audio = task.get("_audio")
+        from .media import pcm_duration
+
+        times = []
+        if audio is not None:
+            times.append(pcm_duration(audio.size))
+        if task["mode"] != "audio" and task["kind"] == "video":
+            times.append(task["frames"][-1][0] if task["frames"] else 0.0)
+        return round(min(times), 3) if times else 0.0
+
     def status(self):
         return [
-            {k: t[k] for k in ("id", "kind", "content_id", "cursor", "status")}
+            dict(
+                **{k: t[k] for k in ("id", "kind", "content_id", "cursor", "status")},
+                captured_until=self.captured_until(t),
+                frame_count=len(t["frames"]),
+                analyzing=t.get("_reader") is not None,
+            )
             for t in self.active.values()
         ]

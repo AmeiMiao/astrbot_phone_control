@@ -84,6 +84,11 @@ def _node_from_attrs(attrs: dict[str, str], *, ref: int, depth: int, default_pac
         enabled=_attr_bool(attrs, "enabled", default=True),
         focused=_attr_bool(attrs, "focused"),
         depth=depth,
+        hint=_clean_text(attrs.get("hint") or attrs.get("hint-text")),
+        showing_hint=(
+            _attr_bool(attrs, "showing-hint-text")
+            if "showing-hint-text" in attrs else None
+        ),
     )
 
 
@@ -307,8 +312,17 @@ def render_ui(
             break
         rendered += 1
         parts = [f"[{node.ref}]"]
+        editable = "EditText" in node.class_name or "AutoCompleteTextView" in node.class_name
         if node.text:
-            parts.append(f"text={_quote(_shorten(node.text, max_text_len))}")
+            label = "placeholder" if node.showing_hint is True else "text"
+            parts.append(f"{label}={_quote(_shorten(node.text, max_text_len))}")
+        if node.hint:
+            parts.append(f"hint={_quote(_shorten(node.hint, max_text_len))}")
+        if editable:
+            parts.append("editable")
+            parts.append("focused" if node.focused else "unfocused")
+            if node.showing_hint is None:
+                parts.append("输入值/占位提示未区分，输入后核对实际关键词再提交")
         if node.desc:
             parts.append(f"desc={_quote(_shorten(node.desc, max_text_len))}")
         if node.clickable:

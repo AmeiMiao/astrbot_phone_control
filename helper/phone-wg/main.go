@@ -23,12 +23,13 @@ import (
 )
 
 // version 是 helper 版本号，同时写入状态文件的 version 字段。
-const version = "0.1.0"
+const version = "0.1.3"
 
 // 退出码约定（与插件侧对齐）：
-//   0  正常退出（收到 SIGTERM/SIGINT 后优雅关闭）
-//   2  命令行或配置错误
-//   3  运行环境初始化失败（WG 设备、UDP 监听、TCP 转发监听等）
+//
+//	0  正常退出（收到 SIGTERM/SIGINT 后优雅关闭）
+//	2  命令行或配置错误
+//	3  运行环境初始化失败（WG 设备、UDP 监听、TCP 转发监听等）
 const (
 	exitConfigError  = 2
 	exitRuntimeError = 3

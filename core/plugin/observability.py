@@ -485,7 +485,8 @@ class ObservabilityMixin:
                 importance=0.6,
                 metadata={
                     "source_plugin": COMPANION_SOURCE_PLUGIN,
-                    "memory_type": payload.get("memory_type") or "",
+                    "memory_type": "GENERAL",
+                    "phone_memory_type": payload.get("memory_type") or "",
                     "tags": list(payload.get("tags") or []),
                     "phone_payload": dict(payload.get("payload") or {}),
                     "source": "astrbot_phone_control",

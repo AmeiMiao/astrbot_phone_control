@@ -16,7 +16,7 @@ from pathlib import Path
 
 SKILL_FILENAME = "SKILL.md"
 SKILLS_DIR_NAME = "skills"
-MAX_SKILL_BYTES = 8 * 1024
+MAX_SKILL_BYTES = 16 * 1024
 _NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 INJECTION_NOTICE = (

@@ -1109,7 +1109,8 @@ class AdbClient:
             raise DeviceOfflineError("设备不在线", detail=f"serial={self._serial}")
         props_text = await self._shell_optional(
             "getprop ro.product.model; getprop ro.product.manufacturer;"
-            " getprop ro.build.version.release; getprop ro.build.version.sdk",
+            " getprop ro.build.version.release; getprop ro.build.version.sdk;"
+            " getprop ro.kernel.qemu; getprop ro.hardware; getprop ro.build.hv.platform",
             retry=retry,
         )
         prop_lines = props_text.splitlines()
@@ -1120,6 +1121,17 @@ class AdbClient:
             sdk = int(prop_lines[3].strip()) if len(prop_lines) > 3 and prop_lines[3].strip() else 0
         except ValueError:
             sdk = 0
+        qemu = prop_lines[4].strip() if len(prop_lines) > 4 else ""
+        hardware = prop_lines[5].strip().lower() if len(prop_lines) > 5 else ""
+        if len(prop_lines) > 6:
+            hardware += " " + prop_lines[6].strip().lower()
+        device_kind = "emulator" if qemu == "1" or any(
+            marker in (model + " " + manufacturer + " " + hardware).lower()
+            for marker in ("mumu", "goldfish", "ranchu", "vbox", "nox")
+        ) else ("physical" if qemu == "0" or hardware else "unknown")
+        ime_text = await self._shell_optional("dumpsys input_method", retry=retry)
+        visible = re.search(r"(?:mInputShown|mIsInputViewShown|isInputViewShown)=(true|false)", ime_text)
+        keyboard_visible = visible.group(1) == "true" if visible else None
         size_text = await self._shell_optional("wm size; wm density", retry=retry)
         width, height = parse_wm_size(size_text)
         density = _parse_wm_density(size_text)
@@ -1144,6 +1156,8 @@ class AdbClient:
             current_activity=current_activity,
             screen_on=screen_on,
             adb_connected=True,
+            device_kind=device_kind,
+            keyboard_visible=keyboard_visible,
         )
 
     async def device_info(self) -> DeviceInfo:

@@ -85,3 +85,7 @@ SOFTWARE.
 ```
 
 gVisor 的声明：Copyright 2018 The gVisor Authors，许可证为 Apache-2.0（全文同上）。
+
+## Phone WG Relay
+
+`bin/android/phone-wg-relay.apk` 由本项目 `helper/android-relay` 源码构建，使用项目 MIT 许可；依赖 Android 系统 API。官方 WireGuard App 由用户按其官方渠道安装。

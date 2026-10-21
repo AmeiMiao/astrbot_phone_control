@@ -65,15 +65,17 @@ _PHONE_CONTROL_TOOLS = frozenset(
         "phone_browse",
         "phone_watch_media",
         "phone_content",
+        "phone_save_image",
     }
 )
 
 
 _GUIDANCE = (
-    "【手机操控能力】33 个 phone_* 工具；先 phone_skill 读手册。\n"
+    "【手机操控能力】34 个 phone_* 工具；先 phone_skill 读手册。\n"
     "回复：默认 1–2 句、≤80 字；任务结果只给 1–3 个要点，不复述过程/工具输出"
     "（用户要求详情除外）。\n"
-    "静默：仅主人可用；后台任务静默，完成后一次性汇报。\n"
+    "存图：browse.auto_save_images 开启时，图文 read 后按兴趣 phone_save_image；保存与分享独立。\n"
+    "静默：仅主人可用；搜索/点按/失败重试过程不发文字。完成后仅一次简短结果，分享前总结为1–2句且≤100字；分享成功后静默收尾。\n"
     "额度/频率默认不限制（在配置 quota/互动限额里显式填正数才生效）。\n"
     "App 经验：操作前 phone_app_memory 查询；界面变化先探索再更新经验，成功路径在任务结束自动总结。\n"
     "内容任务：图文打开前begin，视频确认起点后begin；phone_content 分段read、独立决定续看/看评论/回复，完成finish。看评论不等于回复。\n"

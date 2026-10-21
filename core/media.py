@@ -706,12 +706,16 @@ class AudioStream:
             await asyncio.sleep(.05)
         offset = int(start * BYTES_PER_SECOND) // 4 * 4
         length = (target - offset) // 4 * 4
-        with self.path.open("rb") as f:
-            f.seek(offset)
-            pcm = f.read(length)
-        if len(pcm) != length:
-            raise MediaCaptureError("音频片段尚未完整写入")
-        write_wav(path, normalize_pcm(pcm))
+        def export():
+            with self.path.open("rb") as f:
+                f.seek(offset)
+                pcm = f.read(length)
+            if len(pcm) != length:
+                raise MediaCaptureError("音频片段尚未完整写入")
+            write_wav(path, normalize_pcm(pcm))
+
+        # WAV 文件 I/O 与归一化在线程执行，采帧和心跳可持续运行。
+        await asyncio.to_thread(export)
         return path
 
     async def stop(self):

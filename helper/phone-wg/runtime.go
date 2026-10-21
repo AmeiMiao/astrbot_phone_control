@@ -33,6 +33,7 @@ type runtime struct {
 	tnet      *netstack.Net
 	publicKey string
 	forwards  []*forward
+	socks     net.Listener
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -46,7 +47,7 @@ type runtime struct {
 
 // forward 是一条本地 TCP 监听到隧道目标地址的转发。
 type forward struct {
-	config  forwardConfig
+	config   forwardConfig
 	listener net.Listener
 	active   atomic.Int64
 	total    atomic.Int64
@@ -114,6 +115,16 @@ func startRuntime(cfg *config, log *logger) (*runtime, error) {
 		log.infof("TCP 转发已就绪: %s -> %s", fwd.config.Listen, fwd.config.Target)
 	}
 
+	if cfg.SocksListen != "" {
+		listener, err := net.Listen("tcp", cfg.SocksListen)
+		if err != nil {
+			rt.shutdown()
+			return nil, fmt.Errorf("SOCKS 监听失败: %w", err)
+		}
+		rt.socks = listener
+		rt.wg.Add(1)
+		go rt.serveSocks()
+	}
 	if state := rt.deviceState(); state != nil && state.listenPort != 0 {
 		log.infof("WireGuard 设备已就绪: listen_port=%d public_key=%s", state.listenPort, rt.publicKey)
 	} else {
@@ -363,6 +374,9 @@ func (rt *runtime) startStatusWriter(path string, interval time.Duration) error 
 func (rt *runtime) shutdown() {
 	rt.shutdownOnce.Do(func() {
 		rt.cancel()
+		if rt.socks != nil {
+			rt.socks.Close()
+		}
 		for _, fwd := range rt.forwards {
 			if fwd.listener != nil {
 				fwd.listener.Close()

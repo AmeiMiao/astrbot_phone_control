@@ -85,6 +85,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "browse.collect_screenshots",
         "browse.send_screenshots_to_user",
         "browse.auto_remember",
+    "browse.auto_save_images",
         "auto.share_target",
         "auto.share_quiet_hours_enabled",
         "auto.share_start_hour",
@@ -168,6 +169,8 @@ RECONCILE_KEYS: frozenset[str] = frozenset(
         "wireguard.preshared_key",
         "wireguard.phone_wg_ip",
         "wireguard.adb_local_port",
+    "wireguard.adb_target_port",
+    "wireguard.socks_port",
         "wireguard.auto_adb",
     }
 )

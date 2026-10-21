@@ -532,6 +532,8 @@ def test_phone_learn_syncs_to_livingmemory(tmp_path, monkeypatch):
             call = lm.engine.calls[0]
             assert "LivingMemory 同步测试" in call["content"]
             assert call["metadata"]["source_plugin"] == "astrbot_phone_control"
+            assert call["metadata"]["memory_type"] == "GENERAL"
+            assert call["metadata"]["phone_memory_type"] == "phone_learning"
         finally:
             await _cleanup(plugin)
 

@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterable
 
 from .errors import ActionFailedError, PhoneControlError
 
-DEFAULT_KEEP_PACKAGES = ("com.wireguard.android", "com.tailscale.ipn")
+DEFAULT_KEEP_PACKAGES = ("com.wireguard.android", "com.tailscale.ipn", "fun.acat.phonerelay")
 PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$")
 
 

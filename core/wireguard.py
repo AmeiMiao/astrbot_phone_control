@@ -1,30 +1,8 @@
-"""WireGuard 组网：密钥、userspace helper 配置/状态与子进程生命周期。
+"""WireGuard 密钥、用户态组网、TCP/SOCKS5 与 Android App UID 中转。
 
-运行环境约束（AstrBot 容器）：没有 ``NET_ADMIN``、``/dev/net/tun`` 与 ``ip``/``wg``
-工具，内核 WireGuard 不可用。插件随包分发 userspace Go helper
-（``bin/linux-x86_64/phone-wg``，wireguard-go + netstack），在本模块生成的配置下
-由插件以子进程管理：
-
-* **client 模式**：插件连接用户已有的 WireGuard 服务器（``server_endpoint`` +
-  ``server_public_key`` 必填）；隧道内可访问手机；
-* **server 模式**：插件作为服务器，手机（WireGuard App）作为客户端接入（
-  ``public_endpoint`` 提供手机侧可访问地址）；插件自动生成手机密钥对并输出手机端
-  完整配置文本，供复制导入；
-* 两种模式都可用 helper 的 TCP forward 实现 ADB over WG：
-  ``127.0.0.1:<adb_local_port>`` → ``<phone_wg_ip>:5555``。注意 Android VpnService
-  按 UID 分流，官方 WireGuard App 场景下 adbd（shell UID）回包不走隧道，ADB over WG
-  主要用于 Linux/容器对端或手机 root 级全局 WireGuard；手机官方 App 场景只保证隧道与
-  普通 App 流量互通（详见使用手册「已知限制」）。
-
-密钥由插件用 X25519 生成并按 WireGuard 规则 clamp，持久化到
-``<data_dir>/wireguard/keys.json``（0600，目录 0700）；helper 配置 JSON 与状态
-JSON 严格按 ``helper-contract.md`` 的字段生成/解析。helper 二进制由另一侧实现，
-本模块只依赖其 CLI 与文件契约：
-
-* ``phone-wg run --config <json> --status-file <json>``：前台运行，stderr 日志；
-* 状态文件周期写入（≤2 秒），插件以「文件存在且 15 秒内更新」判定健康；
-* 配置非法退出码 2、运行期建接口失败退出码 3（确定性失败），其余退出按临时失败
-  指数退避重试；连续失败收敛为不可用，只告警一次。
+Android 官方 WireGuard App 配合 Phone WG Relay，将隧道内 15555 端口转给
+手机 loopback adbd:5555；Linux 与 root 全局隧道可直接使用 adbd 端口。
+密钥与 helper 配置以 0600 持久化，helper 由插件管理并按状态和退出码退避。
 """
 
 from __future__ import annotations
@@ -365,6 +343,8 @@ class WireGuardSettings:
     phone_wg_ip: str = DEFAULT_PHONE_WG_IP[DEFAULT_MODE]
     adb_local_port: int = DEFAULT_ADB_LOCAL_PORT
     auto_adb: bool = False
+    adb_target_port: int = 5555
+    socks_port: int = 0
 
     @property
     def role(self) -> str:
@@ -492,12 +472,16 @@ def build_helper_config(
             f"phone_wg_ip {phone_ip} 不在 interface_address 网段 {network} 内"
         )
     adb_local_port = _validate_adb_local_port(settings)
+    if not 1 <= settings.adb_target_port <= 65535:
+        raise WireGuardConfigError("adb_target_port 需为 1–65535")
+    if not 0 <= settings.socks_port <= 65535 or (settings.socks_port and settings.socks_port == adb_local_port):
+        raise WireGuardConfigError("socks_port 需为 0–65535 且与 ADB 本地端口不同")
     forwards: list[dict[str, Any]] = []
     if adb_local_port:
         forwards.append(
             {
                 "listen": f"127.0.0.1:{adb_local_port}",
-                "target": f"{phone_ip}:{ADB_OVER_WG_TARGET_PORT}",
+                "target": f"{phone_ip}:{settings.adb_target_port}",
             }
         )
     preshared_key = _validated_preshared_key(settings.preshared_key)
@@ -581,6 +565,7 @@ def build_helper_config(
         "interface": interface,
         "peers": peers,
         "forwards": forwards,
+        "socks_listen": f"127.0.0.1:{settings.socks_port}" if settings.socks_port else "",
         "log_level": "info",
     }
 
@@ -1294,6 +1279,8 @@ class WireGuardManager:
             "public_endpoint": str(settings.public_endpoint or ""),
             "phone_wg_ip": settings.effective_phone_wg_ip,
             "adb_local_port": int(settings.adb_local_port or 0),
+            "adb_target_port": settings.adb_target_port,
+            "socks_port": settings.socks_port,
             "auto_adb": bool(settings.auto_adb),
             "adb_over_wg": self.adb_over_wg,
             "peers": peers["peers"],
@@ -1302,6 +1289,7 @@ class WireGuardManager:
             "rx_bytes": peers["rx_bytes"],
             "tx_bytes": peers["tx_bytes"],
             "forwards": forwards,
+            "socks_listen": f"127.0.0.1:{settings.socks_port}" if settings.socks_port else "",
             "error": self._last_error,
             "unavailable": self.unavailable,
             "unavailable_reason": self._unavailable_reason,
@@ -1418,7 +1406,7 @@ class WireGuardManager:
         elif status["adb_local_port"]:
             lines.append(
                 f"- 转发：未运行（将监听 127.0.0.1:{status['adb_local_port']} → "
-                f"{status['phone_wg_ip']}:{ADB_OVER_WG_TARGET_PORT}）"
+                f"{status['phone_wg_ip']}:{settings.adb_target_port}）"
             )
         else:
             lines.append("- 转发：未启用（adb_local_port=0，ADB over WG 关闭）")
@@ -1469,7 +1457,7 @@ class WireGuardManager:
         if settings.adb_local_port:
             adb_line = (
                 f"ADB over WG：127.0.0.1:{settings.adb_local_port} → "
-                f"{settings.effective_phone_wg_ip}:{ADB_OVER_WG_TARGET_PORT}"
+                f"{settings.effective_phone_wg_ip}:{settings.adb_target_port}"
             )
         else:
             adb_line = "ADB over WG：未启用（adb_local_port=0）"

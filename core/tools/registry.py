@@ -28,6 +28,7 @@ from .app_tools import (
 from .share import PhoneShareToUserTool
 from .clipboard import PhoneClipboardTool
 from .content_task import PhoneContentTool
+from .save_image import PhoneSaveImageTool
 from .content import (
     PhoneAppMemoryTool,
     PhoneAppRememberTool,
@@ -80,6 +81,7 @@ TOOL_NAMES = (
     "phone_app_remember",
     "phone_watch_media",
     "phone_content",
+    "phone_save_image",
 )
 
 
@@ -102,7 +104,7 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
     "phone_tap": "点击：按坐标 (x,y) 或 text/desc 定位后点击。",
     "phone_long_press": "长按：坐标或 text/desc 定位，duration_ms 为按压时长。",
     "phone_swipe": "按方向滑动 up/down/left/right 翻页，duration_ms 为时长。",
-    "phone_input_text": "向聚焦输入框输入文本（中文需 ADBKeyboard），press_enter 回车。",
+    "phone_input_text": "先点编辑框；replace 替换实际输入，输入后核对关键词，press_enter 仅在可验证时回车；占位提示不是旧内容，模拟器可无软键盘。",
     "phone_key": "发送按键：back/home/enter/recents/volume_*/power/tab/delete 等。",
     "phone_open_app": "按中文名/别名/包名打开任意已安装 App。",
     "phone_check_inbox": "进入 App 浏览新消息（回复我的/私信/通知），被动回复前先看。",
@@ -116,7 +118,7 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
     "phone_share_to_user": (
         "看/分享两重判断：看完再决定是否分享；必须带链接或截图（禁纯文字），"
         "复制链接后用 phone_clipboard 读取；帖子默认 content_type=post 回顶确认后附图，"
-        "视频传 video，当前画面传 screen；目标先 phone_recent_chat 按聊天记忆选。"
+        "视频传 video，当前画面传 screen；正文先总结≤100字，发送成功后静默；目标按聊天记忆选。"
     ),
     "phone_browse": "便捷采样：浏览 App 信息流并写入日记（不强制固定条数）。",
     "phone_learn": (
@@ -258,6 +260,7 @@ def build_phone_tools(service: Any) -> list[FunctionTool]:
         PhoneAppRememberTool(service=service),
         PhoneWatchMediaTool(service=service),
         PhoneContentTool(service=service),
+        PhoneSaveImageTool(service=service),
     ]
     names = tuple(tool.name for tool in tools)
     if names != TOOL_NAMES:  # pragma: no cover - 常量与实现不一致时直接暴露

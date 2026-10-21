@@ -82,10 +82,11 @@
         "type": "list",
         "default": [
           "com.wireguard.android",
-          "com.tailscale.ipn"
+          "com.tailscale.ipn",
+          "fun.acat.phonerelay"
         ],
         "description": "后台清理保留名单",
-        "hint": "填写需要常驻的完整包名。默认保留 WireGuard 与 Tailscale；停止手机、任务收尾、浏览清理、清理工具及抓包初始化均保留名单内应用。"
+        "hint": "填写需要常驻的完整包名。组网时保留 WireGuard、Tailscale 和 Phone WG Relay；停止手机、任务收尾和抓包初始化均保留名单内应用。"
       },
       "allow_comments": {
         "type": "bool",
@@ -223,6 +224,12 @@
         "default": true,
         "description": "浏览后自动写入浏览日记",
         "hint": "长期记忆；默认开启。"
+      },
+      "auto_save_images": {
+        "description": "按兴趣保存图文图片与表情包",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后 AI 可将当前已理解图文中喜欢的原图保存到手机 Pictures/AstrBot，相同图片去重；无原图时观察 App 保存入口。"
       }
     }
   },
@@ -772,6 +779,18 @@
         "default": false,
         "description": "自动切换 ADB 目标",
         "hint": "helper 健康后把 ADB 目标切到 127.0.0.1:<adb_local_port>，停止/异常/配置变化时恢复原目标。需 adb_local_port>0。"
+      },
+      "adb_target_port": {
+        "description": "手机隧道内 ADB 入口端口",
+        "type": "int",
+        "default": 5555,
+        "hint": "官方 WireGuard App + Phone WG Relay 填 15555；直接 adbd 填 5555。Relay 需监听手机 WG 地址并仅允许本插件 WG 地址。"
+      },
+      "socks_port": {
+        "description": "通用 SOCKS5 TCP 代理本地端口",
+        "type": "int",
+        "default": 0,
+        "hint": "0 关闭；启用后监听 127.0.0.1，仅支持 peer AllowedIPs 内的 IPv4/IPv6 地址 CONNECT，不需逐个固定转发。"
       }
     }
   },

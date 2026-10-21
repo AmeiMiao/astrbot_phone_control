@@ -51,7 +51,7 @@ class PhoneShareToUserTool(_PhoneToolBase):
                 },
                 "text": {
                     "type": "string",
-                    "description": "分享正文（可留空；链接与截图至少有一个，禁止纯文字）。",
+                    "description": "发送前总结为 1–2 句、最多 100 字，只写内容和推荐理由；省略搜索/点按过程。链接另传 link。",
                     "default": "",
                 },
                 "link": {
@@ -91,6 +91,8 @@ class PhoneShareToUserTool(_PhoneToolBase):
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         event = await self._guard_light(context)
         text = str(kwargs.get("text") or "").strip()
+        if len(text) > 100:
+            return "error: 分享正文请先总结到 100 字以内，只保留内容要点和推荐理由，再发送一次。"
         link = str(kwargs.get("link") or "").strip()
         include_screenshot = bool(kwargs.get("include_screenshot", False))
         screenshot_path = str(kwargs.get("screenshot_path") or "").strip()
@@ -202,6 +204,8 @@ class PhoneShareToUserTool(_PhoneToolBase):
             return f"error: 分享失败：{exc}"
         if not sent:
             return f"error: 分享失败：没有找到目标会话 {target}"
+        if target == str(getattr(event, "unified_msg_origin", "") or "").strip():
+            event.set_extra("phone_shared_current_run", True)
         forms: list[str] = []
         if plan.link:
             forms.append(
@@ -219,4 +223,4 @@ class PhoneShareToUserTool(_PhoneToolBase):
             notes.append("未获取到分享链接，已用截图代替，禁止纯文字分享")
         if notes:
             result += "\n" + "；".join(dict.fromkeys(notes))
-        return result
+        return result + "\n交付已完成；继续静默收尾，不重复介绍或再发已分享内容。"

@@ -525,3 +525,11 @@ def test_real_device_dump_and_render():
     rendered = render_ui(snapshot)
     assert "屏幕" in rendered
     assert f"{snapshot.width}x{snapshot.height}" in rendered
+
+
+def test_editable_hint_and_focus_are_not_presented_as_old_input():
+    nodes = parse_ui_xml('<hierarchy><node class="android.widget.EditText" text="热门推荐" hint="热门推荐" showing-hint-text="true" focused="true" bounds="[0,0][100,40]" /></hierarchy>')
+    text = render_ui(ScreenSnapshot(nodes=nodes))
+    assert 'placeholder="热门推荐"' in text
+    assert 'editable focused' in text
+    assert 'text="热门推荐"' not in text

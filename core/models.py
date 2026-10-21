@@ -65,6 +65,8 @@ class DeviceInfo:
     current_activity: str = ""
     screen_on: bool | None = None
     adb_connected: bool = False
+    device_kind: str = "unknown"
+    keyboard_visible: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +84,8 @@ class DeviceInfo:
             "current_activity": self.current_activity,
             "screen_on": self.screen_on,
             "adb_connected": self.adb_connected,
+            "device_kind": self.device_kind,
+            "keyboard_visible": self.keyboard_visible,
         }
 
 
@@ -105,6 +109,8 @@ class UiNode:
     enabled: bool = True
     focused: bool = False
     depth: int = 0
+    hint: str = ""
+    showing_hint: bool | None = None
 
     @property
     def label(self) -> str:
@@ -134,6 +140,8 @@ class UiNode:
             "enabled": self.enabled,
             "focused": self.focused,
             "depth": self.depth,
+            "hint": self.hint,
+            "showing_hint": self.showing_hint,
         }
 
 

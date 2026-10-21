@@ -398,6 +398,7 @@ class BrowseSettings:
     collect_screenshots: bool = True
     send_screenshots_to_user: bool = False
     auto_remember: bool = True
+    auto_save_images: bool = False
 
 
 @dataclass(frozen=True)
@@ -1073,6 +1074,7 @@ class PhoneConfig:
                 "browse.auto_remember",
                 warn_fn,
             ),
+            auto_save_images=_as_bool(_pick(browse_card, source, "auto_save_images"), False, "browse.auto_save_images", warn_fn),
         )
 
         auto_card = card("auto")
@@ -1377,6 +1379,8 @@ class PhoneConfig:
                 "wireguard.auto_adb",
                 warn_fn,
             ),
+            adb_target_port=_as_int(_pick(wireguard_card, source, "adb_target_port"), 5555, "wireguard.adb_target_port", warn_fn, minimum=1, maximum=65535),
+            socks_port=_as_int(_pick(wireguard_card, source, "socks_port"), 0, "wireguard.socks_port", warn_fn, minimum=0, maximum=65535),
         )
 
         memory_card = card("memory")

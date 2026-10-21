@@ -6,7 +6,7 @@
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.1.2` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.1.3` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -14,7 +14,7 @@
 
 `astrbot_phone_control` 是 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的手机操控插件。
 它通过远程 ADB（可选 scrcpy / minitouch 后端）操作一台安卓模拟器，把「看屏幕、点滑动、
-输入、打开 App、理解内容、记录记忆」封装成 33 个 LLM 工具，并提供 `/phone` 命令族、
+输入、打开 App、理解内容、记录记忆」封装成 34 个 LLM 工具，并提供 `/phone` 命令族、
 定时自主任务、只读监控面板与配置热应用。
 
 插件不绑定具体 App：内置抖音 / B 站 / 小黑盒画像，其余任意已安装 App 用通用文本抽取兜底。
@@ -39,8 +39,10 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 - **WireGuard 组网**：插件内置 userspace WG helper（容器无需 `NET_ADMIN`/`/dev/net/tun`）：
   `client` 连接已有 WG 服务器，或 `server` 让装了 WireGuard App 的手机接入；
   `/phone wg config` 输出服务器 Peer 片段 / 手机端完整配置，可选 `auto_adb` 把 ADB 目标切到
-  WG 隧道。注意 ADB over WG 受 Android VpnService 按 UID 分流限制（手机官方 WG App 场景下
-  adbd 回包不走隧道），详见使用手册「WireGuard 组网 → 已知限制」。
+  WG 隧道。无 root Android 配合随包的 [Phone WG Relay](helper/android-relay/README.md)，
+  使用 App UID 中转 ADB；支持环回 SOCKS5 TCP 代理访问 WG 目标。
+- **按兴趣存图**：`browse.auto_save_images` 默认关闭；开启后可保存喜欢的图文原图与表情包到手机相册，按文件内容去重。
+- **静默分享**：操作过程不输出逐步解说，分享前整理为简短介绍，分享成功后静默收尾。
 - **安全与运维**：管理员/主人白名单、统一设备执行入口（授权/占用/暂停/取消代次/期限）、
   只读 Dashboard、抓包日志打码与轮转；WG 私钥落盘 0600。
 
@@ -121,7 +123,7 @@ AI：返回设备连接、前台 App、电量与分辨率
 /phone stop [job_id|all]                 停任务/抓包/随机与持续刷，回桌面强停应用
 ```
 
-完整命令、33 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
+完整命令、34 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
 
 ## 安全与隐私
 
@@ -143,7 +145,7 @@ core/plugin/           插件运行逻辑 mixins（装配/生命周期、命令�
 core/service.py        能力门面 PhoneService（状态/UI/截图/浏览/日记/分享/抓包页面内容）
 core/verification_controller.py  验证会话控制器（尝试次数/总时限/人工接管/持久化）
 core/wireguard.py      WireGuard 组网：X25519 密钥、helper 配置/状态文件、子进程生命周期、ADB over WG
-core/tools/            33 个 LLM 工具实现（按域拆分）
+core/tools/            34 个 LLM 工具实现（按域拆分）
 core/*.py              设备层与纯逻辑模块（ADB/UI/动作/配置/抓包/记忆/新鲜感等）
 skills/                AI 行为手册（自主浏览、互动、验证、媒体、整理）
 views/dashboard/       只读监控面板与学习记录页

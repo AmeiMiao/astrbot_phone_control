@@ -713,7 +713,8 @@ class PhoneService:
                 f"型号：{info.manufacturer} {info.model}".strip()
                 + f"（Android {info.android_version or '?'} / SDK {info.sdk or '?'}）",
                 f"分辨率：{info.width}x{info.height} @ {info.density}dpi",
-                f"电量：{battery}",
+                f"设备类型：{dict(emulator='模拟器', physical='物理真机').get(info.device_kind, '未知')}；软键盘：{dict({True: '可见', False: '未显示'}).get(info.keyboard_visible, '未知')}；输入框聚焦后可直接注入文字",
+            f"电量：{battery}",
                 f"屏幕：{screen_on}",
             f"前台：{info.current_package or '未知'}"
             + (f"/{info.current_activity}" if info.current_activity else ""),
