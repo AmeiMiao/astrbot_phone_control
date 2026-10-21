@@ -226,10 +226,33 @@
         "hint": "长期记忆；默认开启。"
       },
       "auto_save_images": {
-        "description": "按兴趣保存图文图片与表情包",
+        "description": "保存图片开关",
         "type": "bool",
         "default": false,
-        "hint": "开启后 AI 可将当前已理解图文中喜欢的原图保存到手机 Pictures/AstrBot，相同图片去重；无原图时观察 App 保存入口。"
+        "hint": "开启后 AI 可按兴趣保存图文原图与表情包，并记录描述、标签、来源与存储路径。"
+      },
+      "save_images_both": {
+        "description": "两地都存",
+        "type": "bool",
+        "default": false,
+        "condition": {
+          "auto_save_images": true
+        },
+        "hint": "开启后同时保存到 AstrBot 服务端和手机，隐藏主要存储位置。"
+      },
+      "image_storage_location": {
+        "description": "主要存储位置",
+        "type": "string",
+        "default": "server",
+        "options": [
+          "server",
+          "phone"
+        ],
+        "condition": {
+          "auto_save_images": true,
+          "save_images_both": false
+        },
+        "hint": "server=AstrBot 服务端（可查找并传到手机）；phone=手机相册。两地都存开启时此选择不参与保存。"
       }
     }
   },

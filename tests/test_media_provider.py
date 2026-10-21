@@ -42,3 +42,26 @@ def test_placeholder_adapter_and_native_xiaomi_are_distinguished():
 
     assert audio_transport(ProviderAnthropic()) == "transcript"
     assert audio_transport(ProviderXiaomiTokenPlan()) == "xiaomi_openai"
+
+
+def test_aliyun_audio_transport_checks_host_boundary():
+    class ProviderOpenAIOfficial:
+        def __init__(self, host):
+            self.provider_config = {
+                "api_base": "https://" + host + "/compatible-mode/v1"
+            }
+
+    assert (
+        audio_transport(
+            ProviderOpenAIOfficial("workspace.cn-beijing.maas.aliyuncs.com")
+        )
+        == "aliyun_openai"
+    )
+    assert (
+        audio_transport(ProviderOpenAIOfficial("dashscope.aliyuncs.com"))
+        == "aliyun_openai"
+    )
+    assert (
+        audio_transport(ProviderOpenAIOfficial("maas.aliyuncs.com.attacker.invalid"))
+        == "native"
+    )

@@ -1,6 +1,6 @@
 """LLM 工具层：把手机操控能力注册成 AstrBot 的 Function-calling 工具。
 
-34 个工具（status/screen/traffic/wireguard/clipboard/tap/long_press/swipe/input_text/key/open_app/
+35 个工具（status/screen/traffic/wireguard/clipboard/tap/long_press/swipe/input_text/key/open_app/
 check_inbox/list_apps/screenshot/bypass_verify/solve_verification/share_to_user/
 browse/learn/recall_diary/recent_chat/wait/clean_background/skill/
 interaction_gate/interaction_record/start_background_task/live_screen/read_screen/
@@ -160,4 +160,4 @@ from .registry import (
     build_phone_tools,
 )
 
-from .save_image import PhoneSaveImageTool
+from .save_image import PhoneSaveImageTool, PhoneSavedImagesTool

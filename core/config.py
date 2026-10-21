@@ -399,6 +399,8 @@ class BrowseSettings:
     send_screenshots_to_user: bool = False
     auto_remember: bool = True
     auto_save_images: bool = False
+    image_storage_location: str = "server"
+    save_images_both: bool = False
 
 
 @dataclass(frozen=True)
@@ -1075,6 +1077,8 @@ class PhoneConfig:
                 warn_fn,
             ),
             auto_save_images=_as_bool(_pick(browse_card, source, "auto_save_images"), False, "browse.auto_save_images", warn_fn),
+            image_storage_location=_as_choice(_pick(browse_card, source, "image_storage_location"), "server", "browse.image_storage_location", warn_fn, ("server", "phone")),
+            save_images_both=_as_bool(_pick(browse_card, source, "save_images_both"), False, "browse.save_images_both", warn_fn),
         )
 
         auto_card = card("auto")

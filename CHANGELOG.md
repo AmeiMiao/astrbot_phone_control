@@ -4,13 +4,11 @@
 
 ## [Unreleased]
 
-## [0.1.3] - 2026-10-21
-
 ### Added
 
 - Phone WG Relay 手机组件通过普通 App UID 转发 WG 内 ADB，支持无 root Android 官方 WireGuard App；中转仅监听隧道地址并限制唯一控制端，通知栏可停止。
 - `wireguard.adb_target_port` 选择手机入口；`socks_port` 提供环回 SOCKS5 TCP CONNECT，按 peer AllowedIPs 访问 IPv4/IPv6 目标。
-- `browse.auto_save_images` 控制按兴趣存图；`phone_save_image` 将当前已理解图文关联的原图/表情包保存到手机相册，按 SHA256 去重并校验手机文件。
+- 图片库提供保存开关、两地都存和主要存储位置；默认存 AstrBot 服务端，两地都存开启时隐藏主要位置。`phone_save_image` 保存原图及描述、标签、来源、SHA256 和路径；`phone_saved_images` 支持后续查询和传到手机，手机哈希与相册索引均核验。
 
 ### Fixed
 
@@ -18,6 +16,7 @@
 - LivingMemory 内容类型使用 `GENERAL`，来源类型独立保存在 `phone_memory_type`，会话作用域保持一致。
 - 设备状态识别模拟器与软键盘；UI 区分可编辑、聚焦和可用的 hint 信息；文字输入后核对关键词再回车，操作手册明确各 App 的搜索按钮/回车提交方式。
 - 手机工具轮的流式过程正文先缓冲再判断交付，只发送最终回复；当前会话分享成功后静默收尾。分享正文发送前总结到 100 字以内。
+- 阿里云 OpenAI 兼容接口的原音频采用 data URI 编码，保持所选模型、同源接口与凭据。
 - 内置手册读取上限为 16 KiB，完整提供操作规则。
 
 ## [0.1.2] - 2026-10-21

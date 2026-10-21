@@ -21,7 +21,9 @@ description: 人格化自主浏览手册：先观察再行动、进 App 先查�
 
 ## 喜欢的图片与表情包
 
-browse.auto_save_images 开启时，图文 read 后可根据画面和人格判断喜欢哪些原图；用 phone_save_image(image_index=编号, reason=具体理由) 保存到手机相册。原图从 0 编号，与 read 输入顺序相同；不批量全存、不把截图冒充原图。抓包无原图时，可观察 App 的长按/更多菜单中的保存入口并核对相册结果。开关关闭时不自动保存。存图、点赞收藏和分享给用户分别判断。
+browse.auto_save_images 开启时，图文 read 后按兴趣调用 phone_save_image(image_index=编号, description=图片内容, reason=喜欢的理由, kind=image或sticker, tags=主题标签)。按配置存 AstrBot 服务端、手机或两地，默认服务端；工具记录原图路径和信息，图片从 0 编号。不批量全存，不把截图冒充原图。无原图时可观察 App 原生保存入口；开关关闭不自动存。
+
+后续 phone_saved_images(query=描述或标签) 查询图片编号、描述与路径；action=to_phone,image_id=编号 可把服务端原图传到手机。引用已存图时核对描述和路径；向用户分享可用 phone_share_to_user(content_type=screen, include_screenshot=true, screenshot_path=server_path)，明确介绍的是已存原图。存图、点赞收藏和分享独立决定。
 
 ## 输入与搜索
 

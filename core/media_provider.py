@@ -29,6 +29,14 @@ def audio_transport(provider):
     names = {base.__name__ for base in type(provider).__mro__}
     if "ProviderXiaomiTokenPlan" in names:
         return "xiaomi_openai"
+    config = getattr(provider, "provider_config", {})
+    host = urlsplit(str(config.get("api_base") or "")).hostname or ""
+    if "ProviderOpenAIOfficial" in names and (
+        host == "dashscope.aliyuncs.com"
+        or host.endswith(".dashscope.aliyuncs.com")
+        or host.endswith(".maas.aliyuncs.com")
+    ):
+        return "aliyun_openai"
     if "ProviderAnthropic" in names:
         return "transcript"
     return "native"
@@ -46,17 +54,47 @@ class MediaProviders:
     async def generate(self, **kwargs):
         provider_id = kwargs["chat_provider_id"]
         selected = self.provider(provider_id)
-        if kwargs.get("audio_urls") and audio_transport(selected) == "xiaomi_openai":
+        transport = audio_transport(selected)
+        if kwargs.get("audio_urls") and transport in {"xiaomi_openai", "aliyun_openai"}:
             adapter = self.adapters.get(provider_id)
             if adapter is None:
                 from astrbot.core.provider.sources.openai_source import (
                     ProviderOpenAIOfficial,
                 )
 
-                adapter = ProviderOpenAIOfficial(
-                    audio_adapter_config(selected),
-                    getattr(selected, "provider_settings", {}),
-                )
+                if transport == "aliyun_openai":
+
+                    class AliyunAudioProvider(ProviderOpenAIOfficial):
+                        async def _resolve_audio_part(self, audio_ref):
+                            from astrbot.core.provider.sources.openai_source import (
+                                resolve_media_ref_to_base64_data,
+                            )
+
+                            audio = await resolve_media_ref_to_base64_data(
+                                audio_ref, media_type="audio", strict=True
+                            )
+                            if not audio or not audio.format:
+                                raise PhoneControlError("阿里云原音频预处理结果为空")
+                            return {
+                                "type": "input_audio",
+                                "input_audio": {
+                                    "data": f"data:audio/{audio.format};base64,{audio.base64_data}",
+                                    "format": audio.format,
+                                },
+                            }
+
+                    config = deepcopy(selected.provider_config)
+                    extra = deepcopy(config.get("custom_extra_body") or {})
+                    extra["modalities"] = ["text"]
+                    config["custom_extra_body"] = extra
+                    adapter = AliyunAudioProvider(
+                        config, getattr(selected, "provider_settings", {})
+                    )
+                else:
+                    adapter = ProviderOpenAIOfficial(
+                        audio_adapter_config(selected),
+                        getattr(selected, "provider_settings", {}),
+                    )
                 self.adapters[provider_id] = adapter
             payload = {k: v for k, v in kwargs.items() if k != "chat_provider_id"}
             return await adapter.text_chat(**payload)

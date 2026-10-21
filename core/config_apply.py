@@ -85,7 +85,9 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "browse.collect_screenshots",
         "browse.send_screenshots_to_user",
         "browse.auto_remember",
-    "browse.auto_save_images",
+        "browse.auto_save_images",
+        "browse.image_storage_location",
+        "browse.save_images_both",
         "auto.share_target",
         "auto.share_quiet_hours_enabled",
         "auto.share_start_hour",
@@ -169,8 +171,8 @@ RECONCILE_KEYS: frozenset[str] = frozenset(
         "wireguard.preshared_key",
         "wireguard.phone_wg_ip",
         "wireguard.adb_local_port",
-    "wireguard.adb_target_port",
-    "wireguard.socks_port",
+        "wireguard.adb_target_port",
+        "wireguard.socks_port",
         "wireguard.auto_adb",
     }
 )
@@ -281,11 +283,9 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
         动作清单；配置未变化时各动作均为空/False，``notes`` 为空元组。
     """
     adb_changed = previous.adb != current.adb
-    backends_changed = _backend_reconcile_values(
-        previous
-    ) != _backend_reconcile_values(current) or (
-        previous.perception.screen_source != current.perception.screen_source
-    )
+    backends_changed = _backend_reconcile_values(previous) != _backend_reconcile_values(
+        current
+    ) or (previous.perception.screen_source != current.perception.screen_source)
     scheduler_changed = _tuple_of(previous.auto, _SCHEDULER_FIELDS) != _tuple_of(
         current.auto, _SCHEDULER_FIELDS
     )
@@ -298,7 +298,10 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
             ACTION_START if current.auto.continuous_enabled else ACTION_STOP
         )
     live_screen_action = ACTION_NONE
-    if previous.perception.live_screen_enabled != current.perception.live_screen_enabled:
+    if (
+        previous.perception.live_screen_enabled
+        != current.perception.live_screen_enabled
+    ):
         live_screen_action = (
             ACTION_START if current.perception.live_screen_enabled else ACTION_STOP
         )
@@ -333,7 +336,9 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
         if current.auto.enabled:
             notes.append("自主浏览：已按新配置同步 cron 任务")
         else:
-            notes.append("自主浏览：已关闭自动创建，已有 cron 任务可用 /phone auto off 删除")
+            notes.append(
+                "自主浏览：已关闭自动创建，已有 cron 任务可用 /phone auto off 删除"
+            )
     if random_changed:
         notes.append("随机玩手机：已按新配置重新排程")
     if wireguard_action == ACTION_START:
