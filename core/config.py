@@ -520,6 +520,8 @@ class PromptSettings:
     diary_limit: int = 5
     app_memory_enabled: bool = True
     app_memory_limit: int = 5
+    app_memory_backend: str = "plugin"
+    app_memory_kb_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -1517,6 +1519,11 @@ class PhoneConfig:
                 "prompt.app_memory_enabled",
                 warn_fn,
             ),
+            app_memory_backend=_as_choice(
+                _pick(prompt_card, source, "app_memory_backend"),
+                "plugin", "prompt.app_memory_backend", warn_fn, ("plugin", "knowledge_base"),
+            ),
+            app_memory_kb_name=str(_pick(prompt_card, source, "app_memory_kb_name") or "").strip(),
             app_memory_limit=_as_int(
                 _pick(prompt_card, source, "app_memory_limit"),
                 5,

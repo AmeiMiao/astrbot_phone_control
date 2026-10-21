@@ -51,7 +51,7 @@ class FakeAdb:
         if command.startswith("wc -c"):
             return str(self.remote_size)
         if "app_process /" in command:
-            return self.launch_output
+            return self.launch_output + "\nGUARD_PID=9999"
         if command.startswith("tail"):
             return self.log_tail
         return ""

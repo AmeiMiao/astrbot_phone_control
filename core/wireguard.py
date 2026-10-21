@@ -44,6 +44,8 @@ from typing import Any, Callable, Mapping
 
 from astrbot.api import logger
 
+from .process_lease import guarded_command, start_heartbeat, stop_heartbeat
+
 from .plugin_shared import ensure_executable
 
 BUNDLED_HELPER = Path("bin") / "linux-x86_64" / "phone-wg"
@@ -808,6 +810,7 @@ class WireGuardManager:
         self._retry_failure_limit = int(
             RETRY_FAILURE_LIMIT if retry_failure_limit is None else retry_failure_limit
         )
+        self._process_heartbeat = None
         self._proc: asyncio.subprocess.Process | None = None
         self._stderr_task: asyncio.Task | None = None
         self._stderr_tail: deque[str] = deque(maxlen=20)
@@ -1078,6 +1081,8 @@ class WireGuardManager:
 
     async def _teardown_process_locked(self) -> None:
         """停止 helper 进程、取消 stderr 转发并清理状态文件（调用方持锁）。"""
+        await stop_heartbeat(self._process_heartbeat)
+        self._process_heartbeat = None
         proc = self._proc
         self._proc = None
         task = self._stderr_task
@@ -1162,17 +1167,15 @@ class WireGuardManager:
         await self._teardown_process_locked()
         self._stderr_tail.clear()
         try:
+            command = [str(helper), "run", "--config", str(self.config_path),
+                       "--status-file", str(self.status_path)]
             self._proc = await asyncio.create_subprocess_exec(
-                str(helper),
-                "run",
-                "--config",
-                str(self.config_path),
-                "--status-file",
-                str(self.status_path),
-                stdin=asyncio.subprocess.DEVNULL,
+                *guarded_command(command, self.root / "process.lock"),
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
+            self._process_heartbeat = start_heartbeat(self._proc)
         except (OSError, asyncio.SubprocessError) as exc:
             deterministic = isinstance(
                 exc, (FileNotFoundError, PermissionError, NotADirectoryError)

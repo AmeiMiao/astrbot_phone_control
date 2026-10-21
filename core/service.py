@@ -349,6 +349,13 @@ class PhoneService:
             origin = ""
         return should_yield_to_user(origin=origin, user_active=self.user_priority.active)
 
+    @property
+    def experiences(self):
+        from .app_experience import AppExperience
+        if not hasattr(self, "_experiences"):
+            self._experiences = AppExperience(self)
+        return self._experiences
+
     def memory_user_id(self, event: Any) -> str:
         """同步到 MemoryCompanion 时绑定的用户 ID。
 

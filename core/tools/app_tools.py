@@ -60,7 +60,7 @@ class PhoneOpenAppTool(_PhoneToolBase):
         store = getattr(self.service, "app_memory", None)
         if store is not None:
             try:
-                memory = store.render_app(app, limit=2, max_chars=500)
+                memory = await self.service.experiences.render_app(app, limit=2, max_chars=500)
             except Exception:  # noqa: BLE001 - 经验读取失败不影响打开 App
                 memory = ""
         if memory:

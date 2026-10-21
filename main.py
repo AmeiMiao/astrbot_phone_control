@@ -546,10 +546,10 @@ class PhoneControlPlugin(
                     learning_text = ""
                 if learning_text:
                     sections.append(learning_text)
-                if config.prompt.app_memory_enabled and config.prompt.app_memory_limit > 0:
+                if config.prompt.app_memory_enabled and (config.prompt.app_memory_backend == "knowledge_base" or config.prompt.app_memory_limit > 0):
                     try:
-                        app_memory_text = self.app_memory.render_for_prompt(
-                            limit=config.prompt.app_memory_limit,
+                        app_memory_text = await self.service.experiences.render_for_prompt(
+                            limit=(config.prompt.app_memory_limit if config.prompt.app_memory_backend == "plugin" else 5),
                             max_chars=900,
                         )
                     except Exception:  # noqa: BLE001 - App 经验读取失败不影响提示词

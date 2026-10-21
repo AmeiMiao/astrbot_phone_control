@@ -34,6 +34,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from .process_lease import DeviceLease, guarded_command, start_heartbeat, stop_heartbeat
+
 from . import traffic as traffic_mod
 
 REMOTE_TMP = "/data/local/tmp/astrbot_phone_traffic"
@@ -80,6 +82,8 @@ class TrafficCapture:
         self.mitm_log_path = self.root / "mitmdump.log"
         self._logger = logger
         self._mitmdump = mitmdump
+        self._device_lease = None
+        self._process_heartbeat = None
         self._proc: asyncio.subprocess.Process | None = None
         self._proc_log = None
         self._port = 0
@@ -328,6 +332,11 @@ class TrafficCapture:
 
     async def _setup_device_locked(self) -> None:
         """注入系统 CA、建立 reverse 与全局代理（需要 root；调用方持锁）。"""
+        # 设备重配置先撤回前一看门狗，防止旧心跳在代理重建后继续存活。
+        if self._device_lease is not None and self._device_lease.task is not None:
+            await self._device_lease.close()
+            self._device_lease = DeviceLease(self.adb, "traffic")
+            await self._device_lease.prepare()
         ca_path = self.confdir / traffic_mod.CA_FILE_NAME
         cert_hash = self._subject_hash_old(ca_path)
         if not cert_hash:
@@ -382,6 +391,7 @@ class TrafficCapture:
             self._log(f"抓包：已结束 {stopped} 个第三方 App 进程，确保新进程信任 CA")
         if not await self._ensure_reverse():
             raise RuntimeError("adb reverse 建立失败（端口映射不可用）")
+        await self._arm_device_lease_locked()
         await self.adb.shell(
             f"settings put global http_proxy {PROXY_VALUE.format(port=self._port)}",
             timeout=10,
@@ -394,6 +404,18 @@ class TrafficCapture:
         """配置设备抓包环境（串行；start/保活内部使用持锁版本）。"""
         async with self._lock:
             await self._setup_device_locked()
+
+    async def _arm_device_lease_locked(self) -> None:
+        if self._device_lease is not None and self._device_lease.task is not None and not self._device_lease.task.done():
+            return
+        if self._device_lease is None:
+            self._device_lease = DeviceLease(self.adb, "traffic")
+        import shlex
+        proxy = shlex.quote(self._prev_proxy or ":0")
+        cleanup = (f"if [ \"$(settings get global http_proxy)\" = \"127.0.0.1:{self._port}\" ]; then "
+                   f"settings put global http_proxy {proxy}; "
+                   f"true; fi; nsenter -t 1 -m -- umount -l {SYSTEM_CACERTS} 2>/dev/null; true")
+        await self._device_lease.arm(None, cleanup=cleanup)
 
     async def _restore_device_locked(self) -> None:
         """恢复设备代理、移除 reverse、卸载 CA 挂载（调用方持锁）。"""
@@ -422,6 +444,8 @@ class TrafficCapture:
 
     async def _teardown_process_locked(self) -> None:
         """停止并清理本实例的 mitmdump 进程/日志句柄（调用方持锁）。"""
+        await stop_heartbeat(self._process_heartbeat)
+        self._process_heartbeat = None
         proc = self._proc
         self._proc = None
         if proc is not None and proc.returncode is None:
@@ -441,6 +465,9 @@ class TrafficCapture:
 
     async def _rollback_start_locked(self) -> None:
         """启动失败/取消回滚：只清理本实例本次尝试改动的资源。"""
+        if self._device_lease is not None:
+            await self._device_lease.close()
+            self._device_lease = None
         if self._device_configured:
             await self._restore_device_locked()
             self._device_configured = False
@@ -499,7 +526,10 @@ class TrafficCapture:
                 "把 traffic.mitmdump_path 指向该 venv/bin/mitmdump",
                 unavailable=True,
             )
-        # 上次失败可能留下已退出的进程句柄与未关闭的日志文件。
+        # 每次重启先结束前任设备租约，再关闭本机进程句柄与日志。
+        if self._device_lease is not None:
+            await self._device_lease.close()
+            self._device_lease = None
         await self._teardown_process_locked()
         self._port = target_port
         self._body_chars = traffic_mod.normalize_body_chars(
@@ -519,19 +549,16 @@ class TrafficCapture:
             )
         try:
             self._proc_log = self.mitm_log_path.open("ab")
+            command = [mitmdump, "-q", "-p", str(target_port), "--set",
+                       f"confdir={self.confdir}", "-s", str(self.addon_path)]
             self._proc = await asyncio.create_subprocess_exec(
-                mitmdump,
-                "-q",
-                "-p",
-                str(target_port),
-                "--set",
-                f"confdir={self.confdir}",
-                "-s",
-                str(self.addon_path),
+                *guarded_command(command, self.root / "process.lock"),
+                stdin=asyncio.subprocess.PIPE,
                 stdout=self._proc_log,
                 stderr=asyncio.subprocess.STDOUT,
                 env={**os.environ, "HOME": str(self.root)},
             )
+            self._process_heartbeat = start_heartbeat(self._proc)
         except (OSError, asyncio.SubprocessError) as exc:
             await self._teardown_process_locked()
             return self._fail_locked(
@@ -540,6 +567,7 @@ class TrafficCapture:
                     exc, (FileNotFoundError, PermissionError, NotADirectoryError)
                 ),
             )
+        # 插件失联时，设备端看门狗恢复代理，避免手机网络指向已退出的抓包服务。
         # 等 CA 生成
         ca_path = self.confdir / traffic_mod.CA_FILE_NAME
         for _ in range(int(CA_WAIT_SECONDS * 2)):
@@ -559,6 +587,8 @@ class TrafficCapture:
             return self._fail_locked(
                 f"RuntimeError: mitmdump 启动后立即退出（端口 {target_port}）：{tail}"
             )
+        self._device_lease = DeviceLease(self.adb, "traffic")
+        await self._device_lease.prepare()
         try:
             await self._setup_device_locked()
         except Exception as exc:  # noqa: BLE001 - 设备环境配置失败时整体回滚
@@ -568,6 +598,8 @@ class TrafficCapture:
             )
             await self._rollback_start_locked()
             return self._fail_locked(reason, unavailable=deterministic)
+        if self._device_lease.task is None:
+            await self._arm_device_lease_locked()
         if not self.running:
             # 设备配置期间 mitmdump 已退出（例如端口被其它实例占用）：
             # 不能先报「已启动」，如实返回失败原因并回滚。
@@ -598,6 +630,9 @@ class TrafficCapture:
             await self._stop_locked()
 
     async def _stop_locked(self, *, log: bool = True) -> None:
+        if self._device_lease is not None:
+            await self._device_lease.close()
+            self._device_lease = None
         configured = self._device_configured
         had_capture = self.running
         if configured:

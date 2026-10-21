@@ -767,7 +767,7 @@ def test_home_cleanup_holds_own_lease_and_releases_it(tmp_path, monkeypatch):
             gate.checkpoint("shell")
             operations.append(command)
             busy_during.append(gate.busy)
-            return ""
+            return "package:com.example.app" if command == "pm list packages -3" else ""
 
         monkeypatch.setattr(plugin.actions, "press_key", fake_press_key)
         monkeypatch.setattr(plugin.adb, "shell", fake_shell)
@@ -775,8 +775,10 @@ def test_home_cleanup_holds_own_lease_and_releases_it(tmp_path, monkeypatch):
         try:
             await plugin._auto_cleanup_after_task(event)
             # HOME 与清后台都在收尾自己的设备作用域内执行（租约由收尾持有）。
-            assert operations == ["home", "am kill-all"]
-            assert busy_during == [True, True]
+            assert operations[0] == "home"
+            assert "am force-stop --user current com.example.app" in operations
+            assert operations[-1] == "pidof com.example.app || true"
+            assert all(busy_during)
             # 收尾结束释放自己的可让路租约，不残留占用。
             assert gate.busy is False
         finally:
@@ -786,7 +788,7 @@ def test_home_cleanup_holds_own_lease_and_releases_it(tmp_path, monkeypatch):
 
 
 def test_home_cleanup_stops_when_new_task_takes_over_lease(tmp_path, monkeypatch):
-    """A12 重放：HOME 后新任务取得租约，旧收尾必须停止，不得继续 am kill-all。"""
+    """HOME 后新任务取得租约，旧收尾必须立即停止。"""
 
     async def scenario() -> None:
         plugin = _make_plugin(tmp_path, monkeypatch)
@@ -816,7 +818,7 @@ def test_home_cleanup_stops_when_new_task_takes_over_lease(tmp_path, monkeypatch
             new_event = FakeEvent(umo="webchat:FriendMessage:new", role="admin")
             with gate.scope(new_event, purpose="phone_tap", write=True):
                 await asyncio.wait_for(task, timeout=5)
-                # 旧收尾在下一次门禁检查处停止：没有执行 am kill-all。
+                # 旧收尾在下一次门禁检查处停止：没有继续清理应用。
                 assert [item["op"] for item in operations] == ["home"]
                 assert gate.busy is True
                 assert gate.owner_umo == new_event.unified_msg_origin
@@ -841,7 +843,7 @@ def test_home_cleanup_after_force_release_still_cleans(tmp_path, monkeypatch):
 
         async def fake_shell(command: str, **_kwargs) -> str:
             operations.append(command)
-            return ""
+            return "package:com.example.app" if command == "pm list packages -3" else ""
 
         monkeypatch.setattr(plugin.actions, "press_key", fake_press_key)
         monkeypatch.setattr(plugin.adb, "shell", fake_shell)
@@ -851,7 +853,9 @@ def test_home_cleanup_after_force_release_still_cleans(tmp_path, monkeypatch):
                 # /phone stop：先收回租约并中止在途动作，再直接收尾。
                 gate.force_release("phone_stop")
                 await plugin._cleanup_phone_home()
-            assert operations == ["home", "am kill-all"]
+            assert operations[0] == "input keyevent 3"
+            assert "am force-stop --user current com.example.app" in operations
+            assert operations[-1] == "pidof com.example.app || true"
         finally:
             await _cleanup(plugin)
 

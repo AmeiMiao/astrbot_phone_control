@@ -226,6 +226,8 @@ class TasksMixin:
     def _device_blocking_reason(self, event: Any, purpose: str, write: bool) -> str:
         """持久化故障、验证暂停/过期等阻断条件统一入口（异常时 fail-closed）。"""
         try:
+            if getattr(self, "_terminated", False) or getattr(self, "_stopping_phone", False):
+                return "手机控制正在停止，请稍后重新发起操作"
             health = self._verification.health_reason()
             if health:
                 return health
@@ -263,34 +265,48 @@ class TasksMixin:
         """DeviceActions 动作前的批次内复查。"""
         self.device_gate.checkpoint(str(op))
 
-    async def _cleanup_phone_home(self, *, guarded: bool = False) -> None:
-        """强制回桌面并清理后台进程（不读自动清理开关，用于显式停止任务）。
-
-        Args:
-            guarded: 是否在设备作用域内逐步复查门禁。任务收尾传 ``True``：每个
-                await 之后校验取消与租约归属，租约被新任务接管后立即停止，不再
-                执行后续动作；用户停止命令已先强制释放租约，按后台操作执行。
-        """
-
-        def _check(op: str) -> None:
+    async def _cleanup_phone_home(self, *, guarded: bool = False) -> dict[str, Any]:
+        """强停最近任务与第三方应用，保留桌面和当前输入法，并验证清理结果。"""
+        def check(op):
             if guarded:
                 self.device_gate.checkpoint(op)
 
+        report: dict[str, Any] = {"stopped": 0, "errors": []}
         try:
-            _check("cleanup_home")
-            await self.actions.press_key("home")
-            _check("cleanup_home_done")
+            check("cleanup_home")
+            if guarded:
+                await self.actions.press_key("home")
+            else:
+                await self.adb.shell("input keyevent 3")
             await asyncio.sleep(0.4)
-            _check("cleanup_kill_background")
-            await self.adb.shell("am kill-all")
-            _check("cleanup_done")
-            self._device_log("任务结束：已回到桌面并清理后台")
+            check("cleanup_apps")
+            home = await self.adb.shell(
+                "cmd package resolve-activity --brief -a android.intent.action.MAIN "
+                "-c android.intent.category.HOME")
+            keyboard = await self.adb.shell("settings get secure default_input_method")
+            protected = {"android", "com.android.systemui"}
+            for value in (home, keyboard):
+                protected.update(re.findall(r"([A-Za-z][\w]*(?:\.[\w]+)+)/", str(value)))
+            packages = await self.adb.shell("pm list packages -3")
+            recents = await self.adb.shell("dumpsys activity recents")
+            targets = set(re.findall(r"^package:([\w.]+)$", str(packages), re.M))
+            targets.update(re.findall(r"(?:cmp=|realActivity=|mActivityComponent=|A=\d+:)([\w.]+)/", str(recents)))
+            for package in sorted(targets - protected):
+                check("cleanup_force_stop")
+                await self.adb.shell(f"am force-stop --user current {package}")
+                check("cleanup_force_stop_done")
+                alive = await self.adb.shell(f"pidof {package} || true")
+                if str(alive).strip():
+                    report["errors"].append(f"{package} 仍有进程")
+                else:
+                    report["stopped"] += 1
+            check("cleanup_done")
         except GateError:
             raise
-        except PhoneControlError as exc:
-            logger.warning("停止任务后清理手机失败：%s", exc)
-        except Exception as exc:  # noqa: BLE001 - 收尾异常不影响命令结果
-            logger.warning("停止任务后清理手机异常：%s", exc)
+        except Exception as exc:
+            logger.warning("清理手机失败：%s", exc)
+            report["errors"].append(str(exc))
+        return report
 
     async def _abort_running_cron_event(self, job_id: str) -> int:
         """中止指定 cron job 正在运行的 Agent（返回中止数量）。

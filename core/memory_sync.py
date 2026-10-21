@@ -1,13 +1,13 @@
 """记忆/学习内容的存储去向与同步载荷（纯逻辑，便于本地单测）。
 
-插件自身的「学习档案」与「App 使用经验」默认存本地；也可以按配置同时或替代写入
+插件的学习档案存入本地，并可按配置同步到
 AstrBot 的 MemoryCompanion / LivingMemory 记忆插件（``astrbot_plugin_memory_companion``
 / ``astrbot_plugin_livingmemory``）。本模块只负责：
 
 * 归一化配置里的存储去向（``local`` / ``companion`` / ``livingmemory`` /
   ``companion+livingmemory``；``both``/``all`` 归一化为 ``companion+livingmemory``）；
 * 判断是否需要写本地 / 同步各记忆插件；
-* 把学习记录、App 经验转换成记忆插件写入所需的载荷（摘要正文、类型、幂等键、
+* 把学习记录转换成记忆插件写入所需的载荷（摘要正文、类型、幂等键、
   标签与结构化 payload）。
 
 实际桥接调用（跨插件）在 ``core/plugin/observability.py`` 完成；本模块不导入 astrbot。
@@ -15,7 +15,6 @@ AstrBot 的 MemoryCompanion / LivingMemory 记忆插件（``astrbot_plugin_memor
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 # 存储去向：local=仅插件本地；companion=同步 MemoryCompanion；
@@ -28,7 +27,6 @@ LIVINGMEMORY_PLUGIN_NAME = "astrbot_plugin_livingmemory"
 COMPANION_PLUGIN_NAME = "astrbot_plugin_memory_companion"
 COMPANION_SOURCE_PLUGIN = "astrbot_phone_control"
 LEARNING_MEMORY_TYPE = "phone_learning"
-APP_MEMORY_TYPE = "phone_app_experience"
 
 
 def normalize_memory_backend(raw: Any) -> str:
@@ -96,44 +94,4 @@ def build_learning_payload(
         "idempotency_key": f"phone-learning:{src or '-'}:{text[:120]}",
         "tags": ["phone", "learning", *tag_list],
         "payload": {"kind": "learning", "source": src, "tags": tag_list},
-    }
-
-
-def build_app_experience_payload(entry: Mapping[str, Any] | Any) -> dict[str, Any]:
-    """把一条 App 使用经验（``AppMemoryEntry`` 或 dict）转成外部记忆载荷。"""
-    if isinstance(entry, Mapping):
-        app = _clean(entry.get("app"))
-        label = _clean(entry.get("label")) or app
-        page = _clean(entry.get("page"))
-        note = _clean(entry.get("note"))
-        steps = entry.get("steps") or ()
-        version = entry.get("version") or 1
-    else:
-        app = _clean(getattr(entry, "app", ""))
-        label = _clean(getattr(entry, "label", "")) or app
-        page = _clean(getattr(entry, "page", ""))
-        note = _clean(getattr(entry, "note", ""))
-        steps = getattr(entry, "steps", ()) or ()
-        version = getattr(entry, "version", 1) or 1
-    if not note:
-        return {}
-    step_list = [str(step).strip() for step in steps if str(step).strip()]
-    where = f"{label}（{page}）" if page else label
-    step_text = "；".join(step_list[:10])
-    content = f"【App 使用经验】{where}：{note}"
-    if step_text:
-        content += f" 步骤：{step_text}"
-    return {
-        "content": content[:4000],
-        "memory_type": APP_MEMORY_TYPE,
-        "idempotency_key": f"phone-app-exp:{app}:{page}:v{version}",
-        "tags": ["phone", "app-experience", label],
-        "payload": {
-            "kind": "app_experience",
-            "app": app,
-            "label": label,
-            "page": page,
-            "steps": step_list,
-            "version": version,
-        },
     }

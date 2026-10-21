@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import os
 import random
 import re
@@ -47,6 +48,8 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+from .process_lease import DeviceLease, guarded_command, INTERVAL
 
 from .adb import parse_wm_size
 
@@ -470,6 +473,8 @@ class ScrcpyClient:
         self._av_decoder = False
         self._decoder_file: Path | None = None
         self._decoder_log: Path | None = None
+        self._device_lease = None
+        self._decoder_heartbeat = None
         self._server_pid: int | None = None
         self._forward_port: int | None = None
         self._remote_jar = ""
@@ -484,6 +489,8 @@ class ScrcpyClient:
         self._decoder_failed = False
         self._frame_count = 0
         self._reconnect_available = True
+        self._stop_requested = False
+        self._reconnect_task = None
         self._ffmpeg_checked = False
         self._ffmpeg_resolved: str | None = None
         # 供 status/工具层展示的可读错误（解码失败等，不吞异常）
@@ -652,6 +659,7 @@ class ScrcpyClient:
                 if self._started:
                     return
                 self._stopping = False
+                self._stop_requested = False
                 self._reconnect_available = True
                 self._stream_failed = False
                 self._decoder_failed = False
@@ -660,9 +668,9 @@ class ScrcpyClient:
                 self._loop = asyncio.get_running_loop()
             try:
                 await self._start_internal()
-            except Exception as exc:  # noqa: BLE001 - 统一清理并转 ScrcpyError
+            except BaseException as exc:  # 取消启动时同样回收设备资源
                 await self._cleanup_resources()
-                if isinstance(exc, ScrcpyError):
+                if isinstance(exc, (ScrcpyError, asyncio.CancelledError)):
                     raise
                 raise ScrcpyError(f"scrcpy 启动失败：{exc}") from exc
 
@@ -685,6 +693,8 @@ class ScrcpyClient:
         )
 
         await self._adb_ensure_ready()
+        self._device_lease = DeviceLease(self._adb, "scrcpy")
+        await self._device_lease.prepare()
         await self._remove_stale_forwards()
 
         port = free_local_port()
@@ -714,6 +724,9 @@ class ScrcpyClient:
         else:
             self._log(f"未能从启动输出解析 server pid：{output!r}")
 
+        if self._server_pid is None:
+            raise ScrcpyError("scrcpy server 未返回 PID")
+        self._device_lease.observe(output)
         video_socket, control_socket = await self._connect_sockets(port)
         self._video_socket = video_socket
         self._control_socket = control_socket
@@ -750,13 +763,15 @@ class ScrcpyClient:
         )
         video_arg = "" if self.video else "video=false "
         dummy_arg = "" if self.video else " send_dummy_byte=true"
-        return (
+        command = (
             f"CLASSPATH={self._remote_jar} app_process / {_SERVER_CLASS} {version} "
             "log_level=info "
             f"{video_arg}audio=false control=true raw_stream=true{dummy_arg} "
             f"tunnel_forward=true cleanup=false scid={self._scid:x}{max_size_arg} "
             f"< /dev/null > {self._remote_log} 2>&1 & echo PID=$!"
         )
+
+        return self._device_lease.wrap_launch(command) if self._device_lease else command
 
     @staticmethod
     def _self_safe_grep(needle: str) -> str:
@@ -773,7 +788,7 @@ class ScrcpyClient:
         return (
             "PIDS=$(ps -A -o PID,ARGS 2>/dev/null | grep '"
             + grep
-            + "' | awk -v self=$$ '$1 != self {print $1}'); "
+            + "' | grep 'control=true' | awk -v self=$$ '$1 != self {print $1}'); "
             + "if [ -n \"$PIDS\" ]; then kill $PIDS 2>/dev/null; sleep 0.3; fi; "
             + f"SIZE=$(wc -c < {self._remote_jar} 2>/dev/null || echo -1); "
             + "echo __JAR_SIZE__=$SIZE; "
@@ -810,9 +825,12 @@ class ScrcpyClient:
         except ScrcpyError as exc:
             self._log(f"查询 adb forward 失败：{exc}")
             return
+        active_sockets = await self._adb_shell("cat /proc/net/unix", timeout=10.0)
         prefix = f"localabstract:{_SOCKET_NAME_PREFIX}"
         for _serial, local, remote in parse_forward_list(output):
-            if not remote.startswith(prefix):
+            if _serial != str(getattr(self._adb, "serial", "")) or not remote.startswith(prefix):
+                continue
+            if "@" + remote.split(":", 1)[1] in str(active_sockets):
                 continue
             try:
                 await self._adb_host_ok("forward", "--remove", local, timeout=10.0)
@@ -999,8 +1017,8 @@ class ScrcpyClient:
         )
         try:
             self._decoder_process = subprocess.Popen(
-                ["sh", "-c", command],
-                stdin=subprocess.DEVNULL,
+                guarded_command(["sh", "-c", command], self.data_dir / "decoder.lock"),
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 pass_fds=(int(fd),),
@@ -1009,6 +1027,18 @@ class ScrcpyClient:
         except OSError as exc:
             self._mark_decoder_unavailable(f"启动解码管道失败：{exc}")
             return
+        async def heartbeat():
+            process = self._decoder_process
+            try:
+                while process is not None and process.poll() is None:
+                    process.stdin.write(b".\n")
+                    process.stdin.flush()
+                    await asyncio.sleep(INTERVAL)
+            finally:
+                if process is not None:
+                    process.stdin.close()
+        self._decoder_heartbeat = asyncio.create_task(
+            heartbeat(), name="astrbot_phone_control_decoder_heartbeat")
         self._decoder_thread = threading.Thread(
             target=self._decoder_tail_loop,
             args=(self._decoder_process, self._decoder_file, self._decoder_log),
@@ -1213,7 +1243,7 @@ class ScrcpyClient:
                 self._decoder_failed = True
             self._stream_failed = True
             self._last_error = f"scrcpy {reason}"[:300]
-            if self._stopping or not self._started or not self._reconnect_available:
+            if self._stop_requested or self._stopping or not self._started or not self._reconnect_available:
                 loop = None
             else:
                 self._reconnect_available = False
@@ -1222,7 +1252,11 @@ class ScrcpyClient:
         if loop is None or loop.is_closed():
             return
         try:
-            asyncio.run_coroutine_threadsafe(self._reconnect_once(), loop)
+            def schedule():
+                if not self._stop_requested:
+                    self._reconnect_task = asyncio.create_task(
+                        self._reconnect_once(), name="astrbot_phone_control_scrcpy_reconnect")
+            loop.call_soon_threadsafe(schedule)
         except RuntimeError:
             pass
 
@@ -1230,7 +1264,11 @@ class ScrcpyClient:
         """断流后清理并重连一次（最多一次，失败则保持 stopped 由上层回退 ADB）。"""
         try:
             async with self._asyncio_lock():
+                if self._stop_requested:
+                    return
                 await self._stop_internal()
+                if self._stop_requested:
+                    return
                 with self._state_lock:
                     self._decoder_failed = False
                     self._stream_failed = False
@@ -1238,6 +1276,9 @@ class ScrcpyClient:
                     self._last_error = ""
                 await self._start_internal()
             self._log("scrcpy 自动重连成功")
+        except asyncio.CancelledError:
+            await self._cleanup_resources()
+            raise
         except Exception as exc:  # noqa: BLE001 - 重连失败保持 stopped，由上层回退 ADB
             with self._state_lock:
                 self._started = False
@@ -1247,11 +1288,23 @@ class ScrcpyClient:
     # ------------------------------------------------------------------
     # 停止/清理
     # ------------------------------------------------------------------
+    def quiesce(self) -> None:
+        """关闭重连许可，供插件撤回心跳前同步调用。"""
+        self._stop_requested = True
+        self._reconnect_available = False
+
     async def stop(self) -> None:
         """停止解码与连接，kill server、移除 forward（幂等）。
 
         远端 jar/log 保留在设备上供下次启动复用，避免重复 ``adb push``。
         """
+        self.quiesce()
+        task = self._reconnect_task
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        self._reconnect_task = None
         async with self._asyncio_lock():
             await self._stop_internal()
 
@@ -1307,6 +1360,9 @@ class ScrcpyClient:
             self._cleanup_decoder_files()
 
     async def _stop_decoder(self) -> None:
+        from .process_lease import stop_heartbeat
+        await stop_heartbeat(self._decoder_heartbeat)
+        self._decoder_heartbeat = None
         process = self._decoder_process
         self._decoder_process = None
         if process is not None:
@@ -1371,6 +1427,9 @@ class ScrcpyClient:
             self._log(f"移除 scrcpy forward 失败：{exc}")
 
     async def _kill_server(self) -> None:
+        if self._device_lease is not None:
+            await self._device_lease.close()
+            self._device_lease = None
         pid = self._server_pid
         self._server_pid = None
         if pid is None:

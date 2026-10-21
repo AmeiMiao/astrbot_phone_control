@@ -250,6 +250,7 @@ class AutoBrowseScheduler:
         self._config_snapshot = config
         self.run_browse = run_browse
         self._fallback_task: asyncio.Task | None = None
+        self._fallback_runs: set[asyncio.Task] = set()
         self._fallback_stop = asyncio.Event()
         self._fallback_jobs_data: list[dict[str, Any]] = []
         self._last_fallback_minute: dict[str, str] = {}
@@ -563,7 +564,8 @@ class AutoBrowseScheduler:
             for app in apps
         ]
         self._last_fallback_minute.clear()
-        self._fallback_task = asyncio.create_task(self._fallback_loop())
+        self._fallback_task = asyncio.create_task(
+            self._fallback_loop(), name="astrbot_phone_control_fallback_scheduler")
         return [
             {
                 "job_id": "",
@@ -597,7 +599,10 @@ class AutoBrowseScheduler:
                 if not cron_matches(cron, now):
                     continue
                 self._last_fallback_minute[app] = minute_key
-                asyncio.create_task(self._run_fallback_browse(item))
+                task = asyncio.create_task(
+                    self._run_fallback_browse(item), name="astrbot_phone_control_fallback_browse")
+                self._fallback_runs.add(task)
+                task.add_done_callback(self._fallback_runs.discard)
             try:
                 await asyncio.wait_for(
                     self._fallback_stop.wait(), timeout=_FALLBACK_TICK_SECONDS
@@ -628,11 +633,21 @@ class AutoBrowseScheduler:
         self._fallback_task = None
         if task is not None:
             task.cancel()
+        current = asyncio.current_task()
+        for task in self._fallback_runs:
+            if task is not current:
+                task.cancel()
+        self._fallback_runs.clear()
+        self._fallback_jobs_data = []
         self._fallback_stop.set()
 
     async def close(self) -> None:
-        """插件卸载时停止降级后台任务。"""
+        """停止备用调度器并等待其在途浏览任务退出。"""
+        tasks = [self._fallback_task, *self._fallback_runs]
         self._stop_fallback()
+        pending = [task for task in tasks if task is not None and task is not asyncio.current_task()]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 # ----------------------------------------------------------------------

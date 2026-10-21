@@ -919,7 +919,7 @@
   },
   "memory": {
     "description": "记忆存储",
-    "hint": "学习档案与 App 使用经验的存储去向：插件本地 / MemoryCompanion / LivingMemory 及其组合。",
+    "hint": "学习档案的存储去向：插件本地及可选 MemoryCompanion / LivingMemory 同步。App 使用经验在提示词注入卡片选择独立存储位置。",
     "type": "object",
     "items": {
       "backend": {
@@ -967,14 +967,38 @@
       "app_memory_enabled": {
         "type": "bool",
         "default": true,
-        "description": "注入 App 使用经验记忆",
-        "hint": "要求 AI 操作 App 前先 phone_app_memory 查经验、改版后更新记忆；默认开启。"
+        "description": "开启 App 使用经验记录",
+        "hint": "记录、查询与注入 App 布局及操作经验。"
+      },
+      "app_memory_backend": {
+        "type": "string",
+        "default": "plugin",
+        "description": "App 经验存储位置",
+        "options": [
+          "plugin",
+          "knowledge_base"
+        ],
+        "condition": {
+          "app_memory_enabled": true
+        },
+        "hint": "plugin=插件档案；knowledge_base=AstrBot 知识库。记录与查询仅使用所选存储。"
+      },
+      "app_memory_kb_name": {
+        "type": "string",
+        "default": "",
+        "description": "AstrBot 知识库名称或 ID",
+        "condition": {
+          "app_memory_enabled": true,
+          "app_memory_backend": "knowledge_base"
+        },
+        "hint": "选择已有且配置好 Embedding Provider 的知识库。失败会返回具体错误，请先在 AstrBot 知识库页面创建并验证。"
       },
       "app_memory_limit": {
         "type": "int",
         "default": 5,
         "condition": {
-          "app_memory_enabled": true
+          "app_memory_enabled": true,
+          "app_memory_backend": "plugin"
         },
         "description": "注入 App 经验条数上限",
         "hint": "提示词最多注入几个 App 的使用经验；默认 5；0=不注入。"

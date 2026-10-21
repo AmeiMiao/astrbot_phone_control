@@ -425,8 +425,8 @@ def test_phone_learn_syncs_to_memory_companion(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
-def test_phone_app_remember_syncs_to_memory_companion(tmp_path, monkeypatch):
-    """phone_app_remember 同步 App 经验到 MemoryCompanion，本地结构化档案仍在。"""
+def test_app_experience_plugin_destination_is_exclusive(tmp_path, monkeypatch):
+    """App 经验遵从独占存储选择，学习记录的全局记忆配置独立生效。"""
 
     async def scenario() -> None:
         plugin, bridge = _make_plugin_with_memory_backend(tmp_path, monkeypatch)
@@ -440,11 +440,8 @@ def test_phone_app_remember_syncs_to_memory_companion(tmp_path, monkeypatch):
                 note="底部导航五项",
                 steps=["打开B站"],
             )
-            assert "已同步到记忆插件（MemoryCompanion）" in result
-            assert len(bridge.calls) == 1
-            call = bridge.calls[0]
-            assert call["memory_type"] == "phone_app_experience"
-            assert "底部导航五项" in call["content"]
+            assert "插件档案" in result
+            assert bridge.calls == []
             assert plugin.app_memory.lookup("B站", limit=5)
         finally:
             await _cleanup(plugin)
@@ -1371,4 +1368,39 @@ def test_verification_total_timeout_watchdog(tmp_path, monkeypatch):
         finally:
             await _cleanup(plugin)
 
+    asyncio.run(scenario())
+
+
+
+def test_phone_stop_cancels_fallback_scheduler_and_running_browse(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        entered, cancelled = asyncio.Event(), asyncio.Event()
+        async def browse(_app, _session):
+            entered.set()
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.set()
+        async def cleanup(**_kwargs):
+            return {"stopped": 0, "errors": []}
+        async def say(*_args):
+            pass
+        monkeypatch.setattr(plugin, "_cleanup_phone_home", cleanup)
+        monkeypatch.setattr(plugin, "_say", say)
+        plugin.raw_config["auto"]["enabled"] = True
+        plugin.scheduler.run_browse = browse
+        plugin.scheduler._start_fallback(session="webchat:FriendMessage:1",
+            apps=["bilibili"], cron="* * * * *", max_items=1, prompt="")
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=3)
+            await plugin._cmd_stop(FakeEvent(), [])
+            assert cancelled.is_set()
+            assert plugin.scheduler._fallback_task is None
+            assert not plugin.scheduler._fallback_runs
+            assert plugin.service.config.auto.enabled is False
+            await asyncio.sleep(0)
+            assert plugin.scheduler._fallback_jobs_data == []
+        finally:
+            await _cleanup(plugin)
     asyncio.run(scenario())

@@ -214,11 +214,26 @@ from core import traffic as traffic_module  # noqa: E402
 from core.traffic_capture import TrafficCapture  # noqa: E402
 
 
+class _FakeHeartbeatPipe:
+    def __init__(self):
+        self.closed = False
+
+    def write(self, data):
+        assert not self.closed
+
+    async def drain(self):
+        return None
+
+    def close(self):
+        self.closed = True
+
+
 class _FakeProc:
     """最小 asyncio subprocess 替身：terminate/kill 后 wait 立即返回。"""
 
     def __init__(self) -> None:
         self.returncode: int | None = None
+        self.stdin = _FakeHeartbeatPipe()
         self.terminate_calls = 0
         self.kill_calls = 0
 
@@ -245,6 +260,8 @@ class _FakeAdb:
 
     async def shell(self, command, **_kwargs):
         self.shell_calls.append(command)
+        if "GUARD_PID=$!" in command:
+            return "GUARD_PID=9999"
         return "1000"
 
 
@@ -600,3 +617,23 @@ def test_start_reports_mitmdump_immediate_exit_without_configuring_device(
         assert result["retry_in"] > 0
 
     _scenario(_run())
+
+
+
+def test_restart_after_process_exit_releases_previous_device_heartbeat(tmp_path, monkeypatch):
+    harness = _CaptureHarness(tmp_path, monkeypatch)
+    async def setup():
+        harness.capture._device_configured = True
+    harness.patch_setup(monkeypatch, setup)
+    async def run():
+        assert (await harness.capture.start(port=18080))["ok"]
+        old_lease = harness.capture._device_lease
+        old_task = old_lease.task
+        await asyncio.sleep(0)
+        harness.procs[0].returncode = 1
+        assert (await harness.capture.start(port=18080))["ok"]
+        assert old_lease.task is None
+        assert old_task.done()
+        assert harness.capture._device_lease is not old_lease
+        await harness.capture.stop()
+    _scenario(run())

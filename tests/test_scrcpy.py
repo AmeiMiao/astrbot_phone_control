@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import re
 import socket
@@ -119,17 +120,17 @@ class FakeAdb:
             expected = match.group(1) if match else "0"
             if self.jar_present:
                 self.launch_calls += 1
-                return f"__JAR_SIZE__={expected}\nPID={self.pid}\n"
+                return f"__JAR_SIZE__={expected}\nPID={self.pid}\nGUARD_PID=9999\n"
             return "__JAR_SIZE__=-1\n__JAR_MISSING__\n"
         if command.startswith("CLASSPATH=") and _SERVER_NEEDLE in command:
             self.launch_calls += 1
-            return f"PID={self.pid}\n"
+            return f"PID={self.pid}\nGUARD_PID=9999\n"
         if "wm size" in command:
             return self.wm_output
         if command.startswith("ps -A -o PID,ARGS"):
             return self.ps_output
         if "app_process / com.genymobile.scrcpy.Server" in command:
-            return f"PID={self.pid}\n"
+            return f"PID={self.pid}\nGUARD_PID=9999\n"
         if "cat /proc/net/unix" in command:
             return self.unix_count
         if command.startswith("kill"):
@@ -170,6 +171,7 @@ class FakeProcess:
         self.terminated = False
         self.killed = False
         self.waited = 0
+        self.stdin = io.BytesIO()
 
     def poll(self):
         return self.returncode

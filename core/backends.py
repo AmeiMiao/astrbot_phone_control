@@ -800,6 +800,8 @@ class BackendManager:
         self.perception_backend: PerceptionBackend = self._adb_perception
         self._scrcpy_client: Any = None
         self._minitouch_client: Any = None
+        self._lifecycle_lock = asyncio.Lock()
+        self._retry_at = 0.0
         self._scrcpy_unavailable = False
         self._scrcpy_error_logged = False
         self._scrcpy_caps: dict[str, Any] = {}
@@ -974,8 +976,11 @@ class BackendManager:
     async def _ensure_scrcpy(
         self, *, need_control: bool, need_perception: bool
     ) -> None:
-        if self._closed or self._scrcpy_client is not None or self._scrcpy_unavailable:
+        if self._closed or self._scrcpy_client is not None:
             return
+        if self._scrcpy_unavailable and self._clock() < self._retry_at:
+            return
+        self._scrcpy_unavailable = False
         control, _scrcpy, perception = self._config_sections()
         backend_choice = str(getattr(control, "backend", "auto") or "auto")
         screen_source = self._screen_source(perception)
@@ -991,11 +996,15 @@ class BackendManager:
             client = await self._start_scrcpy(video=video)
         except Exception as exc:  # noqa: BLE001 - 失败回退 ADB，只告警一次
             self._scrcpy_unavailable = True
+            self._retry_at = self._clock() + 30
             self.last_error = str(exc) or exc.__class__.__name__
             if not self._scrcpy_error_logged:
                 self._scrcpy_error_logged = True
                 self._warn(f"scrcpy 不可用，已回退 ADB（{self.last_error}）")
             return
+        self.last_error = ""
+        self._retry_at = 0.0
+        self._scrcpy_error_logged = False
         self._scrcpy_client = client
         self._scrcpy_want_video = video
         self._video_restart_attempted = False
@@ -1106,21 +1115,18 @@ class BackendManager:
             )
 
     async def ensure(self, *, need_control: bool = True, need_perception: bool = True) -> None:
-        """按需懒启动 scrcpy；失败静默回退 ADB。
-
-        scrcpy 的 ``capabilities.video`` 只有解码出第一帧后才会变为 True，
-        因此每次 ensure 后都刷新一次能力并重新选择后端，避免启动瞬间把感知
-        后端永久锁成 ADB。若 scrcpy 以仅控制通道运行、而本次感知调用需要视频
-        帧（配置已改为 auto/scrcpy），停止后带视频重启一次（一次性，失败回退 ADB）。
-        """
-        await self._ensure_scrcpy(
-            need_control=need_control, need_perception=need_perception
-        )
-        if self._needs_video_upgrade(need_perception=need_perception):
-            await self._upgrade_scrcpy_video()
-        if self._scrcpy_client is not None:
-            await self._refresh_scrcpy_caps()
-            self._apply_backends()
+        """串行启动、刷新能力与升级视频；临时失败按 30 秒退避恢复。"""
+        async with self._lifecycle_lock:
+            if self._scrcpy_client is not None:
+                caps = await self._refresh_scrcpy_caps()
+                if caps.get("control") is False:
+                    await self._stop_current_client()
+            await self._ensure_scrcpy(need_control=need_control, need_perception=need_perception)
+            if self._needs_video_upgrade(need_perception=need_perception):
+                await self._upgrade_scrcpy_video()
+            if self._scrcpy_client is not None:
+                await self._refresh_scrcpy_caps()
+                self._apply_backends()
 
     def _needs_video_upgrade(self, *, need_perception: bool) -> bool:
         """仅控制通道运行中，后续感知需要视频帧时是否需要重启一次。"""
@@ -1175,32 +1181,37 @@ class BackendManager:
         return True
 
     async def _stop_current_client(self) -> None:
-        """停止当前 scrcpy 客户端并恢复 ADB 兜底（不重置升级 guard）。"""
-        client = self._scrcpy_client
+        """停止控制客户端并恢复 ADB；各资源分别收尾并汇总错误。"""
+        clients = [self._minitouch_client, self._scrcpy_client]
         self._scrcpy_client = None
+        self._minitouch_client = None
         self._scrcpy_caps = {}
         self._scrcpy_last_error = ""
         self._scrcpy_want_video = None
         self.fallback_reason = ""
-        self._minitouch_client = None
         self.control_backend = self._adb_control
         self.perception_backend = self._adb_perception
-        if client is None:
-            return
-        for method_name in ("stop", "close"):
-            func = getattr(client, method_name, None)
-            if not callable(func):
+        errors = []
+        for client in clients:
+            if client is None:
                 continue
-            try:
-                await self._maybe_await(func())
-            except Exception as exc:  # noqa: BLE001 - 停止失败只记录
-                self._warn_once(f"stop_{method_name}", f"停止 scrcpy 失败：{exc}")
-            break
+            func = getattr(client, "stop", None) or getattr(client, "close", None)
+            if callable(func):
+                try:
+                    await self._maybe_await(func())
+                except Exception as exc:
+                    errors.append(str(exc))
+        if errors:
+            raise BackendError("停止控制后端失败：" + "；".join(errors))
 
     async def stop(self) -> None:
         """停止 scrcpy 连接/解码并恢复 ADB 兜底（可被下次操作重新懒启动）。"""
-        self._video_restart_attempted = False
-        await self._stop_current_client()
+        async with self._lifecycle_lock:
+            self._video_restart_attempted = False
+            self._scrcpy_unavailable = False
+            self._scrcpy_error_logged = False
+            self._retry_at = 0.0
+            await self._stop_current_client()
 
     async def close(self) -> None:
         """插件停用：停止后端并禁止再次懒启动。"""

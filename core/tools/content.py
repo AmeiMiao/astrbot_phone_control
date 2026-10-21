@@ -15,7 +15,6 @@ from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..memory_sync import (
-    build_app_experience_payload,
     build_learning_payload,
     wants_companion,
     wants_livingmemory,
@@ -378,7 +377,7 @@ class PhoneAppMemoryTool(_PhoneToolBase):
         if store is None:
             return "error: App 记忆未启用"
         try:
-            entries = store.lookup(app, page=page, limit=limit)
+            entries = await self.service.experiences.lookup(app, page=page, limit=limit)
         except Exception as exc:  # noqa: BLE001 - 记忆读取失败给可读错误
             return _error(exc)
         if not entries:
@@ -450,7 +449,7 @@ class PhoneAppRememberTool(_PhoneToolBase):
         if store is None:
             return "error: App 记忆未启用"
         try:
-            entry = store.remember(
+            entry = await self.service.experiences.remember(
                 app=app,
                 note=kwargs.get("note"),
                 page=kwargs.get("page") or "",
@@ -458,18 +457,7 @@ class PhoneAppRememberTool(_PhoneToolBase):
             )
         except Exception as exc:  # noqa: BLE001 - 参数/存储异常转可读错误
             return _error(exc)
-        text = (
-            f"已记住「{entry.label}」{('（' + entry.page + '）') if entry.page else ''}经验"
-            f"（第 {entry.version} 版，当前档案 {store.stats().get('entries', 0)} 条）；"
-            "下次操作该 App 前可 phone_app_memory 查询复用。"
-        )
-        event = _event_of(context)
-        backend = self.service.config.memory.backend
-        if wants_companion(backend) or wants_livingmemory(backend):
-            payload = build_app_experience_payload(entry)
-            ok, detail = await self.service.sync_memory(event, payload)
-            if ok:
-                text += f"；已同步到记忆插件（{detail}）"
-            else:
-                text += f"；记忆插件同步失败（{detail or '未知原因'}），已保存在插件本地"
+        location = "插件档案" if self.service.config.prompt.app_memory_backend == "plugin" else "AstrBot 知识库"
+        text = (f"已记住「{entry.label}」{('（' + entry.page + '）') if entry.page else ''}经验"
+                f"（第 {entry.version} 版，存储于{location}）；下次操作该 App 前可 phone_app_memory 查询复用。")
         return _ok(text)

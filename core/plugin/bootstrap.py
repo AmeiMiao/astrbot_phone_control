@@ -256,6 +256,17 @@ async def cancel_stale_background_tasks(*, timeout: float = 10.0) -> int:
             stale.append(task)
     if not stale:
         return 0
+    owners = {}
+    for task in stale:
+        frame = getattr(task.get_coro(), "cr_frame", None)
+        owner = frame.f_locals.get("self") if frame is not None else None
+        if owner is not None and hasattr(owner, "_traffic") and callable(getattr(owner, "terminate", None)):
+            owners[id(owner)] = owner
+    for owner in owners.values():
+        try:
+            await asyncio.wait_for(owner.terminate(), timeout=PLUGIN_INSTANCE_CLOSE_TIMEOUT)
+        except Exception as exc:
+            logger.warning("关闭遗留插件实例失败：%s", exc)
     names = "、".join(sorted({task.get_name() for task in stale}))
     logger.warning("检测到 %d 个遗留插件后台循环，正在停止：%s", len(stale), names)
     for task in stale:
@@ -459,6 +470,10 @@ class BootstrapMixin:
         if not getattr(self, "_live_instance_registered", False):
             await close_stale_instances(self)
             await cancel_stale_background_tasks()
+            from ..process_lease import reclaim_legacy_processes
+            await reclaim_legacy_processes([
+                self._traffic.confdir, self._wireguard.config_path, self.data_dir / "scrcpy",
+            ])
             LIVE_PLUGIN_INSTANCES.add(self)
             self._live_instance_registered = True
         if not self.service.configured:
@@ -520,6 +535,29 @@ class BootstrapMixin:
 
     async def _terminate_impl(self) -> None:
         """终止流程实现：取消后台任务、恢复设备状态并关闭资源。"""
+        resources = [getattr(self, "_traffic", None), getattr(self, "_wireguard", None),
+                     getattr(self, "_media_capture", None)]
+        manager = getattr(self, "backends", None)
+        if manager is not None:
+            resources.extend([getattr(manager, "_scrcpy_client", None),
+                              getattr(manager, "_minitouch_client", None)])
+        for resource in resources:
+            quiesce = getattr(resource, "quiesce", None)
+            if callable(quiesce):
+                quiesce()
+        heartbeats = []
+        for resource in resources:
+            for attr in ("_process_heartbeat", "_decoder_heartbeat"):
+                task = getattr(resource, attr, None)
+                if task is not None:
+                    heartbeats.append(task)
+            lease = getattr(resource, "_device_lease", None)
+            if lease is not None and lease.task is not None:
+                heartbeats.append(lease.task)
+        for task in heartbeats:
+            task.cancel()
+        if heartbeats:
+            await asyncio.gather(*heartbeats, return_exceptions=True)
         if getattr(self, "_agent_usage_patch_installed", False):
             try:
                 uninstall_agent_usage_capture()

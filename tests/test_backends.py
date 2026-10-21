@@ -829,3 +829,44 @@ def test_manager_video_upgrade_failure_falls_back_adb_without_loop():
 
     warns = asyncio.run(scenario())
     assert any("重启失败" in message for message in warns), warns
+
+
+def test_concurrent_warmup_and_control_start_one_scrcpy(tmp_path):
+    async def run():
+        starts = []
+        class SlowClient(FakeScrcpyClient):
+            async def start(self):
+                starts.append(self)
+                await asyncio.sleep(0.02)
+                await super().start()
+        manager = BackendManager(config_provider=lambda: _config({}),
+            actions=FakeActions(), adb=None, data_dir=tmp_path,
+            scrcpy_factory=lambda: SlowClient())
+        await asyncio.gather(manager.ensure(), manager.control(), manager.perception())
+        assert len(starts) == 1
+        await manager.stop()
+        assert starts[0].stopped
+    asyncio.run(run())
+
+
+def test_transient_scrcpy_failure_recovers_after_backoff(tmp_path):
+    async def run():
+        now = [100.0]
+        attempts = []
+        def factory():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("device offline")
+            return FakeScrcpyClient()
+        manager = BackendManager(config_provider=lambda: _config({}),
+            actions=FakeActions(), adb=None, data_dir=tmp_path,
+            scrcpy_factory=factory, clock=lambda: now[0])
+        assert (await manager.control()).name == "adb"
+        now[0] = 110.0
+        assert (await manager.control()).name == "adb"
+        assert len(attempts) == 1
+        now[0] = 131.0
+        assert (await manager.control()).name == "scrcpy"
+        assert len(attempts) == 2
+        await manager.stop()
+    asyncio.run(run())

@@ -103,6 +103,8 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "prompt.diary_limit",
         "prompt.app_memory_enabled",
         "prompt.app_memory_limit",
+        "prompt.app_memory_backend",
+        "prompt.app_memory_kb_name",
         "control.scrcpy.idle_stop_seconds",
         "debug.log_actions",
         "memory.backend",

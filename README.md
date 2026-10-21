@@ -25,7 +25,7 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 
 - **设备操控**：ADB / scrcpy 控制，UI 树解析、快速截图、点击/滑动/输入/按键/App 启停、后台清理。
 - **自主玩手机**：定时自主浏览、随机玩手机、持续刷手机；用户任务优先抢占，轮次/预算/间隔可配。
-- **内容理解**：信息流卡片抽取、浏览日记、学习档案、App 使用经验；后续轮次自动注入记忆。
+- **内容理解**：信息流卡片抽取、浏览日记、学习档案、App 使用经验；经验可存入插件档案或 AstrBot 知识库，按选择查询与注入。
 - **记忆插件集成**：可选同步 MemoryCompanion / LivingMemory（本地档案始终保留）。
 - **人机验证**：两阶段视觉求解（滑块/顺序点击/识图/拼图/答题），有限自动尝试 → 暂停手机并通知人工接管。
 - **互动能力**：主动评论 / 被动回复 / 发帖（默认关闭）由 AI 自主完成，插件只做许可、限额、冷却与记账。
@@ -115,7 +115,7 @@ AI：返回设备连接、前台 App、电量与分辨率
 /phone verify [status|resume|cancel <id>] 验证与人工协助
 /phone quota [audit [小时]]              token 额度与对账
 /phone novelty [status|reset]            内容新鲜感状态
-/phone stop [job_id|all]                 停止任务并回桌面清理后台
+/phone stop [job_id|all]                 停任务/抓包/随机与持续刷，回桌面强停应用
 ```
 
 完整命令、31 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
@@ -199,3 +199,11 @@ NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt
 - [完整使用手册](docs/使用手册.md)
 - [第三方组件与引用说明](THIRD_PARTY_NOTICES.md)
 - [许可证](LICENSE)
+
+## 子进程与停止行为
+
+`/phone stop` 会关闭抓包、自主浏览调度、随机与持续任务，停止实时屏幕和控制后端，并回桌面强停应用；桌面和当前输入法保持运行。后续可用 `/phone traffic on` 或 `/phone continuous on` 显式开启相应能力。
+
+抓包、WireGuard 和解码管道由独立监护器管理，手机端 scrcpy、音频、minitouch 使用设备端看门狗。插件每 3 秒发送心跳，失联后最长约 18 秒回收。重载时按代码指纹识别前任租约，先释放资源再建立新会话。
+
+App 经验在「提示词注入」卡片开启后，`app_memory_backend=plugin` 显示注入条数，`knowledge_base` 显示知识库名称或 ID。知识库需在 AstrBot 中创建并配置 Embedding Provider；记录、查询与注入均使用所选位置，存储错误会直接返回。

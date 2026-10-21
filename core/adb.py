@@ -555,6 +555,13 @@ class AdbClient:
             ) from exc
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=effective_timeout)
+        except asyncio.CancelledError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            await proc.communicate()
+            raise
         except TimeoutError:
             self._log(f"adb 命令超时（{effective_timeout:.1f}s），终止进程：{_argv_text(argv)}")
             try:

@@ -25,7 +25,6 @@ from ..device_gate import ExecutionCancelled, GateError
 from ..page_content import page_traffic_footer
 from ..traffic import DEFAULT_LIMIT as TRAFFIC_DEFAULT_LIMIT, render_traffic
 from ..memory_sync import (
-    build_app_experience_payload,
     build_learning_payload,
     wants_companion,
     wants_livingmemory,

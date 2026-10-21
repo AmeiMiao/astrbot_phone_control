@@ -430,6 +430,8 @@ class RuntimeMixin:
         系统证书挂载被拒绝、mitmdump 缺失等）已记录原因，这里只输出一次 WARN
         并停止自动重试；临时失败按 start 的退避时间重试。
         """
+        if getattr(self, "_terminated", False) or getattr(self, "_phone_stopped", False):
+            return
         config = self.service.config
         traffic_config = getattr(config, "traffic", None)
         if traffic_config is None or not traffic_config.enabled:
@@ -655,6 +657,8 @@ class RuntimeMixin:
     def _maybe_warm_scrcpy(self, event: AstrMessageEvent, req: Any) -> None:
         """手机相关请求时后台预热 scrcpy（60s 最多一次，不阻塞 LLM）。"""
         try:
+            if getattr(self, "_phone_stopped", False) or getattr(self, "_terminated", False):
+                return
             manager = getattr(self.service, "backends", None)
             if manager is None or manager.scrcpy_running:
                 return
@@ -691,6 +695,8 @@ class RuntimeMixin:
         adb 时仅控制通道），避免「为什么默认显示 adb」的误解；失败仍回退 ADB。
         """
         try:
+            if getattr(self, "_phone_stopped", False) or getattr(self, "_terminated", False):
+                return
             manager = getattr(self.service, "backends", None)
             if manager is None or manager.scrcpy_running:
                 return

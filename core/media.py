@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .process_lease import DeviceLease
+
 from .errors import MediaCaptureError, PhoneControlError
 
 SERVER_CLASS = "com.genymobile.scrcpy.Server"
@@ -317,6 +319,7 @@ class MediaAudioCapture:
         data_dir: str | Path,
         logger: LogFn | None = None,
     ) -> None:
+        self._device_lease = None
         self._adb = adb
         self._server_jar = server_jar
         self.data_dir = Path(data_dir)
@@ -418,7 +421,7 @@ class MediaAudioCapture:
         source: str,
     ) -> str:
         """构造音频 server 启动命令（raw_stream 必须在 send_dummy_byte 之前）。"""
-        return (
+        command = (
             f"CLASSPATH={remote_jar} app_process / {SERVER_CLASS} {version} "
             "log_level=info video=false control=false audio=true "
             f"audio_codec=raw audio_source={source} "
@@ -426,6 +429,8 @@ class MediaAudioCapture:
             f"tunnel_forward=true cleanup=false scid={scid:x} "
             f"< /dev/null > {remote_log} 2>&1 & echo PID=$!"
         )
+
+        return self._device_lease.wrap_launch(command) if self._device_lease else command
 
     async def _read_log_tail(self, remote_log: str) -> str:
         try:
@@ -445,6 +450,9 @@ class MediaAudioCapture:
             pass
 
     async def _stop_server(self, pid: int | None, port: int) -> None:
+        if self._device_lease is not None:
+            await self._device_lease.close()
+            self._device_lease = None
         if pid:
             try:
                 await self._shell(f"kill {int(pid)} 2>/dev/null || true", timeout=10.0)
@@ -518,6 +526,8 @@ class MediaAudioCapture:
         sock: socket.socket | None = None
         started = time.monotonic()
         await self._ensure_ready()
+        self._device_lease = DeviceLease(self._adb, "audio")
+        await self._device_lease.prepare()
         await self._ensure_remote_jar(jar, remote_jar)
         try:
             try:
@@ -548,6 +558,7 @@ class MediaAudioCapture:
                     detail=" | ".join(str(output or "").splitlines())[:300],
                 )
             pid = int(match.group(1))
+            self._device_lease.observe(output)
             self._log(
                 f"音频采集 server 已启动（pid={pid}，scid={scid:x}，"
                 f"source={source}，{seconds:.1f}s）"

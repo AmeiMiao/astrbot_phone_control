@@ -88,7 +88,7 @@ class FakeAdb:
         if command.startswith("ps -A -o PID,ARGS"):
             return self.ps_output
         if command.startswith("/data/local/tmp/minitouch"):
-            return f"PID={self.pid}\n"
+            return f"PID={self.pid}\nGUARD_PID=9999\n"
         if "chmod" in command:
             return ""
         if command.startswith("kill") or command.startswith("rm -f"):

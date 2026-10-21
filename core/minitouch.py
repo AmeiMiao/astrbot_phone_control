@@ -30,6 +30,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from .process_lease import DeviceLease
+
 from .adb import parse_wm_size
 from .scrcpy import free_local_port, parse_forward_list
 
@@ -118,6 +120,7 @@ class MinitouchClient:
         self._send_lock = threading.Lock()
         self._banner: dict[str, int] = {}
         self._device_size: tuple[int, int] | None = None
+        self._device_lease = None
         self._server_pid: int | None = None
         self._forward_port: int | None = None
         self._asyncio_lock_obj: asyncio.Lock | None = None
@@ -239,7 +242,7 @@ class MinitouchClient:
                 await self._start_internal()
             except Exception as exc:  # noqa: BLE001 - 失败清理并统一异常
                 await self._cleanup_resources()
-                if isinstance(exc, MinitouchError):
+                if isinstance(exc, (MinitouchError, asyncio.CancelledError)):
                     raise
                 raise MinitouchError(f"minitouch 启动失败：{exc}") from exc
 
@@ -249,6 +252,8 @@ class MinitouchClient:
             raise MinitouchError(f"minitouch binary 不存在：{binary}")
         await self._adb_ensure_ready()
         await self._query_device_size()
+        self._device_lease = DeviceLease(self._adb, "minitouch")
+        await self._device_lease.prepare()
         await self._kill_stale_processes()
         await self._remove_stale_forwards()
         await self._adb_host_ok("push", str(binary), _REMOTE_BIN, timeout=120.0)
@@ -256,13 +261,17 @@ class MinitouchClient:
             f"chmod 755 {_REMOTE_BIN}; rm -f {_REMOTE_LOG}", timeout=10.0
         )
         start_output = await self._adb_shell(
-            f"{_REMOTE_BIN} < /dev/null > {_REMOTE_LOG} 2>&1 & echo PID=$!",
+            self._device_lease.wrap_launch(
+                f"{_REMOTE_BIN} < /dev/null > {_REMOTE_LOG} 2>&1 & echo PID=$!"),
             timeout=30.0,
         )
         pid_match = re.search(r"PID=(\d+)", start_output)
         if pid_match:
             self._server_pid = int(pid_match.group(1))
 
+        if self._server_pid is None:
+            raise MinitouchError("minitouch 未返回 PID")
+        self._device_lease.observe(start_output)
         port = free_local_port()
         await self._adb_host_ok(
             "forward", f"tcp:{port}", f"localabstract:{DEFAULT_SOCKET_NAME}"
@@ -424,6 +433,9 @@ class MinitouchClient:
             self._log(f"移除 minitouch forward 失败：{exc}")
 
     async def _kill_server(self) -> None:
+        if self._device_lease is not None:
+            await self._device_lease.close()
+            self._device_lease = None
         pid = self._server_pid
         self._server_pid = None
         if pid is None:

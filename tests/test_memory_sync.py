@@ -5,11 +5,9 @@ from __future__ import annotations
 import pytest
 
 from core.memory_sync import (
-    APP_MEMORY_TYPE,
     DEFAULT_MEMORY_BACKEND,
     LEARNING_MEMORY_TYPE,
     MEMORY_BACKENDS,
-    build_app_experience_payload,
     build_bot_action_payload,
     build_learning_payload,
     normalize_memory_backend,
@@ -80,41 +78,6 @@ def test_build_learning_payload():
     assert build_learning_payload(content="", source="x") == {}
     assert build_learning_payload(content="   ", source="x") == {}
 
-
-def test_build_app_experience_payload_from_mapping():
-    payload = build_app_experience_payload(
-        {
-            "app": "tv.danmaku.bili",
-            "label": "哔哩哔哩",
-            "page": "首页布局",
-            "note": "底部导航是 首页/关注/发布/会员购/我的",
-            "steps": ["打开 B站", "看底部导航"],
-            "version": 2,
-        }
-    )
-    assert payload["memory_type"] == APP_MEMORY_TYPE
-    assert "【App 使用经验】" in payload["content"]
-    assert "哔哩哔哩（首页布局）" in payload["content"]
-    assert "步骤：" in payload["content"]
-    assert payload["tags"][:2] == ["phone", "app-experience"]
-    assert payload["payload"]["version"] == 2
-    assert payload["idempotency_key"].startswith("phone-app-exp:tv.danmaku.bili:首页布局:v2")
-    assert build_app_experience_payload({"note": ""}) == {}
-
-
-def test_build_app_experience_payload_from_object():
-    class Entry:
-        app = "com.max.xiaoheihe"
-        label = "小黑盒"
-        page = ""
-        note = "启动后可以直接看推荐流"
-        steps = ("打开小黑盒",)
-        version = 1
-
-    payload = build_app_experience_payload(Entry())
-    assert "【App 使用经验】小黑盒" in payload["content"]
-    assert "推荐流" in payload["content"]
-    assert payload["payload"]["steps"] == ["打开小黑盒"]
 
 def test_wants_livingmemory_and_legacy_alias():
     assert wants_livingmemory("livingmemory") is True

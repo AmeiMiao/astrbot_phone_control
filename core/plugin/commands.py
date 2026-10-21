@@ -554,19 +554,47 @@ class CommandsMixin:
             f"完成后按心情与额度决定是否分享（job {getattr(job, 'job_id', '?')}）。",
         )
 
-    async def _cmd_stop(
+    async def _cmd_stop(self, event: AstrMessageEvent, rest: list[str]) -> None:
+        if not hasattr(self, "_phone_stop_lock"):
+            self._phone_stop_lock = asyncio.Lock()
+        async with self._phone_stop_lock:
+            self._stopping_phone = True
+            try:
+                await self._stop_phone_impl(event, rest)
+            finally:
+                self._stopping_phone = False
+
+    async def _stop_phone_impl(
         self, event: AstrMessageEvent, rest: list[str]
     ) -> None:
         """``/phone stop [job_id|all]``：停止本插件任务并收尾手机。"""
+        resource_errors = []
         target = rest[0] if rest else "all"
         job_id = "" if target.lower() in {"all", "-a", "全部"} else target
-        # 用户显式停止优先：先收回设备租约并中止在途动作，再清理任务。
+        self._phone_stopped = True
         self.device_gate.force_release("phone_stop")
-        was_continuous = self._continuous_enabled
         self._continuous_enabled = False
         self._continuous_active_job_id = ""
-        if was_continuous:
-            await self._apply_config_patch({"auto": {"continuous_enabled": False}})
+        await self._apply_config_patch({
+            "auto": {"enabled": False, "continuous_enabled": False, "random_enabled": False},
+            "traffic": {"enabled": False},
+        })
+        auto_task = getattr(self, "_auto_config_task", None)
+        if auto_task is not None and not auto_task.done():
+            auto_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await auto_task
+        await self.scheduler.close()
+        # 预热属于同一资源生命周期，先取消再关闭后端，避免关闭后又启动。
+        warmup = getattr(self, "_scrcpy_warmup_task", None)
+        if warmup is not None and not warmup.done():
+            warmup.cancel()
+            with suppress(asyncio.CancelledError):
+                await warmup
+        try:
+            await self._traffic.stop()
+        except Exception as exc:
+            resource_errors.append(f"抓包停止失败：{exc}")
         cron_manager = getattr(self.context, "cron_manager", None)
         deleted: list[str] = []
         stopped_runs = 0
@@ -581,8 +609,7 @@ class CommandsMixin:
                 if str(job.get("job_id") or "").startswith(job_id)
             ]
             if not jobs:
-                await self._say(event, f"没有找到任务 {job_id}（可用 /phone tasks 查看）")
-                return
+                logger.info("未找到指定任务 %s，继续收尾设备", job_id)
         for job in jobs:
             stopped_runs += await self._abort_running_cron_event(
                 str(job.get("job_id") or "")
@@ -596,20 +623,24 @@ class CommandsMixin:
         await self._stop_live_screen("用户停止任务")
         manager = getattr(self, "backends", None)
         if manager is not None:
-            with suppress(Exception):
+            try:
                 await manager.stop()
-        await self._cleanup_phone_home()
-        if not deleted and not stopped_runs:
-            await self._say(event, "当前没有本插件正在运行的任务；已收尾手机（回桌面 + 清理后台）")
-            return
+            except Exception as exc:
+                resource_errors.append(str(exc))
+        report = await self._cleanup_phone_home()
         verification_note = ""
-        with suppress(Exception):
+        try:
             verification_note = await self._verification.cancel_for_stop()
+        except Exception as exc:
+            logger.warning("停止后的验证状态处理失败：%s", exc)
+        report = report or {}
+        report.setdefault("errors", []).extend(resource_errors)
         lines = [
-            f"已停止 {len(deleted)} 个插件任务"
-            + (f"（中止运行中的 Agent {stopped_runs} 个）" if stopped_runs else ""),
-            "手机已回到桌面并清理后台；持续刷手机已关闭。",
+            f"已停止 {len(deleted)} 个插件任务（中止 Agent {stopped_runs} 个）。",
+            f"手机已回桌面，强停应用 {report.get('stopped', 0)} 个；抓包、持续刷与随机任务已关闭。",
         ]
+        if report.get("errors"):
+            lines.append("后台清理未完成：" + "；".join(report["errors"]))
         if verification_note:
             lines.append(verification_note)
         await self._say(event, "\n".join(lines))
@@ -861,6 +892,7 @@ class CommandsMixin:
             limit = max(1, min(limit, 50))
             await self._say(event, self._traffic_text(limit=limit))
         elif action in {"on", "开启"}:
+            self._phone_stopped = False
             if config.traffic.enabled:
                 await self._say(event, "抓包已经是开启状态。\n" + self._traffic_text())
                 return
