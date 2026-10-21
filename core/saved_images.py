@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shlex
 import time
 from pathlib import Path
@@ -108,6 +109,96 @@ class SavedImages:
             for r in records
             if not needle or needle in json.dumps(r, ensure_ascii=False).lower()
         ][: max(1, min(int(limit), 30))]
+
+    def local_path(self, record):
+        path = Path(record.get("server_path") or "").resolve()
+        if path.parent != (self.root / "files").resolve():
+            raise PhoneControlError("这张图片没有可用的服务端原图")
+        return path
+
+    async def update_semantics(self, image_id, *, description, reason, tags, kind):
+        if not isinstance(description, str) or not description.strip() or len(description) > 500:
+            raise PhoneControlError("图片语义需为 1–500 字")
+        if not isinstance(reason, str) or len(reason) > 500:
+            raise PhoneControlError("保存理由最多 500 字")
+        if not isinstance(kind, str) or kind not in {"image", "sticker"}:
+            raise PhoneControlError("图片类型需为 image 或 sticker")
+        if not isinstance(tags, list) or len(tags) > 10 or any(
+            not isinstance(tag, str) or len(tag) > 40 for tag in tags
+        ):
+            raise PhoneControlError("标签最多 10 个，每个最多 40 字")
+        async with self.lock:
+            records = self.load()
+            if image_id not in records:
+                raise PhoneControlError("图片编号不存在，请刷新列表")
+            record = records[image_id]
+            record.update(description=description.strip(), reason=reason.strip(),
+                          tags=list(dict.fromkeys(t.strip() for t in tags if t.strip())),
+                          kind=kind, updated_at=time.time())
+            self.write(records)
+            return record
+
+    async def delete(self, image_id):
+        """移除图片库记录及服务端原图，手机相册副本由手机管理。"""
+        async with self.lock:
+            records = self.load()
+            record = records.get(image_id)
+            if record is None:
+                raise PhoneControlError("图片编号不存在，请刷新列表")
+            path = self.local_path(record) if record.get("server_path") else None
+            # 先把文件移到库内隔离位置，索引保存失败时恢复原图。
+            staged = path.with_suffix(path.suffix + ".deleting") if path else None
+            moved = path is not None and path.exists()
+            if moved:
+                path.replace(staged)
+            try:
+                del records[image_id]
+                self.write(records)
+            except OSError:
+                if moved:
+                    staged.replace(path)
+                raise
+            if moved:
+                try:
+                    staged.unlink()
+                except OSError:
+                    records[image_id] = record
+                    staged.replace(path)
+                    self.write(records)
+                    raise
+            return record
+
+    async def preview(self, image_id):
+        """读取索引内已校验的原图，供面板登录用户查看。"""
+        async with self.lock:
+            record = self.load().get(image_id)
+            if record is None:
+                raise PhoneControlError("图片编号不存在，请刷新列表")
+            if record.get("server_path"):
+                path = self.local_path(record)
+                if not path.is_file() or path.stat().st_size > MAX_IMAGE_BYTES:
+                    raise PhoneControlError("服务端原图不可用")
+                data = path.read_bytes()
+            else:
+                # 手机原图按保存时的设备与哈希读取，不改变前台或手机文件。
+                service = self.service
+                digest = str(record.get("sha256") or "")
+                phone_path = str(record.get("phone_path") or "")
+                expected = r"/storage/emulated/[0-9]+/Pictures/AstrBot/" + re.escape(digest) + r"\.(?:png|jpg|gif|webp)"
+                if not re.fullmatch(r"[0-9a-f]{64}", digest) or not re.fullmatch(expected, phone_path):
+                    raise PhoneControlError("手机原图路径不可用")
+                if not record.get("phone_device") or record["phone_device"] != service.adb.serial:
+                    raise PhoneControlError("请连接保存这张图片时使用的手机")
+                if getattr(getattr(service, "gate", None), "busy", False):
+                    raise PhoneControlError("手机正在执行任务，请稍后查看图片")
+                service.guard_device("preview_image")
+                data = await service.adb.exec_out("head", "-c", str(MAX_IMAGE_BYTES + 1), phone_path)
+                service.guard_device("preview_image")
+                if record["phone_device"] != service.adb.serial:
+                    raise PhoneControlError("手机设备已切换，请刷新图片列表")
+            if len(data) > MAX_IMAGE_BYTES or hashlib.sha256(data).hexdigest() != record["sha256"]:
+                raise PhoneControlError("服务端原图校验失败")
+            return data, image_suffix(data)
 
     async def send_to_phone(self, image_id):
         if not self.service.config.browse.auto_save_images:

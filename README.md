@@ -15,7 +15,7 @@
 `astrbot_phone_control` 是 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的手机操控插件。
 它通过远程 ADB（可选 scrcpy / minitouch 后端）操作一台安卓模拟器，把「看屏幕、点滑动、
 输入、打开 App、理解内容、记录记忆」封装成 35 个 LLM 工具，并提供 `/phone` 命令族、
-定时自主任务、只读监控面板与配置热应用。
+定时自主任务、监控与资料管理面板与配置热应用。
 
 插件不绑定具体 App：内置抖音 / B 站 / 小黑盒画像，其余任意已安装 App 用通用文本抽取兜底。
 AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖；插件只负责授权、限额、冷却、
@@ -44,7 +44,7 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 - **按兴趣存图**：`browse.auto_save_images` 默认关闭；开启后可把喜欢的图文原图与表情包保存到 AstrBot 服务端、手机或两地，按内容去重并记录信息与路径，后续可检索及传到手机。
 - **静默分享**：操作过程不输出逐步解说，分享前整理为简短介绍，分享成功后静默收尾。
 - **安全与运维**：管理员/主人白名单、统一设备执行入口（授权/占用/暂停/取消代次/期限）、
-  只读 Dashboard、抓包日志打码与轮转；WG 私钥落盘 0600。
+  Dashboard 监控与资料管理、抓包日志打码与轮转；WG 私钥落盘 0600。
 
 ## 快速开始
 
@@ -125,6 +125,16 @@ AI：返回设备连接、前台 App、电量与分辨率
 
 完整命令、35 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
 
+## 子进程与停止行为
+
+`/phone stop` 会关闭抓包、自主浏览调度、随机与持续任务，停止实时屏幕和控制后端，并回桌面强停应用；后台保留名单内的应用、桌面和当前输入法保持运行，默认包含 WireGuard、Tailscale 和 Phone WG Relay。后续可用 `/phone traffic on` 或 `/phone continuous on` 显式开启相应能力。
+
+抓包、WireGuard 和解码管道由独立监护器管理，手机端 scrcpy、音频、minitouch 使用设备端看门狗。插件每 3 秒发送心跳，失联后最长约 18 秒回收。重载时按代码指纹识别前任租约，先释放资源再建立新会话。
+
+## App 使用经验
+
+App 经验在「提示词注入」卡片开启后，`app_memory_backend=plugin` 显示注入条数，`knowledge_base` 显示知识库名称或 ID。知识库需在 AstrBot 中创建并配置 Embedding Provider；记录、查询与注入均使用所选位置，存储错误会直接返回。
+
 ## 安全与隐私
 
 - 默认 `require_admin=true`：仅 AstrBot 管理员、白名单用户或插件定时任务可操作手机；
@@ -148,7 +158,7 @@ core/wireguard.py      WireGuard 组网：X25519 密钥、helper 配置/状态�
 core/tools/            35 个 LLM 工具实现（按域拆分）
 core/*.py              设备层与纯逻辑模块（ADB/UI/动作/配置/抓包/记忆/新鲜感等）
 skills/                AI 行为手册（自主浏览、互动、验证、媒体、整理）
-views/dashboard/       只读监控面板与学习记录页
+views/dashboard/       监控面板、学习记录与保存的图片管理页
 docs/使用手册.md        完整功能、配置、工具、命令与 FAQ
 bin/                   自带 adb、scrcpy-server 与 phone-wg helper（含第三方 NOTICE）
 ```
@@ -204,11 +214,3 @@ NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt
 - [完整使用手册](docs/使用手册.md)
 - [第三方组件与引用说明](THIRD_PARTY_NOTICES.md)
 - [许可证](LICENSE)
-
-## 子进程与停止行为
-
-`/phone stop` 会关闭抓包、自主浏览调度、随机与持续任务，停止实时屏幕和控制后端，并回桌面强停应用；桌面和当前输入法保持运行。后续可用 `/phone traffic on` 或 `/phone continuous on` 显式开启相应能力。
-
-抓包、WireGuard 和解码管道由独立监护器管理，手机端 scrcpy、音频、minitouch 使用设备端看门狗。插件每 3 秒发送心跳，失联后最长约 18 秒回收。重载时按代码指纹识别前任租约，先释放资源再建立新会话。
-
-App 经验在「提示词注入」卡片开启后，`app_memory_backend=plugin` 显示注入条数，`knowledge_base` 显示知识库名称或 ID。知识库需在 AstrBot 中创建并配置 Embedding Provider；记录、查询与注入均使用所选位置，存储错误会直接返回。

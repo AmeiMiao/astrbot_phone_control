@@ -342,6 +342,10 @@ class SecuritySettings:
     max_passive_replies_per_day: int = DEFAULT_MAX_PASSIVE_REPLIES_PER_DAY
     passive_reply_cooldown_seconds: int = DEFAULT_PASSIVE_REPLY_COOLDOWN_SECONDS
 
+    def __post_init__(self):
+        if set(self.background_keep_packages) == set(DEFAULT_KEEP_PACKAGES[:2]):
+            object.__setattr__(self, "background_keep_packages", DEFAULT_KEEP_PACKAGES)
+
 
 @dataclass(frozen=True)
 class PerceptionSettings:

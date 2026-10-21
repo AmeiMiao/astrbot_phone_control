@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [0.1.3.1] - 2026-10-22
+
+### Added
+
+- Dashboard「保存的图片」支持原图查看、搜索分页、语义/理由/标签/类型编辑与确认删除；学习记录支持按唯一编号删除，资料修改即时保存。
+
+### Fixed
+
+- 保存的标准 WireGuard + Tailscale 默认后台名单自动包含 Phone WG Relay，停止、任务收尾与抓包初始化使用统一名单；自定义或显式空名单保持配置值。
+
+### Changed
+
+- README 将子进程与停止行为归入运行说明，App 经验配置归入独立功能说明。
+
+## [0.1.3] - 2026-10-21
+
 ### Added
 
 - Phone WG Relay 手机组件通过普通 App UID 转发 WG 内 ADB，支持无 root Android 官方 WireGuard App；中转仅监听隧道地址并限制唯一控制端，通知栏可停止。

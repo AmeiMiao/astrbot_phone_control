@@ -295,6 +295,19 @@ class BootstrapMixin:
         )
         # 必填配置缺失时直接抛异常：插件加载失败（不构造设备对象、不注册工具）。
         require_configured(initial)
+        security = self.raw_config.get("security", self.raw_config)
+        saved_keep = (
+            security.get("background_keep_packages") if isinstance(security, dict) else None
+        )
+        if (
+            isinstance(saved_keep, (list, tuple))
+            and all(isinstance(value, str) for value in saved_keep)
+            and set(saved_keep) == {"com.wireguard.android", "com.tailscale.ipn"}
+        ):
+            security["background_keep_packages"] = list(initial.security.background_keep_packages)
+            save = getattr(self.raw_config, "save_config", None)
+            if callable(save):
+                save()
         self.data_dir = plugin_main_module()._resolve_data_dir()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         adb_home = self.data_dir / "adbhome"

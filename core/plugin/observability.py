@@ -1,4 +1,4 @@
-"""插件可观测性与集成 mixin：只读监控 API、记忆插件同步、token 记账、自主任务模型供应商。"""
+"""插件可观测性与集成 mixin：监控与资料管理 API、记忆插件同步、token 记账、自主任务模型供应商。"""
 
 from __future__ import annotations
 
@@ -178,9 +178,10 @@ from .shared import (
 
 from astrbot.api.web import request
 from .compat import error_response, json_response, plugin_main_module
+from .library_dashboard import LibraryDashboardMixin
 
 
-class ObservabilityMixin:
+class ObservabilityMixin(LibraryDashboardMixin):
     def _traffic_status_payload(self, *, limit: int = 5) -> dict[str, Any]:
         """Dashboard/命令共用的抓包状态摘要（含最近流量预览）。"""
         try:
@@ -265,6 +266,7 @@ class ObservabilityMixin:
             ]
             items.append(
                 {
+                    "id": str(entry.get("id") or ""),
                     "ts": ts,
                     "content": str(entry.get("content") or ""),
                     "source": str(entry.get("source") or ""),
@@ -287,7 +289,7 @@ class ObservabilityMixin:
         return getattr(self.service, "backends", None)
 
     def _register_dashboard_apis(self) -> None:
-        """注册 Dashboard 只读监控 Web API（页面由 views/dashboard 提供）。"""
+        """注册 Dashboard 监控与资料管理 Web API（页面由 views/dashboard 提供）。"""
         register = getattr(self.context, "register_web_api", None)
         if not callable(register):
             logger.debug("当前 AstrBot 不支持 register_web_api，跳过 Dashboard API 注册")
@@ -298,6 +300,7 @@ class ObservabilityMixin:
             (f"{base}/series", self.dashboard_series, ["GET"], "手机监控指标时间序列"),
             (f"{base}/learning", self.dashboard_learning, ["GET"], "手机学习记录"),
         )
+        routes += self._library_dashboard_routes(base)
         for route, handler, methods, desc in routes:
             try:
                 register(route, handler, methods, desc)
@@ -369,7 +372,7 @@ class ObservabilityMixin:
             return error_response(f"读取指标序列失败：{exc}", status_code=500)
 
     async def dashboard_learning(self):
-        """GET dashboard/learning?query=&limit=：AI 在手机上学到的内容（只读，最新在前）。"""
+        """GET dashboard/learning?query=&limit=：AI 在手机上学到的内容（最新在前）。"""
         try:
             query = str(plugin_main_module().request.query.get("query", "") or "").strip()[:100]
             raw_limit = plugin_main_module().request.query.get("limit", 50, type=int)

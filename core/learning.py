@@ -2,19 +2,21 @@
 
 存储结构：``root/learning.jsonl``，每行一个条目（UTF-8 JSON）：:
 
-    {"ts": 1760000000.0, "content": "……", "source": "哔哩哔哩", "tags": ["AI"]}
+    {"id": "唯一编号", "ts": 1760000000.0, "content": "……", "source": "哔哩哔哩", "tags": ["AI"]}
 
 条目超过 ``max_entries``（默认 2000）时整体重写，只保留最近条目。查询/渲染
 结果按时间正序返回，单条内容渲染最多 120 字。本模块只依赖标准库；除内容校验
-抛 :class:`LearningError` 外，读写异常都吞掉并返回空结果，避免影响手机主流程。
+抛 :class:`LearningError` 外，追加与查询按可用内容继续；显式删除失败时报告错误并保留数据。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
 import time
+import uuid
 from collections import deque
 from collections.abc import Iterable
 from pathlib import Path
@@ -88,6 +90,7 @@ def _normalize_record(raw: Any) -> dict[str, Any] | None:
         ts = 0.0
     tags = _normalize_tags(raw.get("tags"))
     return {
+        **({"id": raw["id"]} if isinstance(raw.get("id"), str) and raw["id"] else {}),
         "ts": ts,
         "content": content,
         "source": str(raw.get("source") or "").strip(),
@@ -119,7 +122,7 @@ def _coerce_limit(limit: Any, default: int) -> int:
 
 
 class LearningStore:
-    """基于 JSONL 的学习档案（环形上限、线程安全、异常吞掉）。"""
+    """基于 JSONL 的学习档案（环形上限、线程安全、唯一编号）。"""
 
     def __init__(
         self,
@@ -155,7 +158,7 @@ class LearningStore:
             return
         try:
             with self.path.open("r", encoding="utf-8") as handle:
-                for line in handle:
+                for line_number, line in enumerate(handle):
                     line = line.strip()
                     if not line:
                         continue
@@ -164,6 +167,9 @@ class LearningStore:
                     except json.JSONDecodeError:
                         continue
                     if record is not None:
+                        record.setdefault(
+                            "id", hashlib.sha256(f"{line_number}:{line}".encode()).hexdigest()
+                        )
                         self._entries.append(record)
         except OSError:
             return
@@ -215,6 +221,7 @@ class LearningStore:
         except (TypeError, ValueError):
             when = time.time()
         entry = {
+            "id": uuid.uuid4().hex,
             "ts": when,
             "content": text,
             "source": str(source or "").strip(),
@@ -229,6 +236,23 @@ class LearningStore:
             else:
                 self._append_file([entry])
             return dict(entry)
+
+    def delete(self, entry_id: str) -> None:
+        """按唯一编号删除；文件替换成功后才更新内存。"""
+        with self._lock:
+            remaining = [e for e in self._entries if e["id"] != entry_id]
+            if len(remaining) == len(self._entries):
+                raise LearningError("学习记录不存在，请刷新列表")
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = self.path.with_suffix(".jsonl.tmp")
+                with temporary.open("w", encoding="utf-8") as handle:
+                    for entry in remaining:
+                        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                os.replace(temporary, self.path)
+            except OSError as exc:
+                raise LearningError("学习记录删除未保存，请检查存储") from exc
+            self._entries = deque(remaining, maxlen=self.max_entries)
 
     # ---- 查询 ---------------------------------------------------------
 

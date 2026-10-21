@@ -1,6 +1,6 @@
 """main.PhoneControlPlugin Dashboard 学习记录页接口测试（容器内跑，本地无 astrbot 跳过）。
 
-学习记录页只读：GET dashboard/learning 返回统计与记录（最新在前），支持关键词检索。
+GET dashboard/learning 返回统计与记录（最新在前），支持关键词检索与精确删除。
 本文件用假 Context/Web request 直接调用插件方法。
 """
 
@@ -206,5 +206,71 @@ def test_dashboard_registers_learning_readonly_route(tmp_path, monkeypatch):
         assert routes.get("/astrbot_phone_control/dashboard/overview") == ("GET",)
         assert routes.get("/astrbot_phone_control/dashboard/series") == ("GET",)
         assert routes.get("/astrbot_phone_control/dashboard/learning") == ("GET",)
+    finally:
+        asyncio.run(plugin.terminate())
+
+
+def test_dashboard_library_routes_and_learning_delete(tmp_path, monkeypatch):
+    plugin = _make_plugin(tmp_path, monkeypatch)
+    monkeypatch.setattr(plugin_main, "json_response", lambda data=None, **_: data)
+    monkeypatch.setattr(plugin_main, "error_response", lambda message, **kw: {"error": message, **kw})
+    entry = plugin.service.learning.record(content="待删除记录")
+    class Body:
+        async def json(self):
+            return {"id": entry["id"]}
+    monkeypatch.setattr(plugin_main, "request", Body())
+    try:
+        routes = dict(plugin.context.web_routes)
+        assert routes["/astrbot_phone_control/dashboard/learning/delete"] == ("POST",)
+        assert routes["/astrbot_phone_control/dashboard/images/update"] == ("POST",)
+        assert asyncio.run(plugin.dashboard_learning_delete()) == {"deleted": entry["id"]}
+        assert plugin.service.learning.entries() == []
+        assert asyncio.run(plugin.dashboard_learning_delete())["status_code"] == 400
+    finally:
+        asyncio.run(plugin.terminate())
+
+
+def test_dashboard_images_preview_update_delete(tmp_path, monkeypatch):
+    import hashlib
+    from core.saved_images import private_write
+    plugin = _make_plugin(tmp_path, monkeypatch)
+    monkeypatch.setattr(plugin_main, "json_response", lambda data=None, **_: data)
+    monkeypatch.setattr(plugin_main, "error_response", lambda message, **kw: {"error": message, **kw})
+    data = b"GIF89asynthetic"
+    digest = hashlib.sha256(data).hexdigest()
+    directory = tmp_path / "saved_images"
+    path = directory / "files" / (digest + ".gif")
+    private_write(path, data)
+    private_write(directory / "index.json", __import__("json").dumps({digest: {
+        "id": digest, "sha256": digest, "server_path": str(path), "description": "测试图", "updated_at": 1
+    }}).encode())
+    class Body(FakeRequest):
+        async def json(self):
+            return {"id": digest, "description": "编辑后的语义", "tags": ["开心"]}
+    monkeypatch.setattr(plugin_main, "request", Body({"id": digest}))
+    try:
+        assert asyncio.run(plugin.dashboard_images())["total"] == 1
+        assert asyncio.run(plugin.dashboard_image_preview())["url"].startswith("data:image/gif;base64,")
+        assert asyncio.run(plugin.dashboard_image_update())["description"] == "编辑后的语义"
+        assert asyncio.run(plugin.dashboard_image_delete()) == {"deleted": digest}
+        assert not path.exists()
+        assert asyncio.run(plugin.dashboard_images())["total"] == 0
+    finally:
+        asyncio.run(plugin.terminate())
+
+
+def test_saved_default_keep_list_is_persisted_on_load(tmp_path, monkeypatch):
+    class SavedConfig(dict):
+        saved = False
+        def save_config(self):
+            self.saved = True
+    raw = SavedConfig(_raw_config())
+    raw["security"]["background_keep_packages"] = ["com.wireguard.android", "com.tailscale.ipn"]
+    monkeypatch.setattr(plugin_main, "_resolve_data_dir", lambda: tmp_path)
+    plugin = plugin_main.PhoneControlPlugin(FakeContext(), raw)
+    try:
+        assert raw.saved
+        assert "fun.acat.phonerelay" in raw["security"]["background_keep_packages"]
+        assert "fun.acat.phonerelay" in plugin.service.config.security.background_keep_packages
     finally:
         asyncio.run(plugin.terminate())

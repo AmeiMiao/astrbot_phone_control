@@ -1,4 +1,4 @@
-/* 手机操控插件 · 只读监控面板 */
+/* 手机操控插件 · 监控与资料管理 */
 (() => {
   "use strict";
 
@@ -12,6 +12,8 @@
     overview: null,
     series: { screenshots: [], llm: [], buckets: [] },
     timers: [],
+    imagesOffset: 0,
+    imagesRequest: 0,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -89,13 +91,15 @@
     });
     $("view-dashboard").hidden = view !== "dashboard";
     $("view-learning").hidden = view !== "learning";
+    $("view-images").hidden = view !== "images";
     if (view === "dashboard") {
       schedulePolls();
       refreshOverview();
       refreshSeries();
     } else {
       stopPolls();
-      loadLearning();
+      if (view === "learning") loadLearning();
+      if (view === "images") loadImages();
     }
   }
 
@@ -507,8 +511,138 @@
         });
         item.appendChild(tagBox);
       }
+      const remove = button("删除记录", async () => {
+        if (!window.confirm("删除这条本地学习记录？已同步到记忆插件的副本由记忆插件管理。")) return;
+        await state.bridge.apiPost("dashboard/learning/delete", { id: entry.id });
+        await loadLearning();
+      });
+      item.appendChild(remove);
       list.appendChild(item);
     });
+  }
+
+  function button(label, action) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "btn ghost";
+    el.textContent = label;
+    el.addEventListener("click", async () => {
+      el.disabled = true;
+      try { await action(); }
+      catch (err) { window.alert(err.message || String(err)); }
+      finally { el.disabled = false; }
+    });
+    return el;
+  }
+
+  // ---------------- 图片库 ----------------
+  async function loadImages() {
+    const requestId = ++state.imagesRequest;
+    try {
+      const data = await apiGet("dashboard/images", {
+        query: $("images-query").value.trim(), offset: state.imagesOffset,
+      });
+      if (requestId !== state.imagesRequest) return;
+      if (!data.entries.length && data.total && state.imagesOffset) {
+        state.imagesOffset = Math.floor((data.total - 1) / 30) * 30;
+        return loadImages();
+      }
+      setText("images-subtitle", `共 ${data.total} 张图片`);
+      setText("images-page", `${data.total ? Math.floor(data.offset / 30) + 1 : 0} / ${Math.ceil(data.total / 30)}`);
+      $("images-prev").disabled = data.offset === 0;
+      $("images-next").disabled = data.offset + data.entries.length >= data.total;
+      const list = $("images-list");
+      list.replaceChildren();
+      if (!data.entries.length) {
+        const empty = document.createElement("p");
+        empty.className = "learning-empty";
+        empty.textContent = data.query ? "没有匹配的图片。" : "还没有保存的图片。";
+        list.appendChild(empty);
+      }
+      data.entries.forEach((entry) => renderImage(entry, list));
+    } catch (err) { setText("images-subtitle", `图片加载失败：${err.message || err}`); }
+  }
+
+  function renderImage(entry, list) {
+    const item = document.createElement("article");
+    item.className = "learning-item image-item";
+    const visual = document.createElement("div");
+    visual.className = "image-preview";
+    visual.textContent = entry.server_path ? "点击查看图片" : "原图保存在手机，查看时需连接对应设备";
+    if (entry.server_path || entry.phone_path) {
+      visual.appendChild(button("查看图片", async () => {
+        const data = await apiGet("dashboard/images/preview", { id: entry.id });
+        const img = document.createElement("img");
+        img.src = data.url;
+        img.alt = entry.description || "保存的图片";
+        const full = document.createElement("a");
+        full.href = data.url;
+        full.download = `${entry.id}.${entry.format || "png"}`;
+        full.textContent = "下载原图";
+        visual.replaceChildren(img, full);
+      }));
+    }
+    item.appendChild(visual);
+    const form = document.createElement("form");
+    const fields = {};
+    function field(key, label, value, multiline = false) {
+      const wrapper = document.createElement("label");
+      wrapper.textContent = label;
+      const input = document.createElement(multiline ? "textarea" : "input");
+      input.value = value || "";
+      input.name = key;
+      input.maxLength = key === "tags" ? 409 : 500;
+      input.disabled = true;
+      wrapper.appendChild(input);
+      form.appendChild(wrapper);
+      fields[key] = input;
+    }
+    field("description", "图片语义", entry.description, true);
+    field("reason", "保存理由", entry.reason, true);
+    field("tags", "标签（逗号分隔，最多 10 个）", (entry.tags || []).join(", "));
+    const kindLabel = document.createElement("label");
+    kindLabel.textContent = "类型";
+    const kind = document.createElement("select");
+    for (const [value, label] of [["image", "图片"], ["sticker", "表情包"]]) {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = label; kind.appendChild(option);
+    }
+    kind.value = entry.kind || "image"; kind.disabled = true;
+    kindLabel.appendChild(kind); form.appendChild(kindLabel); fields.kind = kind;
+    const source = document.createElement("p");
+    source.className = "image-meta";
+    source.textContent = `保存于 ${fmtDateTime(entry.created_at)} · 来源 ${(entry.sources || []).map(s => s.app + (s.content_id ? " / " + s.content_id : "")).join("、") || "未标注"}\n服务端：${entry.server_path || "未保存"}\n手机：${entry.phone_path || "未保存"}${entry.last_error ? "\n保存错误：" + entry.last_error : ""}`;
+    form.appendChild(source);
+    const actions = document.createElement("div");
+    actions.className = "head-actions";
+    const edit = button("编辑语义", () => {
+      Object.values(fields).forEach(f => { f.disabled = false; });
+      edit.hidden = true; save.hidden = false; cancel.hidden = false;
+      fields.description.focus();
+    });
+    const save = button("保存语义", async () => {
+      await state.bridge.apiPost("dashboard/images/update", {
+        id: entry.id, description: fields.description.value, reason: fields.reason.value,
+        tags: fields.tags.value.split(/[,，]/).map(t => t.trim()).filter(Boolean), kind: kind.value,
+      });
+      await loadImages();
+    });
+    const cancel = button("取消", () => {
+      fields.description.value = entry.description || "";
+      fields.reason.value = entry.reason || "";
+      fields.tags.value = (entry.tags || []).join(", "); kind.value = entry.kind || "image";
+      Object.values(fields).forEach(f => { f.disabled = true; });
+      edit.hidden = false; save.hidden = true; cancel.hidden = true;
+    });
+    const remove = button("删除图片", async () => {
+      if (!window.confirm("删除图片库记录与服务端原图？此操作不可恢复，手机相册副本保留。")) return;
+      await state.bridge.apiPost("dashboard/images/delete", { id: entry.id });
+      await loadImages();
+    });
+    save.hidden = true; cancel.hidden = true;
+    actions.append(edit, save, cancel, remove); form.appendChild(actions);
+    form.addEventListener("submit", e => e.preventDefault());
+    item.appendChild(form); list.appendChild(item);
   }
 
   // ---------------- 初始化 ----------------
@@ -534,6 +668,12 @@
       if (event.key === "Enter") loadLearning();
     });
     $("learning-limit").addEventListener("change", loadLearning);
+    $("btn-images-refresh").addEventListener("click", loadImages);
+    const searchImages = () => { state.imagesOffset = 0; loadImages(); };
+    $("btn-images-search").addEventListener("click", searchImages);
+    $("images-query").addEventListener("keydown", e => { if (e.key === "Enter") searchImages(); });
+    $("images-prev").addEventListener("click", () => { state.imagesOffset = Math.max(0, state.imagesOffset - 30); loadImages(); });
+    $("images-next").addEventListener("click", () => { state.imagesOffset += 30; loadImages(); });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) return;
       if (state.view === "dashboard") {
@@ -541,6 +681,8 @@
         refreshSeries();
       } else if (state.view === "learning") {
         loadLearning();
+      } else if (state.view === "images") {
+        loadImages();
       }
     });
     window.addEventListener("resize", redrawCharts);

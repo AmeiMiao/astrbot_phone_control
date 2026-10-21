@@ -30,7 +30,9 @@ def test_record_appends_and_normalizes(tmp_path):
         tags=[" AI ", "", "学习", "AI"],
         ts=1_760_000_000.0,
     )
+    assert len(record["id"]) == 32
     assert record == {
+        "id": record["id"],
         "ts": 1_760_000_000.0,
         "content": "今天 学会了 Python 装饰器",
         "source": "哔哩哔哩",
