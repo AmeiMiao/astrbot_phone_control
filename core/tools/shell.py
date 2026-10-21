@@ -69,13 +69,13 @@ class PhoneShellTool(_PhoneToolBase):
                 if asyncio.get_running_loop().time() >= deadline:
                     raise asyncio.TimeoutError
                 if scope is not None:
-                    scope.checkpoint("phone_shell")
+                    scope.checkpoint()
                 if not self.service.config.security.allow_shell_tool:
                     raise PhoneControlError("设备 shell 授权已关闭，命令已中止")
                 done, _ = await asyncio.wait({task}, timeout=0.05)
                 if done:
                     if scope is not None:
-                        scope.checkpoint("phone_shell")
+                        scope.checkpoint()
                     result = await task
                     return ("error: " if result["exit_code"] else "") + _json_text(result)
         finally:

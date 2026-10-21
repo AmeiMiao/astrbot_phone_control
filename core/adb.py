@@ -579,7 +579,8 @@ class AdbClient:
             await proc.communicate()
             raise
         except TimeoutError:
-            self._log(f"adb 命令超时（{effective_timeout:.1f}s），终止进程：{_argv_text(argv)}")
+            detail = f"：{_argv_text(argv)}" if output_limit is None else ""
+            self._log(f"adb 命令超时（{effective_timeout:.1f}s），终止进程{detail}")
             try:
                 proc.kill()
             except ProcessLookupError:
