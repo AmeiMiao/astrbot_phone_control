@@ -24,3 +24,26 @@ def test_small_frame_is_written_before_input_eof(tmp_path):
     finally:
         process.stdin.close()
         process.wait(timeout=3)
+
+
+def test_nonblocking_video_socket_waits_between_packets(tmp_path):
+    import os
+    import select
+    import socket
+    left,right=socket.socketpair();left.setblocking(False)
+    script=Path(__file__).resolve().parents[1]/'bin/scrcpy_feed.py'
+    process=subprocess.Popen([sys.executable,str(script),str(left.fileno())],pass_fds=(left.fileno(),),stdout=subprocess.PIPE)
+    try:
+        right.sendall(b'first')
+        assert select.select([process.stdout],[],[],3)[0]
+        assert os.read(process.stdout.fileno(),5)==b'first'
+        time.sleep(.1)
+        assert process.poll() is None
+        right.sendall(b'second')
+        assert select.select([process.stdout],[],[],3)[0]
+        assert os.read(process.stdout.fileno(),6)==b'second'
+        right.close();process.wait(timeout=3);assert process.returncode==0
+    finally:
+        left.close();right.close()
+        if process.poll() is None:process.terminate();process.wait(timeout=3)
+        process.stdout.close()

@@ -1010,8 +1010,8 @@ class ScrcpyClient:
         command = (
             f"{shlex.quote(sys.executable)} {shlex.quote(str(helper))} {int(fd)}"
             f" | {shlex.quote(ffmpeg)} -hide_banner -loglevel error"
-            " -fflags nobuffer -flags low_delay -probesize 32 -analyzeduration 0 -flush_packets 1"
-            " -f h264 -i pipe:0 -f image2pipe -vcodec mjpeg -q:v 4 pipe:1"
+            " -flags low_delay -threads 1 -probesize 32 -analyzeduration 0"
+            " -f h264 -i pipe:0 -f image2pipe -vcodec mjpeg -threads 1 -q:v 4 -flush_packets 1 pipe:1"
             f" 2>> {shlex.quote(str(self._decoder_log))}"
             f" | {shlex.quote(sys.executable)} {shlex.quote(str(frame_writer))}"
             f" {shlex.quote(str(self.data_dir))}"

@@ -14,6 +14,7 @@ socket 文件描述符。本脚本只做阻塞读 + 写出，不做任何协议�
 from __future__ import annotations
 
 import os
+import select
 import sys
 
 
@@ -31,8 +32,10 @@ def main(argv: list[str]) -> int:
     try:
         while True:
             try:
+                if not select.select([fd], [], [], 1)[0]:
+                    continue
                 chunk = os.read(fd, 65536)
-            except InterruptedError:
+            except (InterruptedError, BlockingIOError):
                 continue
             except OSError:
                 break
