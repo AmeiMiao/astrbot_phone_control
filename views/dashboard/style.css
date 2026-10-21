@@ -480,3 +480,8 @@ canvas {
 [hidden] { display: none !important; }
 .head-actions { flex-wrap: wrap; }
 @media (max-width: 700px) { .image-item { grid-template-columns: 1fr; } }
+
+.confirm-dialog { width: min(440px, calc(100vw - 32px)); border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--text); padding: 22px; box-shadow: var(--shadow); }
+.confirm-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+.confirm-dialog p { line-height: 1.7; margin: 0 0 20px; }
+.library-error { padding: 12px; border: 1px solid var(--red); color: var(--red); border-radius: 8px; overflow-wrap: anywhere; }

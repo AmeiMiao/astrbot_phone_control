@@ -512,7 +512,7 @@
         item.appendChild(tagBox);
       }
       const remove = button("删除记录", async () => {
-        if (!window.confirm("删除这条本地学习记录？已同步到记忆插件的副本由记忆插件管理。")) return;
+        if (!await confirmAction("删除这条本地学习记录？已同步到记忆插件的副本由记忆插件管理。")) return;
         await state.bridge.apiPost("dashboard/learning/delete", { id: entry.id });
         await loadLearning();
       });
@@ -528,11 +528,40 @@
     el.textContent = label;
     el.addEventListener("click", async () => {
       el.disabled = true;
+      $("library-error").hidden = true;
       try { await action(); }
-      catch (err) { window.alert(err.message || String(err)); }
+      catch (err) {
+        setText("library-error", err.message || String(err));
+        $("library-error").hidden = false;
+        $("library-error").focus();
+      }
       finally { el.disabled = false; }
     });
     return el;
+  }
+
+  function confirmAction(message) {
+    return new Promise(resolve => {
+      const previous = document.activeElement;
+      const dialog = document.createElement("dialog");
+      dialog.className = "confirm-dialog";
+      dialog.setAttribute("aria-label", "确认删除");
+      const text = document.createElement("p");
+      text.textContent = message;
+      const actions = document.createElement("div");
+      actions.className = "head-actions";
+      const finish = value => {
+        dialog.close(); dialog.remove();
+        if (previous?.isConnected) previous.focus();
+        resolve(value);
+      };
+      actions.append(button("取消", () => finish(false)), button("确认删除", () => finish(true)));
+      dialog.append(text, actions);
+      dialog.addEventListener("cancel", event => { event.preventDefault(); finish(false); });
+      document.body.appendChild(dialog);
+      dialog.showModal();
+      actions.firstElementChild.focus();
+    });
   }
 
   // ---------------- 图片库 ----------------
@@ -635,7 +664,7 @@
       edit.hidden = false; save.hidden = true; cancel.hidden = true;
     });
     const remove = button("删除图片", async () => {
-      if (!window.confirm("删除图片库记录与服务端原图？此操作不可恢复，手机相册副本保留。")) return;
+      if (!await confirmAction("删除图片库记录与服务端原图？此操作不可恢复，手机相册副本保留。")) return;
       await state.bridge.apiPost("dashboard/images/delete", { id: entry.id });
       await loadImages();
     });
