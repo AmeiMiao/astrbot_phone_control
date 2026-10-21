@@ -763,3 +763,143 @@ def test_actions_screenshot_entry_runs_guard(tmp_path: Path) -> None:
         run(actions.screenshot(tmp_path / "shot.png"))
     assert calls == ["screenshot"]
     assert adb.ensure_ready_calls == 0
+
+
+class ShellAdb:
+    def __init__(self):
+        self.calls = []
+        self.started = asyncio.Event()
+        self.cancelled = False
+        self.block = False
+        self.code = 0
+
+    async def ensure_ready(self):
+        pass
+
+    async def shell_result(self, command, *, timeout):
+        self.calls.append((command, timeout))
+        self.started.set()
+        try:
+            if self.block:
+                await asyncio.Event().wait()
+            return {"exit_code": self.code, "stdout": "uid=2000(shell)", "stderr": "failure" if self.code else ""}
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+
+
+def shell_service(enabled=True, gate=None):
+    service = FakeService(gate=gate, config=PhoneConfig.from_mapping({
+        "adb": {"host": "127.0.0.1", "port": 5555, "command_timeout": 2},
+        "security": {"allow_shell_tool": enabled},
+    }))
+    service.adb = ShellAdb()
+    return service
+
+
+def test_shell_default_closed_and_permission_checked():
+    service = shell_service(False)
+    tool = tools_mod.PhoneShellTool(service=service)
+    event = FakeEvent()
+    assert "未开启设备 shell" in run(tool.call(FakeToolContext(event), command="id"))
+    service.config = dataclasses.replace(service.config, security=dataclasses.replace(service.config.security, allow_shell_tool=True))
+    event.role = "member"
+    event.get_sender_id = lambda: "visitor"
+    assert "权限不足" in run(tool.call(FakeToolContext(event), command="id"))
+    assert not service.adb.calls
+
+
+def test_shell_output_exit_code_and_timeout_clamped():
+    service = shell_service()
+    tool = tools_mod.PhoneShellTool(service=service)
+    ctx = FakeToolContext(FakeEvent())
+    assert '"exit_code": 0' in run(tool.call(ctx, command="id", timeout_seconds=999))
+    assert service.adb.calls == [("id", 2)]
+    service.adb.code = 7
+    result = run(tool.call(ctx, command="exit 7"))
+    assert result.startswith("error:") and '"exit_code": 7' in result and '"stderr": "failure"' in result
+    assert len(service.adb.calls) == 2
+
+
+@pytest.mark.parametrize("kwargs", [{"command": ""}, {"command": "x\x00y"}, {"command": "x"*8193}, {"command": "id", "timeout_seconds": -1}, {"command": "id", "timeout_seconds": float("nan")}])
+def test_shell_invalid_input_has_no_device_execution(kwargs):
+    service = shell_service()
+    result = run(tools_mod.PhoneShellTool(service=service).call(FakeToolContext(FakeEvent()), **kwargs))
+    assert result.startswith("error:") and not service.adb.calls
+
+
+def test_shell_cancels_inflight_on_stop_and_authorization_change():
+    from core.device_gate import DeviceExecutionGate
+
+    async def scenario(mode):
+        gate = DeviceExecutionGate()
+        service = shell_service(gate=gate)
+        service.adb.block = True
+        tool = tools_mod.PhoneShellTool(service=service)
+        task = asyncio.create_task(tool.call(FakeToolContext(FakeEvent()), command="sleep 20"))
+        await service.adb.started.wait()
+        if mode == "stop":
+            gate.force_release("stop")
+        else:
+            service.config = dataclasses.replace(service.config, security=dataclasses.replace(service.config.security, allow_shell_tool=False))
+        result = await asyncio.wait_for(task, 1)
+        assert "已中止" in result or "授权已关闭" in result
+        assert service.adb.cancelled and len(service.adb.calls) == 1
+    for mode in ("stop", "revoke"):
+        run(scenario(mode))
+
+
+def test_shell_timeout_and_caller_cancel_reap_task():
+    async def scenario():
+        service = shell_service()
+        service.adb.block = True
+        tool = tools_mod.PhoneShellTool(service=service)
+        result = await tool.call(FakeToolContext(FakeEvent()), command="sleep 20", timeout_seconds=.02)
+        assert "超时" in result and service.adb.cancelled
+        service.adb = ShellAdb()
+        service.adb.block = True
+        task = asyncio.create_task(tool.call(FakeToolContext(FakeEvent()), command="sleep 20"))
+        await service.adb.started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert service.adb.cancelled
+    run(scenario())
+
+
+def test_like_favorite_tools_share_run_quota_and_new_round_resets(tmp_path):
+    from core.interactions import InteractionStore, interaction_run
+
+    service = FakeService(config=PhoneConfig.from_mapping({"adb": {"host": "127.0.0.1", "port": 5555}, "security": {"allow_interactions": True, "max_likes_per_session": 1}}))
+    service.interactions = InteractionStore(tmp_path)
+    gate = tools_mod.PhoneInteractionGateTool(service=service)
+    record = tools_mod.PhoneInteractionRecordTool(service=service)
+    event = FakeEvent()
+    ctx = FakeToolContext(event)
+    assert "已预留" in run(gate.call(ctx, kind="like"))
+    assert "名额已满" in run(gate.call(ctx, kind="favorite"))
+    assert "失败并释放" in run(record.call(ctx, kind="like", success=False, summary="已激活，跳过"))
+    assert "已预留" in run(gate.call(ctx, kind="favorite"))
+    assert "success 必须是布尔" in run(record.call(ctx, kind="favorite", success="false", summary="invalid"))
+    assert "成功" in run(record.call(ctx, kind="favorite", success=True, summary="已确认收藏"))
+    assert "名额已满" in run(gate.call(ctx, kind="like"))
+    interaction_run(event, restart=True)
+    assert "已预留" in run(gate.call(ctx, kind="like"))
+    service.interactions.finish_run(interaction_run(event))
+    assert not service.interactions.reservations()
+
+
+def test_light_interaction_switch_and_content_decision(tmp_path):
+    from core.interactions import InteractionStore
+
+    service = FakeService()
+    service.interactions = InteractionStore(tmp_path)
+    tool = tools_mod.PhoneInteractionGateTool(service=service)
+    ctx = FakeToolContext(FakeEvent())
+    assert "未开启点赞" in run(tool.call(ctx, kind="like"))
+    service.config = dataclasses.replace(service.config, security=dataclasses.replace(service.config.security, allow_interactions=True))
+    service._contents = types.SimpleNamespace(active={"o": {"decisions": []}}, owner=lambda event: "o")
+    service.contents = service._contents
+    assert "decide favorite" in run(tool.call(ctx, kind="favorite"))
+    service._contents.active["o"]["decisions"].append({"decision": "favorite"})
+    assert "已预留" in run(tool.call(ctx, kind="favorite"))

@@ -1,7 +1,7 @@
 {
   "adb": {
     "type": "object",
-    "description": "ADB 连接（host 与 port 为必填项）",
+    "description": "ADB 连接",
     "items": {
       "host": {
         "type": "string",
@@ -39,7 +39,8 @@
         "description": "单条 ADB 命令超时秒数",
         "hint": "范围 1-300，默认 30。"
       }
-    }
+    },
+    "hint": "host 与 port 为必填项；先完成连接，再配置访问权限和浏览行为。"
   },
   "security": {
     "type": "object",
@@ -66,27 +67,20 @@
         "description": "插件主人用户 ID 列表",
         "hint": "字符串列表；非空时只有列表内用户可以使用手机工具/命令（AstrBot 管理员也不例外），留空回退 require_admin/allowed_user_ids 逻辑。"
       },
-      "auto_clean_after_browse": {
+      "allow_interactions": {
         "type": "bool",
-        "default": true,
-        "description": "浏览结束自动清理后台",
-        "hint": "每次浏览结束后逐包清理后台，保留当前前台、桌面、输入法和后台保留名单；默认开启。"
+        "default": false,
+        "description": "允许点赞与收藏",
+        "hint": "启用后可用 phone_interaction_gate 的 like/favorite 申请名额，观察并操作后用 phone_interaction_record 记录；评论、回复与发帖分别授权。"
       },
-      "auto_clean_after_task": {
-        "type": "bool",
-        "default": true,
-        "description": "任务结束回桌面并清理后台",
-        "hint": "玩手机/控制类任务结束时回桌面并逐包清理应用，保留后台保留名单、桌面与输入法；默认开启。"
-      },
-      "background_keep_packages": {
-        "type": "list",
-        "default": [
-          "com.wireguard.android",
-          "com.tailscale.ipn",
-          "fun.acat.phonerelay"
-        ],
-        "description": "后台清理保留名单",
-        "hint": "填写需要常驻的完整包名。组网时保留 WireGuard、Tailscale 和 Phone WG Relay；停止手机、任务收尾和抓包初始化均保留名单内应用。"
+      "max_likes_per_session": {
+        "type": "int",
+        "default": 5,
+        "description": "每轮点赞与收藏合计上限",
+        "hint": "范围 0-50，默认 5；一次 Agent 任务内点赞与收藏共用额度，待完成预约也占额，失败释放；0 表示本轮不允许点赞收藏。",
+        "condition": {
+          "allow_interactions": true
+        }
       },
       "allow_comments": {
         "type": "bool",
@@ -101,6 +95,30 @@
         "hint": "按本地时区统计成功次数；0=不限制（默认）。",
         "condition": {
           "allow_comments": true
+        }
+      },
+      "allow_passive_replies": {
+        "type": "bool",
+        "default": false,
+        "description": "允许 AI 被动回复",
+        "hint": "别人回复/评论机器人后，AI 先查收件箱读回复内容，再按心情与内容判断是否回复；由 AI 自己用低层工具完成，插件只做许可/每日限额/独立冷却/记账；默认关闭；与评论/发帖相同：开关是流程约定与插件侧授权/配额，不是底层动作拦截。"
+      },
+      "max_passive_replies_per_day": {
+        "type": "int",
+        "default": 0,
+        "description": "每天最多被动回复次数",
+        "hint": "按本地时区统计成功次数；与主动评论/发帖分开计数；0=不限制（默认）。",
+        "condition": {
+          "allow_passive_replies": true
+        }
+      },
+      "passive_reply_cooldown_seconds": {
+        "type": "int",
+        "default": 0,
+        "description": "被动回复冷却秒数",
+        "hint": "两次成功被动回复之间的最小间隔；与主动评论/发帖的 interaction_cooldown_seconds 相互独立；0=无冷却（默认）。",
+        "condition": {
+          "allow_passive_replies": true
         }
       },
       "allow_posts": {
@@ -124,49 +142,36 @@
         "description": "主动互动冷却秒数",
         "hint": "两次成功主动评论/发帖之间的最小间隔；与被动回复冷却相互独立；0=无冷却（默认）。"
       },
-      "allow_passive_replies": {
-        "type": "bool",
-        "default": false,
-        "description": "允许 AI 被动回复",
-        "hint": "别人回复/评论机器人后，AI 先查收件箱读回复内容，再按心情与内容判断是否回复；由 AI 自己用低层工具完成，插件只做许可/每日限额/独立冷却/记账；默认关闭；与评论/发帖相同：开关是流程约定与插件侧授权/配额，不是底层动作拦截。"
-      },
-      "max_passive_replies_per_day": {
-        "type": "int",
-        "default": 0,
-        "description": "每天最多被动回复次数",
-        "hint": "按本地时区统计成功次数；与主动评论/发帖分开计数；0=不限制（默认）。",
-        "condition": {
-          "allow_passive_replies": true
-        }
-      },
-      "passive_reply_cooldown_seconds": {
-        "type": "int",
-        "default": 0,
-        "description": "被动回复冷却秒数",
-        "hint": "两次成功被动回复之间的最小间隔；与主动评论/发帖的 interaction_cooldown_seconds 相互独立；0=无冷却（默认）。"
-      },
       "allow_shell_tool": {
         "type": "bool",
         "default": false,
-        "description": "预留：允许 shell 级操作",
-        "hint": "当前不注册该工具，开启不产生额外能力。"
+        "description": "允许 Android 设备 shell",
+        "hint": "开启 phone_shell，按当前 ADB 身份执行设备命令。复用手机操作权限、占用、暂停与取消；单次执行受 adb.command_timeout 限制且不自动重试，每路输出最多 8 KiB。"
       },
-      "allow_interactions": {
+      "auto_clean_after_browse": {
         "type": "bool",
-        "default": false,
-        "description": "预留：允许点赞/收藏等互动",
-        "hint": "当前开关不产生额外能力；评论/发帖由 allow_comments / allow_posts 控制。"
+        "default": true,
+        "description": "浏览结束自动清理后台",
+        "hint": "每次浏览结束后逐包清理后台，保留当前前台、桌面、输入法和后台保留名单；默认开启。"
       },
-      "max_likes_per_session": {
-        "type": "int",
-        "default": 5,
-        "description": "预留：单次浏览最多点赞数",
-        "hint": "当前无点赞路径、不生效。",
-        "condition": {
-          "allow_interactions": true
-        }
+      "auto_clean_after_task": {
+        "type": "bool",
+        "default": true,
+        "description": "任务结束回桌面并清理后台",
+        "hint": "玩手机/控制类任务结束时回桌面并逐包清理应用，保留后台保留名单、桌面与输入法；默认开启。"
+      },
+      "background_keep_packages": {
+        "type": "list",
+        "default": [
+          "com.wireguard.android",
+          "com.tailscale.ipn",
+          "fun.acat.phonerelay"
+        ],
+        "description": "后台清理保留名单",
+        "hint": "填写需要常驻的完整包名。组网时保留 WireGuard、Tailscale 和 Phone WG Relay；停止手机、任务收尾和抓包初始化均保留名单内应用。"
       }
-    }
+    },
+    "hint": "依次设置访问身份、点赞收藏、评论回复与发帖、设备 shell 授权和后台保留策略。互动默认关闭，成功才计次，失败释放预约。"
   },
   "browse": {
     "type": "object",
@@ -254,7 +259,8 @@
         },
         "hint": "server=AstrBot 服务端（可查找并传到手机）；phone=手机相册。两地都存开启时此选择不参与保存。"
       }
-    }
+    },
+    "hint": "浏览采样、日记与感兴趣图片的保存策略。"
   },
   "auto": {
     "type": "object",
@@ -437,11 +443,12 @@
         "description": "分享目标兼容字段",
         "hint": "分享目标由 AI 依据 phone_recent_chat 的最近聊天内容与群/人喜好自行选择；本字段为兼容保留，当前不参与分享目标选择，留空即可。"
       }
-    }
+    },
+    "hint": "依次配置定时浏览、随机玩手机、持续刷手机和分享时段。"
   },
   "model": {
     "type": "object",
-    "description": "刷手机/学习模型",
+    "description": "自主任务模型",
     "hint": "自主任务（持续刷手机、随机玩手机、/phone play、后台任务）使用独立模型供应商；用户对话与手动命令会话不受影响，投递到用户会话的定时自主浏览沿用该会话默认模型。",
     "items": {
       "provider_id": {
@@ -455,7 +462,7 @@
   },
   "quota": {
     "type": "object",
-    "description": "手机 Token 额度（用完暂停）",
+    "description": "自主任务 Token 额度",
     "hint": "手机相关 token 用量按 AstrBot provider_stats 实际 usage 对账（含缓存输入与内部识图调用）；enabled=false 时不拦截但仍记录用量；运行中先记估算，Agent run 结束后按实际 usage 补记差额；/phone quota 查看额度与对账明细，/phone quota audit [小时] 对照 AstrBot 实际用量（不传小时取 quota.window_hours，默认 24 小时；范围 1-168 小时）。",
     "items": {
       "enabled": {
@@ -491,7 +498,7 @@
     }
   },
   "novelty": {
-    "description": "内容新鲜感/厌倦感",
+    "description": "内容兴趣与新鲜感",
     "hint": "一直刷到同类内容会“看腻”：插件按标题相似度累计疲劳度，疲劳度达到阈值后注入提示降低同类内容的打开/停留概率；一段时间不看会按半衰期自然恢复。阈值 0 表示不启用该机制。",
     "type": "object",
     "items": {
@@ -530,6 +537,94 @@
         "default": 5,
         "description": "厌倦主题注入条数",
         "hint": "提示词最多注入已看腻/接近阈值的主题；范围 1-10，默认 5。"
+      }
+    }
+  },
+  "memory": {
+    "description": "记忆存储",
+    "hint": "学习档案的存储去向：插件本地及可选 MemoryCompanion / LivingMemory 同步。App 使用经验在提示词注入卡片选择独立存储位置。",
+    "type": "object",
+    "items": {
+      "backend": {
+        "description": "存储去向",
+        "hint": "local=仅插件本地（默认）；companion=同步到 MemoryCompanion（astrbot_plugin_memory_companion）；livingmemory=同步到 LivingMemory（astrbot_plugin_livingmemory）；companion+livingmemory=两个记忆插件都同步（插件本地档案始终保留）",
+        "type": "string",
+        "options": [
+          "local",
+          "companion",
+          "livingmemory",
+          "companion+livingmemory"
+        ],
+        "default": "local"
+      },
+      "companion_user_id": {
+        "description": "记忆绑定用户 ID",
+        "hint": "同步到 MemoryCompanion 时绑定哪个用户；留空时用户会话用发送者 ID、自刷任务用 owner_ids[0]",
+        "type": "string",
+        "default": ""
+      },
+      "bot_action_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "自行刷手机的记忆计入「个人记忆-行动」",
+        "hint": "开启后，AI 自行刷手机（持续刷/随机/后台任务）时写入的学习记忆会额外同步一份到 MemoryCompanion 的个人记忆-行动；默认关闭（不计）"
+      }
+    }
+  },
+  "prompt": {
+    "type": "object",
+    "description": "提示词注入",
+    "items": {
+      "inject_guidance": {
+        "type": "bool",
+        "default": true,
+        "description": "注入手机能力使用指南",
+        "hint": "注入到授权用户的 LLM 请求；以本轮临时用户内容块追加（不修改 system_prompt，避免破坏前缀缓存）；浏览日记、学习档案、App 经验、新鲜感与验证状态只对授权用户的手机任务/手机请求注入；非主人请求与普通对话不注入。"
+      },
+      "diary_limit": {
+        "type": "int",
+        "default": 5,
+        "description": "注入浏览日记条数",
+        "hint": "最近浏览日记；范围 0-50，默认 5；0 表示不注入。"
+      },
+      "app_memory_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "开启 App 使用经验记录",
+        "hint": "记录、查询与注入 App 布局及操作经验。"
+      },
+      "app_memory_backend": {
+        "type": "string",
+        "default": "plugin",
+        "description": "App 经验存储位置",
+        "options": [
+          "plugin",
+          "knowledge_base"
+        ],
+        "condition": {
+          "app_memory_enabled": true
+        },
+        "hint": "plugin=插件档案；knowledge_base=AstrBot 知识库。记录与查询仅使用所选存储。"
+      },
+      "app_memory_kb_name": {
+        "type": "string",
+        "default": "",
+        "description": "AstrBot 知识库名称或 ID",
+        "condition": {
+          "app_memory_enabled": true,
+          "app_memory_backend": "knowledge_base"
+        },
+        "hint": "选择已有且配置好 Embedding Provider 的知识库。失败会返回具体错误，请先在 AstrBot 知识库页面创建并验证。"
+      },
+      "app_memory_limit": {
+        "type": "int",
+        "default": 5,
+        "condition": {
+          "app_memory_enabled": true,
+          "app_memory_backend": "plugin"
+        },
+        "description": "注入 App 经验条数上限",
+        "hint": "提示词最多注入几个 App 的使用经验；默认 5；0=不注入。"
       }
     }
   },
@@ -817,43 +912,6 @@
       }
     }
   },
-  "verification": {
-    "description": "验证与人工协助",
-    "hint": "人机验证/做题页面的自动尝试次数、总时限与人工接管策略；达到上限会暂停手机自动操作并通知用户协助验证。",
-    "type": "object",
-    "items": {
-      "max_attempts": {
-        "type": "int",
-        "default": 3,
-        "description": "自动尝试允许的失败次数上限",
-        "hint": "失败/无法确认次数达到该值即请求人工协助；答题逐题推进不计失败次数；0=直接请求人工协助（非无限重试）"
-      },
-      "total_timeout_seconds": {
-        "type": "int",
-        "default": 120,
-        "description": "自动处理总时限（秒）",
-        "hint": "从进入验证开始累计；次数或时间先到者生效，默认 120 秒"
-      },
-      "attempt_timeout_seconds": {
-        "type": "int",
-        "default": 30,
-        "description": "单次尝试时限（秒）",
-        "hint": "每次尝试从取图到结果观察的总时限，默认 30 秒；到期由看门狗取消在途求解并转人工协助，实际取与会话剩余预算的较小值"
-      },
-      "manual_wait_timeout_seconds": {
-        "type": "int",
-        "default": 600,
-        "description": "等待用户协助时限（秒）",
-        "hint": "到期后进入 expired：原任务结束但设备仍暂停，必须 /phone verify cancel <id> 才解除；默认 600 秒"
-      },
-      "notify_target": {
-        "type": "string",
-        "default": "",
-        "description": "求助通知目标会话",
-        "hint": "自主任务使用明确配置的通知会话 UMO（如 aiocqhttp:FriendMessage:123456）；用户任务优先通知发起会话；留空时回退最近交互会话"
-      }
-    }
-  },
   "media": {
     "type": "object",
     "description": "流媒体内容识别",
@@ -980,91 +1038,40 @@
       }
     }
   },
-  "memory": {
-    "description": "记忆存储",
-    "hint": "学习档案的存储去向：插件本地及可选 MemoryCompanion / LivingMemory 同步。App 使用经验在提示词注入卡片选择独立存储位置。",
+  "verification": {
+    "description": "验证与人工协助",
+    "hint": "人机验证/做题页面的自动尝试次数、总时限与人工接管策略；达到上限会暂停手机自动操作并通知用户协助验证。",
     "type": "object",
     "items": {
-      "backend": {
-        "description": "存储去向",
-        "hint": "local=仅插件本地（默认）；companion=同步到 MemoryCompanion（astrbot_plugin_memory_companion）；livingmemory=同步到 LivingMemory（astrbot_plugin_livingmemory）；companion+livingmemory=两个记忆插件都同步（插件本地档案始终保留）",
-        "type": "string",
-        "options": [
-          "local",
-          "companion",
-          "livingmemory",
-          "companion+livingmemory"
-        ],
-        "default": "local"
-      },
-      "companion_user_id": {
-        "description": "记忆绑定用户 ID",
-        "hint": "同步到 MemoryCompanion 时绑定哪个用户；留空时用户会话用发送者 ID、自刷任务用 owner_ids[0]",
-        "type": "string",
-        "default": ""
-      },
-      "bot_action_enabled": {
-        "type": "bool",
-        "default": false,
-        "description": "自行刷手机的记忆计入「个人记忆-行动」",
-        "hint": "开启后，AI 自行刷手机（持续刷/随机/后台任务）时写入的学习记忆会额外同步一份到 MemoryCompanion 的个人记忆-行动；默认关闭（不计）"
-      }
-    }
-  },
-  "prompt": {
-    "type": "object",
-    "description": "提示词注入",
-    "items": {
-      "inject_guidance": {
-        "type": "bool",
-        "default": true,
-        "description": "注入手机能力使用指南",
-        "hint": "注入到授权用户的 LLM 请求；以本轮临时用户内容块追加（不修改 system_prompt，避免破坏前缀缓存）；浏览日记、学习档案、App 经验、新鲜感与验证状态只对授权用户的手机任务/手机请求注入；非主人请求与普通对话不注入。"
-      },
-      "diary_limit": {
+      "max_attempts": {
         "type": "int",
-        "default": 5,
-        "description": "注入浏览日记条数",
-        "hint": "最近浏览日记；范围 0-50，默认 5；0 表示不注入。"
+        "default": 3,
+        "description": "自动尝试允许的失败次数上限",
+        "hint": "失败/无法确认次数达到该值即请求人工协助；答题逐题推进不计失败次数；0=直接请求人工协助（非无限重试）"
       },
-      "app_memory_enabled": {
-        "type": "bool",
-        "default": true,
-        "description": "开启 App 使用经验记录",
-        "hint": "记录、查询与注入 App 布局及操作经验。"
+      "total_timeout_seconds": {
+        "type": "int",
+        "default": 120,
+        "description": "自动处理总时限（秒）",
+        "hint": "从进入验证开始累计；次数或时间先到者生效，默认 120 秒"
       },
-      "app_memory_backend": {
-        "type": "string",
-        "default": "plugin",
-        "description": "App 经验存储位置",
-        "options": [
-          "plugin",
-          "knowledge_base"
-        ],
-        "condition": {
-          "app_memory_enabled": true
-        },
-        "hint": "plugin=插件档案；knowledge_base=AstrBot 知识库。记录与查询仅使用所选存储。"
+      "attempt_timeout_seconds": {
+        "type": "int",
+        "default": 30,
+        "description": "单次尝试时限（秒）",
+        "hint": "每次尝试从取图到结果观察的总时限，默认 30 秒；到期由看门狗取消在途求解并转人工协助，实际取与会话剩余预算的较小值"
       },
-      "app_memory_kb_name": {
+      "manual_wait_timeout_seconds": {
+        "type": "int",
+        "default": 600,
+        "description": "等待用户协助时限（秒）",
+        "hint": "到期后进入 expired：原任务结束但设备仍暂停，必须 /phone verify cancel <id> 才解除；默认 600 秒"
+      },
+      "notify_target": {
         "type": "string",
         "default": "",
-        "description": "AstrBot 知识库名称或 ID",
-        "condition": {
-          "app_memory_enabled": true,
-          "app_memory_backend": "knowledge_base"
-        },
-        "hint": "选择已有且配置好 Embedding Provider 的知识库。失败会返回具体错误，请先在 AstrBot 知识库页面创建并验证。"
-      },
-      "app_memory_limit": {
-        "type": "int",
-        "default": 5,
-        "condition": {
-          "app_memory_enabled": true,
-          "app_memory_backend": "plugin"
-        },
-        "description": "注入 App 经验条数上限",
-        "hint": "提示词最多注入几个 App 的使用经验；默认 5；0=不注入。"
+        "description": "求助通知目标会话",
+        "hint": "自主任务使用明确配置的通知会话 UMO（如 aiocqhttp:FriendMessage:123456）；用户任务优先通知发起会话；留空时回退最近交互会话"
       }
     }
   },

@@ -27,6 +27,7 @@ from .app_tools import (
 )
 from .share import PhoneShareToUserTool
 from .clipboard import PhoneClipboardTool
+from .shell import PhoneShellTool
 from .content_task import PhoneContentTool
 from .save_image import PhoneSaveImageTool, PhoneSavedImagesTool
 from .content import (
@@ -53,6 +54,7 @@ TOOL_NAMES = (
     "phone_traffic",
     "phone_wireguard",
     "phone_clipboard",
+    "phone_shell",
     "phone_tap",
     "phone_long_press",
     "phone_swipe",
@@ -129,12 +131,12 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
     "phone_recall_diary": "检索浏览日记；query 空返回最近记录。",
     "phone_recent_chat": "查看会话最近聊天与可分享会话列表（umo），用于按喜好分享。",
     "phone_interaction_gate": (
-        "互动前申请名额：comment=主动评论；passive_reply=被动回复"
+        "互动前申请名额：like=点赞/favorite=收藏（共用单轮额度）；comment=主动评论；passive_reply=被动回复"
         "（先 check_inbox 看新消息，按心情/内容决定）；post=发帖；完成后 record。"
         "开关与限额是流程授权与记账，不是底层动作拦截。"
     ),
     "phone_interaction_record": (
-        "记录互动结果（comment/passive_reply/post）：成功计次，失败释放名额；"
+        "记录互动结果（like/favorite/comment/passive_reply/post）：成功计次，失败释放名额；"
         "summary≤120 字；只做流程记账，不是底层动作拦截。"
     ),
     "phone_start_background_task": "把多步任务转静默后台执行，完成后主动汇报。",
@@ -233,6 +235,7 @@ def build_phone_tools(service: Any) -> list[FunctionTool]:
         PhoneTrafficTool(service=service),
         PhoneWireguardTool(service=service),
         PhoneClipboardTool(service=service),
+        PhoneShellTool(service=service),
         PhoneTapTool(service=service),
         PhoneLongPressTool(service=service),
         PhoneSwipeTool(service=service),

@@ -6,7 +6,7 @@
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.1.3` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.1.3.1` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -14,7 +14,7 @@
 
 `astrbot_phone_control` 是 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的手机操控插件。
 它通过远程 ADB（可选 scrcpy / minitouch 后端）操作一台安卓模拟器，把「看屏幕、点滑动、
-输入、打开 App、理解内容、记录记忆」封装成 35 个 LLM 工具，并提供 `/phone` 命令族、
+输入、打开 App、理解内容、记录记忆」封装成 36 个 LLM 工具，并提供 `/phone` 命令族、
 定时自主任务、监控与资料管理面板与配置热应用。
 
 插件不绑定具体 App：内置抖音 / B 站 / 小黑盒画像，其余任意已安装 App 用通用文本抽取兜底。
@@ -31,7 +31,7 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 - **内容理解**：信息流卡片抽取、浏览日记、学习档案、App 使用经验；经验可存入插件档案或 AstrBot 知识库，按选择查询与注入。
 - **记忆插件集成**：可选同步 MemoryCompanion / LivingMemory（本地档案始终保留）。
 - **人机验证**：两阶段视觉求解（滑块/顺序点击/识图/拼图/答题），有限自动尝试 → 暂停手机并通知人工接管。
-- **互动能力**：主动评论 / 被动回复 / 发帖（默认关闭）由 AI 自主完成，插件只做许可、限额、冷却与记账。
+- **互动能力**：点赞 / 收藏 / 主动评论 / 被动回复 / 发帖（默认关闭）由 AI 自主完成，插件只做许可、限额、冷却与记账。
 - **抓包 + 屏幕识别协同**：`phone_screen` 自动附带当前前台 App 的抓包页面内容（按前台 App /
   最近操作 / 时效过滤），视觉信息用截图/OCR 兜底；`phone_traffic` 可查原始流量与分享链接。
 - **流媒体内容识别**：录制设备播放声音 + 关键画面描述，看懂视频/直播/音乐（需要 STT/视觉 Provider）。
@@ -89,19 +89,21 @@ AI：返回设备连接、前台 App、电量与分辨率
 | 卡片 | 作用 |
 | --- | --- |
 | ADB 连接 | `host` / `port` 必填；`path` 留空用插件自带 adb；`serial`/超时可调 |
-| 权限与安全 | 管理员/白名单/主人；浏览与任务结束清理；评论/回复/发帖开关与限额 |
+| 权限与安全 | 管理员/白名单/主人；浏览与任务结束清理；点赞收藏/评论/回复/发帖授权、设备 shell、后台保留策略 |
+| 信息流浏览 | 默认 App、条数、滑动节奏、截图与日记开关 |
+| 自主浏览 / 随机玩 / 持续刷 | 定时任务、随机间隔与概率、持续刷间隔/预算/偏好 App |
+| 自主任务模型 | 自主任务专用 Provider（用户对话不受影响） |
+| 自主任务 Token 额度 | 滚动窗口额度与单轮预算（默认不限制） |
+| 内容兴趣与新鲜感 | 同类内容疲劳度阈值/半衰期/相似度（0=关闭） |
+| 记忆存储 | 学习档案同步去向 |
+| 提示词注入 | 使用指南、浏览日记与 App 经验 |
 | 屏幕感知 | UI 节点上限、dump/截图模式、实时屏幕、OCR/验证超时、感知来源 |
 | 控制/感知后端 | auto/adb/scrcpy；scrcpy 视频镜像参数；可选 minitouch |
 | WireGuard 组网 | enabled/mode(client/server)/listen_port/interface_address/server_endpoint(client)/public_endpoint(server)/server_public_key/PSK/phone_wg_ip/adb_local_port/auto_adb |
-| 信息流浏览 | 默认 App、条数、滑动节奏、截图与日记开关 |
-| 自主浏览 / 随机玩 / 持续刷 | 定时任务、随机间隔与概率、持续刷间隔/预算/偏好 App |
-| 刷手机/学习模型 | 自主任务专用 Provider（用户对话不受影响） |
-| Token 额度 | 滚动窗口额度与单轮预算（默认不限制） |
-| 内容新鲜感 | 同类内容疲劳度阈值/半衰期/相似度（0=关闭） |
 | 流媒体内容识别 | 录音源、时长、关键帧、ASR/视觉 Provider |
 | 流量抓包识别 | 开关、端口、正文截断、保留窗口 |
 | 验证与人工协助 | 失败次数/总时限/单次时限/等待时限/通知目标 |
-| 记忆存储 / 提示词注入 / 调试 | 记忆去向、注入开关、动作日志级别 |
+| 调试 | 动作日志级别 |
 
 配置保存后 AstrBot 会自动重载插件；`/phone` 命令补丁会立即热应用。
 
@@ -123,7 +125,7 @@ AI：返回设备连接、前台 App、电量与分辨率
 /phone stop [job_id|all]                 停任务/抓包/随机与持续刷，回桌面强停应用
 ```
 
-完整命令、35 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
+完整命令、36 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
 
 ## 子进程与停止行为
 
@@ -139,7 +141,8 @@ App 经验在「提示词注入」卡片开启后，`app_memory_backend=plugin` 
 
 - 默认 `require_admin=true`：仅 AstrBot 管理员、白名单用户或插件定时任务可操作手机；
   `owner_ids` 非空时只认插件主人（管理员也不放行）。
-- 插件不提供 shell / 任意命令执行工具；互动能力默认关闭，开启后仍受每日限额与冷却约束。
+- `security.allow_shell_tool` 默认关闭；开启后 `phone_shell` 在 Android 设备当前 ADB 权限下单次执行命令，受设备门禁与超时约束，每路输出最多 8 KiB。
+- 互动默认关闭；点赞/收藏共用 `max_likes_per_session` 单轮上限，评论/回复/发帖按各自每日限额与冷却执行。互动均先申请名额、操作后记录结果；低层点击与输入依赖模型遵守该流程。
 - 抓包仅在本机模拟器上通过 mitmproxy 进行，日志正文截断、URL 敏感参数打码、日志轮转；
   截图、日记、学习档案等数据均写入插件数据目录 `data/plugin_data/astrbot_phone_control/`。
 - 验证码、短信/邮箱验证码、人脸与实名认证等账号安全操作始终交由用户处理。
@@ -155,7 +158,7 @@ core/plugin/           插件运行逻辑 mixins（装配/生命周期、命令�
 core/service.py        能力门面 PhoneService（状态/UI/截图/浏览/日记/分享/抓包页面内容）
 core/verification_controller.py  验证会话控制器（尝试次数/总时限/人工接管/持久化）
 core/wireguard.py      WireGuard 组网：X25519 密钥、helper 配置/状态文件、子进程生命周期、ADB over WG
-core/tools/            35 个 LLM 工具实现（按域拆分）
+core/tools/            36 个 LLM 工具实现（按域拆分）
 core/*.py              设备层与纯逻辑模块（ADB/UI/动作/配置/抓包/记忆/新鲜感等）
 skills/                AI 行为手册（自主浏览、互动、验证、媒体、整理）
 views/dashboard/       监控面板、学习记录与保存的图片管理页

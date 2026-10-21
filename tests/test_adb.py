@@ -1072,3 +1072,27 @@ def test_real_device_capture_screen_png_vs_fast():
         f"fast={fast_ms}ms/{len(fast_data)}B/{fast_format}  "
         f"auto={auto_ms}ms/{len(auto_data)}B/{auto_format}"
     )
+
+
+def test_shell_output_is_bounded_while_both_streams_are_drained(tmp_path):
+    client = make_client(tmp_path)
+    rc, stdout, stderr = run(client._run_adb(
+        [sys.executable, "-c", "import sys;sys.stdout.write('x'*200000);sys.stderr.write('y'*200000);sys.exit(7)"],
+        timeout=3, output_limit=8192,
+    ))
+    assert rc == 7
+    assert stdout == b"x" * 8192 + b"\n[output truncated]"
+    assert stderr == b"y" * 8192 + b"\n[output truncated]"
+
+
+def test_shell_result_executes_once_and_keeps_nonzero_exit_code(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    calls = []
+    async def execute(argv, *, timeout, output_limit):
+        calls.append((argv, timeout, output_limit))
+        return 4, b"partial", b"device offline"
+    monkeypatch.setattr(client, "_run_adb", execute)
+    result = run(client.shell_result("echo partial; exit 4", timeout=2))
+    assert result == {"exit_code": 4, "stdout": "partial", "stderr": "device offline"}
+    assert len(calls) == 1 and calls[0][0][-2:] == ["shell", "echo partial; exit 4"]
+    assert calls[0][2] == 8192

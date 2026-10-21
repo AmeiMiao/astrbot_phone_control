@@ -411,6 +411,8 @@ class CommandsMixin:
                 allow_passive_replies=security.allow_passive_replies,
                 max_passive_replies=security.max_passive_replies_per_day,
                 passive_cooldown_seconds=security.passive_reply_cooldown_seconds,
+                allow_interactions=security.allow_interactions,
+                max_likes_per_session=security.max_likes_per_session,
                 limit=limit,
             ),
         )
@@ -524,7 +526,7 @@ class CommandsMixin:
         note = build_play_note(
             tokens,
             interactions_enabled=bool(
-                security.allow_comments or security.allow_posts
+                security.allow_interactions or security.allow_comments or security.allow_passive_replies or security.allow_posts
             ),
             share_hint=self.service.share_policy_hint(),
             novelty_hint=self.service.novelty_prompt(),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 
@@ -42,7 +43,7 @@ def test_normalize_kind_aliases_and_invalid():
     assert normalize_kind("post") == KIND_POST
     assert normalize_kind("发帖") == KIND_POST
     with pytest.raises(InteractionError):
-        normalize_kind("like")
+        normalize_kind("unsupported")
     with pytest.raises(InteractionError):
         normalize_kind("")
 
@@ -738,3 +739,58 @@ def test_gate_unlimited_and_no_cooldown(tmp_path):
             now=now + index,
         )
     assert store.used_today(KIND_COMMENT) == 5
+
+
+def test_light_quota_reservations_failure_success_and_restart(tmp_path):
+    from core.interactions import KIND_LIKE, KIND_FAVORITE
+    store = InteractionStore(tmp_path)
+    def gate(kind, run="r1", limit=1):
+        return evaluate_gate(store, kind=kind, allow=True, max_per_day=0, cooldown_seconds=0,
+                             run=run, session=run, max_per_session=limit)
+    assert gate(KIND_LIKE).allowed
+    assert not gate(KIND_FAVORITE).allowed
+    store.record_result(kind=KIND_LIKE, success=False, summary="失败", session="r1", run="r1")
+    assert gate(KIND_FAVORITE).allowed
+    with pytest.raises(InteractionError, match="其他轮次"):
+        store.record_result(kind=KIND_FAVORITE, success=True, summary="成功", session="r1", run="other")
+    store.record_result(kind=KIND_FAVORITE, success=True, summary="成功", session="r1", run="r1")
+    store = InteractionStore(tmp_path)
+    assert store.run_usage("r1") == (1, 0)
+    assert not gate(KIND_LIKE).allowed
+    assert gate(KIND_LIKE, "r2").allowed
+    store.finish_run("r2")
+    assert not store.reservations()
+    assert not gate(KIND_LIKE, "r3", 0).allowed
+
+
+def test_light_success_does_not_trigger_comment_cooldown(tmp_path):
+    from core.interactions import KIND_LIKE
+    store = InteractionStore(tmp_path)
+    store.reserve(kind=KIND_LIKE, session="s", run="r")
+    store.record_result(kind=KIND_LIKE, success=True, summary="点赞成功", session="s", run="r")
+    assert evaluate_gate(store, kind=KIND_COMMENT, allow=True, max_per_day=0, cooldown_seconds=100).allowed
+
+
+def test_reservation_save_failure_denies_and_record_failure_keeps_reservation(tmp_path, monkeypatch):
+    from core.interactions import KIND_LIKE
+    store = InteractionStore(tmp_path)
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "write_text", fail)
+        decision = evaluate_gate(store, kind=KIND_LIKE, allow=True, max_per_day=0, cooldown_seconds=0, run="r")
+        assert not decision.allowed and "保存互动预约失败" in decision.message
+    store.reserve(kind=KIND_LIKE, session="s", run="r")
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "_write_records", lambda records: (_ for _ in ()).throw(InteractionError("保存互动记录失败")))
+        with pytest.raises(InteractionError):
+            store.record_result(kind=KIND_LIKE, success=True, summary="点赞", session="s", run="r")
+    assert store.get_reservation("s", KIND_LIKE)
+    assert store.used_today(KIND_LIKE) == 0
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "_save_reservations", lambda records: (_ for _ in ()).throw(InteractionError("保存互动预约失败")))
+        with pytest.raises(InteractionError):
+            store.record_result(kind=KIND_LIKE, success=True, summary="点赞", session="s", run="r")
+    store.record_result(kind=KIND_LIKE, success=True, summary="点赞", session="s", run="r")
+    assert store.used_today(KIND_LIKE) == 1
+    assert not store.reservations()

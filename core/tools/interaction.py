@@ -16,6 +16,8 @@ from ..interactions import (
     KIND_COMMENT,
     KIND_LABELS,
     KIND_PASSIVE_REPLY,
+    LIGHT_KINDS,
+    interaction_run,
     InteractionError,
     evaluate_gate,
     normalize_kind,
@@ -38,7 +40,9 @@ class PhoneInteractionGateTool(_PhoneToolBase):
 
     name: str = "phone_interaction_gate"
     description: str = (
-        "评论、被动回复或发帖前先申请名额。插件不编排固定 App 流程，只做许可、每日限额、"
+        "点赞、收藏、评论、被动回复或发帖前先申请名额。like=点赞，favorite=收藏；"
+        "两者由 security.allow_interactions 授权，合计受 max_likes_per_session 单轮上限约束。"
+        "插件不编排固定 App 流程，只做许可、每日限额、"
         "冷却与记账：允许时返回「已预留 1 次名额」，之后请自己用 phone_status / "
         "phone_screen / phone_tap / phone_input_text / phone_key 等低层工具完成操作，完成"
         "后必须调用 phone_interaction_record 记录成功/失败。kind 语义：comment=主动评论"
@@ -55,10 +59,11 @@ class PhoneInteractionGateTool(_PhoneToolBase):
             "properties": {
                 "kind": {
                     "type": "string",
+                    "enum": ["like", "favorite", "comment", "passive_reply", "post"],
                     "description": (
                         "comment=主动评论/回复（刷帖/看视频时主动发）；"
                         "passive_reply=被动回复（有人回复机器人后按心情与内容决定）；"
-                        "post=发帖。"
+                        "post=发帖；like=点赞；favorite=收藏。"
                     ),
                 },
                 "app": {
@@ -90,7 +95,16 @@ class PhoneInteractionGateTool(_PhoneToolBase):
             task = self.service.contents.active.get(self.service.contents.owner(event))
             if task is not None and not any(d["decision"] == "reply_comment" for d in task["decisions"]):
                 return "error: 阅读评论不等于回复；请先针对已读评论独立 decide reply_comment"
-        if kind == KIND_COMMENT:
+        if kind in LIGHT_KINDS:
+            allow = security.allow_interactions
+            max_per_day = 0
+            cooldown_seconds = 0
+            allow_key = "security.allow_interactions"
+            if hasattr(self.service, "_contents"):
+                task = self.service.contents.active.get(self.service.contents.owner(event))
+                if task is not None and not any(d["decision"] == kind for d in task["decisions"]):
+                    return f"error: 请先针对当前内容独立 decide {kind}"
+        elif kind == KIND_COMMENT:
             allow = security.allow_comments
             max_per_day = security.max_comments_per_day
             cooldown_seconds = security.interaction_cooldown_seconds
@@ -116,6 +130,9 @@ class PhoneInteractionGateTool(_PhoneToolBase):
         if budget is not None and budget.completed:
             return "本轮玩手机预算已完成，请立即收尾汇报（可 phone_share_to_user 一次）"
         session = str(getattr(event, "unified_msg_origin", "") or "")
+        run = interaction_run(event)
+        if kind in LIGHT_KINDS:
+            session = f"{session}|{run}"
         gate_kwargs: dict[str, Any] = {
             "kind": kind,
             "allow": True,
@@ -123,6 +140,8 @@ class PhoneInteractionGateTool(_PhoneToolBase):
             "cooldown_seconds": cooldown_seconds,
             "app": str(kwargs.get("app") or ""),
             "session": session,
+            "run": run,
+            "max_per_session": security.max_likes_per_session,
         }
         if cooldown_kind:
             gate_kwargs["cooldown_kind"] = cooldown_kind
@@ -141,7 +160,7 @@ class PhoneInteractionRecordTool(_PhoneToolBase):
 
     name: str = "phone_interaction_record"
     description: str = (
-        "记录本轮评论、被动回复或发帖的结果：success=true 表示操作成功（计一次当日用量），"
+        "记录本轮点赞、收藏、评论、被动回复或发帖的结果：success=true 表示操作成功（计一次当日用量），"
         "success=false 表示失败/放弃（释放名额、不计用量并写明原因）。summary 由你自己"
         "用不超过 120 字概括这次评论/被动回复/发帖的内容或失败原因（会写入插件记录，供"
         "/phone interactions 查看）。必须先调用 phone_interaction_gate 预约名额，"
@@ -154,8 +173,9 @@ class PhoneInteractionRecordTool(_PhoneToolBase):
             "properties": {
                 "kind": {
                     "type": "string",
+                    "enum": ["like", "favorite", "comment", "passive_reply", "post"],
                     "description": (
-                        "comment=主动评论/回复；passive_reply=被动回复；post=发帖。"
+                        "comment=主动评论/回复；passive_reply=被动回复；post=发帖；like=点赞；favorite=收藏。"
                     ),
                 },
                 "success": {
@@ -188,8 +208,13 @@ class PhoneInteractionRecordTool(_PhoneToolBase):
             summary = normalize_summary(kwargs.get("summary"))
         except InteractionError as exc:
             return _error(exc)
-        success = bool(kwargs.get("success", False))
+        success = kwargs.get("success")
+        if not isinstance(success, bool):
+            return "error: success 必须是布尔值 true/false"
         session = str(getattr(event, "unified_msg_origin", "") or "")
+        run = interaction_run(event)
+        if kind in LIGHT_KINDS:
+            session = f"{session}|{run}"
         try:
             entry = self.service.interactions.record_result(
                 kind=kind,
@@ -197,11 +222,18 @@ class PhoneInteractionRecordTool(_PhoneToolBase):
                 summary=summary,
                 app=str(kwargs.get("app") or ""),
                 session=session,
+                run=run if kind in LIGHT_KINDS else None,
             )
         except InteractionError as exc:
             return _error(exc)
+        success = entry["success"]
         security = config.security
         label = KIND_LABELS[kind]
+        if kind in LIGHT_KINDS:
+            used, pending = self.service.interactions.run_usage(run)
+            state = "成功" if success else "失败并释放名额"
+            return (f"已记录{label}{state}（本轮点赞/收藏合计 {used}/{security.max_likes_per_session}，"
+                    f"待完成 {pending}）：{entry['summary']}。请核对状态，不要重复操作。")
         if kind == KIND_COMMENT:
             limit = security.max_comments_per_day
         elif kind == KIND_PASSIVE_REPLY:

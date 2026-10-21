@@ -1,4 +1,4 @@
-"""主动评论/被动回复/发帖的许可、限额与记账。
+"""点赞/收藏/主动评论/被动回复/发帖的许可、限额与记账。
 
 插件不编排任何固定 App 流程：AI 先用 ``phone_interaction_gate`` 申请一个名额，
 再自己用低层工具（phone_screen / tap / input_text / key 等）完成主动评论、
@@ -19,6 +19,7 @@ import json
 import os
 import re
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,12 +27,20 @@ from typing import Any
 KIND_COMMENT = "comment"
 KIND_POST = "post"
 KIND_PASSIVE_REPLY = "passive_reply"
+KIND_LIKE = "like"
+KIND_FAVORITE = "favorite"
+LIGHT_KINDS = frozenset({KIND_LIKE, KIND_FAVORITE})
+RUN_EXTRA = "phone_interaction_run"
 KIND_LABELS = {
+    KIND_LIKE: "点赞",
+    KIND_FAVORITE: "收藏",
     KIND_COMMENT: "评论",
     KIND_POST: "发帖",
     KIND_PASSIVE_REPLY: "被动回复",
 }
 KIND_ALLOW_KEYS = {
+    KIND_LIKE: "security.allow_interactions",
+    KIND_FAVORITE: "security.allow_interactions",
     KIND_COMMENT: "security.allow_comments",
     KIND_POST: "security.allow_posts",
     KIND_PASSIVE_REPLY: "security.allow_passive_replies",
@@ -72,6 +81,10 @@ def _day_key(ts: float) -> tuple[int, int, int]:
 def normalize_kind(kind: Any) -> str:
     """归一化 kind：支持主动评论、被动回复、发帖及各自的中文别名。"""
     text = str(kind or "").strip().lower()
+    if text in {KIND_LIKE, "点赞", "赞"}:
+        return KIND_LIKE
+    if text in {KIND_FAVORITE, "collect", "收藏"}:
+        return KIND_FAVORITE
     if text in _PASSIVE_KIND_ALIASES:
         return KIND_PASSIVE_REPLY
     if text in _COMMENT_KIND_ALIASES:
@@ -80,8 +93,17 @@ def normalize_kind(kind: Any) -> str:
         return KIND_POST
     raise InteractionError(
         "kind 必须是 comment（评论/主动评论/回复）、passive_reply（被动回复）"
-        "或 post（发帖）"
+        "、post（发帖）、like（点赞）或 favorite（收藏）"
     )
+
+
+def interaction_run(event: Any, *, restart: bool = False) -> str:
+    """同一次 Agent 任务共享轮次；直接工具调用共享当前事件的轮次。"""
+    value = event.get_extra(RUN_EXTRA)
+    if restart or not value:
+        value = uuid.uuid4().hex
+        event.set_extra(RUN_EXTRA, value)
+    return str(value)
 
 
 def normalize_summary(summary: Any) -> str:
@@ -106,6 +128,8 @@ class Reservation:
     app: str
     session: str
     ts: float
+    run: str = ""
+    id: str = ""
 
 
 @dataclass(frozen=True)
@@ -151,8 +175,8 @@ class InteractionStore:
                         continue
                     if isinstance(record, dict):
                         records.append(record)
-        except OSError:
-            return []
+        except OSError as exc:
+            raise InteractionError("读取互动记录失败") from exc
         return records
 
     def _write_records(self, records: list[dict[str, Any]]) -> None:
@@ -163,8 +187,8 @@ class InteractionStore:
                 for record in records:
                     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             os.replace(tmp, self.records_path)
-        except OSError:
-            pass
+        except OSError as exc:
+            raise InteractionError("保存互动记录失败") from exc
 
     # ---- 预约文件 -----------------------------------------------------
 
@@ -183,8 +207,8 @@ class InteractionStore:
             return []
         try:
             raw = json.loads(self.reservations_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return []
+        except (OSError, json.JSONDecodeError) as exc:
+            raise InteractionError("读取互动预约失败") from exc
         reservations: list[Reservation] = []
         for item in raw.get("reservations", []) if isinstance(raw, dict) else []:
             if not isinstance(item, dict):
@@ -202,6 +226,8 @@ class InteractionStore:
                     app=str(item.get("app") or ""),
                     session=str(item.get("session") or ""),
                     ts=ts,
+                    run=str(item.get("run") or ""),
+                    id=str(item.get("id") or ""),
                 )
             )
         return self._prune_reservations(reservations, current)
@@ -216,6 +242,8 @@ class InteractionStore:
                         "app": reservation.app,
                         "session": reservation.session,
                         "ts": reservation.ts,
+                        "run": reservation.run,
+                        "id": reservation.id,
                     }
                     for reservation in reservations
                 ]
@@ -225,8 +253,8 @@ class InteractionStore:
                 json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             os.replace(tmp, self.reservations_path)
-        except OSError:
-            pass
+        except OSError as exc:
+            raise InteractionError("保存互动预约失败") from exc
 
     @staticmethod
     def _reservation_key(session: str, kind: str) -> str:
@@ -254,6 +282,7 @@ class InteractionStore:
         app: str = "",
         session: str = "",
         now: float | None = None,
+        run: str = "",
     ) -> Reservation:
         """预约一个名额；同会话同类型已有待完成预约时拒绝。"""
         current = _now(now)
@@ -269,6 +298,8 @@ class InteractionStore:
             app=str(app or ""),
             session=str(session or ""),
             ts=current,
+            run=run,
+            id=uuid.uuid4().hex,
         )
         reservations.append(reservation)
         self._save_reservations(reservations)
@@ -296,6 +327,22 @@ class InteractionStore:
         return released
 
     # ---- 统计 ---------------------------------------------------------
+
+    def run_usage(self, run: str, now: float | None = None) -> tuple[int, int]:
+        """点赞与收藏共用单轮额度，待完成预约同样占额。"""
+        used = sum(1 for r in self._read_records() if r.get("run") == run
+                   and r.get("kind") in LIGHT_KINDS and r.get("success") is True)
+        pending = sum(1 for r in self._load_reservations(now)
+                      if r.run == run and r.kind in LIGHT_KINDS)
+        return used, pending
+
+    def finish_run(self, run: str) -> None:
+        """任务结束释放本轮尚未完成的点赞与收藏预约。"""
+        if run:
+            reservations = self._load_reservations()
+            kept = [r for r in reservations if r.run != run or r.kind not in LIGHT_KINDS]
+            if len(kept) != len(reservations):
+                self._save_reservations(kept)
 
     def used_today(self, kind: str, now: float | None = None) -> int:
         """今日成功次数（本地时区）。"""
@@ -329,6 +376,8 @@ class InteractionStore:
         for record in self._read_records():
             if record.get("success") is not True:
                 continue
+            if kind is None and record.get("kind") in LIGHT_KINDS:
+                continue
             if kind is not None and record.get("kind") != kind:
                 continue
             try:
@@ -355,6 +404,7 @@ class InteractionStore:
         app: str = "",
         session: str = "",
         now: float | None = None,
+        run: str | None = None,
     ) -> dict[str, Any]:
         """记录一次互动结果；成功计一次当日用量，失败释放名额。"""
         current = _now(now)
@@ -364,7 +414,15 @@ class InteractionStore:
                 f"没有找到待完成的{KIND_LABELS[kind]}预约；请先调用 "
                 "phone_interaction_gate 申请名额，完成后再记录结果"
             )
+        if run is not None and reservation.run != run:
+            raise InteractionError("互动预约属于其他轮次，请先申请本轮名额")
         text = normalize_summary(summary)
+        reservation_id = reservation.id or f"{reservation.session}|{kind}|{reservation.ts}"
+        records = self._read_records()
+        for record in records:
+            if record.get("reservation_id") == reservation_id:
+                self.release(session, kind, current)
+                return record
         entry = {
             "ts": current,
             "app": str(app or reservation.app or ""),
@@ -372,8 +430,9 @@ class InteractionStore:
             "summary": text,
             "session": str(session or ""),
             "success": bool(success),
+            "run": reservation.run,
+            "reservation_id": reservation_id,
         }
-        records = self._read_records()
         records.append(entry)
         if len(records) > self.max_entries:
             records = records[-self.max_entries :]
@@ -394,6 +453,8 @@ class InteractionStore:
         allow_passive_replies: bool = False,
         max_passive_replies: int = 0,
         passive_cooldown_seconds: int = 0,
+        allow_interactions: bool = False,
+        max_likes_per_session: int = 5,
         limit: int = 5,
         now: float | None = None,
     ) -> str:
@@ -418,6 +479,9 @@ class InteractionStore:
 
         lines = [
             "手机互动状态（互动由 AI 自己用低层工具完成，插件只做许可/限额/记账）：",
+            (f"- 点赞/收藏：{'已开启' if allow_interactions else '未开启'}"
+             f"（security.allow_interactions）；单轮合计上限 {max_likes_per_session} 次；"
+             f"今日点赞 {self.used_today(KIND_LIKE, current)}，收藏 {self.used_today(KIND_FAVORITE, current)}"),
             (
                 f"- 评论：{'已开启' if allow_comments else '未开启'}"
                 f"（security.allow_comments）；{_limit_text(comment_used, max_comments)}"
@@ -475,6 +539,8 @@ def evaluate_gate(
     app: str = "",
     session: str = "",
     now: float | None = None,
+    run: str = "",
+    max_per_session: int = 5,
 ) -> GateDecision:
     """按「开关 → 每日上限 → 冷却 → 预约」顺序判定是否发放名额。
 
@@ -492,6 +558,19 @@ def evaluate_gate(
             False,
             f"未开启{label}，需在插件配置 {allow_key} 打开",
         )
+    if kind in LIGHT_KINDS:
+        if not run:
+            return GateDecision(False, "点赞/收藏需要有效的任务轮次")
+        used, pending = store.run_usage(run, current)
+        if used + pending >= max(0, int(max_per_session)):
+            return GateDecision(False, f"本轮点赞/收藏名额已满（已用 {used}，待完成 {pending}，上限 {max_per_session}）")
+        try:
+            reservation = store.reserve(kind=kind, app=app, session=session, now=current, run=run)
+        except InteractionError as exc:
+            return GateDecision(False, str(exc))
+        return GateDecision(True, f"已预留 1 次{label}名额（本轮合计剩余 {max_per_session-used-pending-1} 次）。"
+                            "请观察按钮状态后操作一次，确认成功后 phone_interaction_record 记录结果；失败或放弃记录 success=false。",
+                            reservation)
     try:
         max_per_day = max(0, int(max_per_day))
         cooldown = max(0, int(cooldown_seconds))
@@ -532,7 +611,7 @@ def evaluate_gate(
             )
     try:
         reservation = store.reserve(
-            kind=kind, app=app, session=session, now=current
+            kind=kind, app=app, session=session, now=current, run=run
         )
     except InteractionError as exc:
         return GateDecision(False, str(exc))

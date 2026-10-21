@@ -1,19 +1,20 @@
 ---
 name: phone-interactions
-description: 主动评论/被动回复/发帖的行为手册（只讲打法与边界，不写死执行序列；操作由你自己用低层工具完成）
+description: 点赞/收藏/主动评论/被动回复/发帖的行为手册（只讲打法与边界，不写死执行序列；操作由你自己用低层工具完成）
 ---
 
-# 手机互动手册（主动评论 / 被动回复 / 发帖）
+# 手机互动手册（点赞 / 收藏 / 主动评论 / 被动回复 / 发帖）
 
 这是行为参考手册，不是固定脚本。插件不提供「一键评论/发帖」工具，只提供
 `phone_interaction_gate`（申请许可/名额）与 `phone_interaction_record`（记录结果）；
 具体怎么点、输入框在哪、发送按钮长什么样，需要你自己用 `phone_screen`、`phone_tap`、
 `phone_input_text`、`phone_key` 等低层工具观察与操作。
 
-互动分三类，语义不要混：
+互动按类型分别授权：
 
 | 类型 | kind | 什么时候用 | 名额口径 |
 | --- | --- | --- | --- |
+| 点赞/收藏 | `like` / `favorite` | 理解内容后按兴趣独立决定 | `security.allow_interactions`；共用 `max_likes_per_session` 单轮上限，0=禁止 |
 | 主动评论 | `comment` | 你刷帖/看视频时自己真的有感触，主动发评论 | `security.allow_comments`、`max_comments_per_day`、`interaction_cooldown_seconds`（与发帖共用冷却） |
 | 被动回复 | `passive_reply` | 别人回复/评论了你，你读到后按心情与内容决定要不要回 | `security.allow_passive_replies`、`max_passive_replies_per_day`、`passive_reply_cooldown_seconds`（独立冷却） |
 | 发帖 | `post` | 你想在论坛类 App 分享一条有价值的内容 | `security.allow_posts`、`max_posts_per_day`、`interaction_cooldown_seconds`（与主动评论共用冷却） |
@@ -21,7 +22,7 @@ description: 主动评论/被动回复/发帖的行为手册（只讲打法与�
 ## 通用原则
 
 - 只有主人在插件配置里打开对应开关后才允许；没开启时 gate 会直接拒绝，不要绕过。
-- **保证程度**：三个开关是流程约定与插件侧授权/配额/记账，不是底层动作拦截。实际发布由你
+- **保证程度**：各类型开关是流程约定与插件侧授权/配额/记账，不是底层动作拦截。实际发布由你
   用 `phone_tap`/`phone_input_text` 等低层工具完成，插件无法从技术上区分「发评论」与普通输入/
   点击；因此必须自觉先申请名额再发布，跳过 `phone_interaction_gate` 属于违规操作。
 - **有真实感触才发**：内容确实触动你、或你有话想说时再发。不要为了完成任务硬发，
@@ -29,13 +30,21 @@ description: 主动评论/被动回复/发帖的行为手册（只讲打法与�
 - 心情、喜好参考：你自己的人格设定、上次浏览回忆（`phone_recall_diary`）、最近聊天
   （`phone_recent_chat`）、学习档案（`phone_learn` 记录过的东西）、长期记忆工具（若有）；
   不要暴露内部数值。
-- 三类都是同一个流程：`gate` 申请名额 → 自己用低层工具完成 → `record` 记录结果。
+- 各类都是同一个流程：`gate` 申请名额 → 自己用低层工具完成 → `record` 记录结果。
   申请到名额但最终没发（放弃/失败）也要 `record(success=false)` 释放名额。
 - 主动评论与发帖共用全局冷却（`interaction_cooldown_seconds`）；被动回复有**独立**的
   每日限额（`max_passive_replies_per_day`）与独立冷却（`passive_reply_cooldown_seconds`），
   不要拿主动评论名额冒充被动回复。
 - 遇到验证码/滑块/顺序点击：用 `phone_bypass_verify`（详见 `phone-verification` 手册），
   不要反复 dump 或连续点击。
+
+## 点赞与收藏
+
+先理解当前内容，再分别决定是否点赞或收藏。使用 `phone_interaction_gate(kind="like"/"favorite")`
+申请名额；获批后观察当前按钮，已激活时跳过并记录 `success=false`，不要重复点击取消状态。
+只操作一次，再观察按钮/提示确认结果，用 `phone_interaction_record` 记录。失败或放弃释放名额。
+点赞与收藏共用每次 Agent 任务的额度（含待完成预约），跨 App 也合计，默认 5；0=禁止。
+单篇 `phone_content` 任务先独立 `decide like` 或 `decide favorite`，兴趣判断本身不占名额。
 
 ## 主动评论
 

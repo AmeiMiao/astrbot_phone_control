@@ -423,6 +423,9 @@ class PhoneControlPlugin(
     ) -> None:
         """记录插件任务 Agent 的运行 task，供 /phone stop 取消。"""
         try:
+            from .core.interactions import interaction_run
+
+            interaction_run(event, restart=True)
             # 所有 Agent run 都标记：工具作用域据此把租约保持到 run 结束。
             with suppress(Exception):
                 event.set_extra("phone_agent_run_active", True)
@@ -453,6 +456,12 @@ class PhoneControlPlugin(
     ) -> None:
         """Agent 结束：任务会话停止实时屏幕；玩过手机则确定性收尾。"""
         try:
+            from .core.interactions import RUN_EXTRA
+
+            try:
+                self.interactions.finish_run(str(event.get_extra(RUN_EXTRA) or ""))
+            except Exception as exc:
+                logger.error("释放本轮互动预约失败：%s", exc)
             umo = str(getattr(event, "unified_msg_origin", "") or "")
             self._active_agent_tasks.pop(umo, None)
             if hasattr(self.service, "_contents"):

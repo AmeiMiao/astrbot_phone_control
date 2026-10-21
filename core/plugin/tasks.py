@@ -611,7 +611,7 @@ class TasksMixin:
             target_tokens=target_tokens,
             mood_available=_companion_plugin_available(),
             interactions_enabled=bool(
-                security.allow_comments or security.allow_posts
+                security.allow_interactions or security.allow_comments or security.allow_passive_replies or security.allow_posts
             ),
             share_hint=self.service.share_policy_hint(),
             novelty_hint=self.service.novelty_prompt(),

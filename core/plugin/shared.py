@@ -15,6 +15,7 @@ from ..plugin_shared import (
     _llm_response_text,
     ensure_executable,
 )
+from ..config import PhoneConfig
 from ..share_policy import share_window_text
 
 
@@ -57,6 +58,7 @@ PHONE_KEYWORDS = (
 _PHONE_CONTROL_TOOLS = frozenset(
     {
         "phone_tap",
+        "phone_shell",
         "phone_long_press",
         "phone_swipe",
         "phone_input_text",
@@ -72,7 +74,7 @@ _PHONE_CONTROL_TOOLS = frozenset(
 
 
 _GUIDANCE = (
-    "【手机操控能力】35 个 phone_* 工具；先 phone_skill 读手册。\n"
+    "【手机操控能力】36 个 phone_* 工具；先 phone_skill 读手册。\n"
     "回复：默认 1–2 句、≤80 字；任务结果只给 1–3 个要点，不复述过程/工具输出"
     "（用户要求详情除外）。\n"
     "存图：开关开启后图文 read 按兴趣 phone_save_image，填写描述/标签/理由，按配置存服务端/手机/两地；phone_saved_images 可查询和传手机，保存与分享独立。\n"
@@ -155,10 +157,21 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
             )
         )
     security = config.security if config is not None else None
-    if security is not None and (security.allow_comments or security.allow_posts):
+    if security is not None and (security.allow_interactions or security.allow_comments or security.allow_passive_replies or security.allow_posts):
         parts.append(
-            "互动：主人开启评论/发帖后可 phone_interaction_gate 申请 1 次，"
-            "自己完成后 record，每轮最多 1 条。"
+            "互动：对应开关开启后可 phone_interaction_gate 申请 1 次，"
+            "自己完成后 record，评论/回复/发帖每轮最多 1 条。"
+        )
+    if security is not None:
+        limit = security.max_likes_per_session
+        parts.append(
+            f"点赞/收藏：{'已授权' if security.allow_interactions else '未授权'}；"
+            f"like/favorite 先 gate 再操作后 record，单轮合计上限 {limit} 次（0=禁止）；"
+            "先看清内容并独立决定，按钮已激活时跳过，不要重复切换状态。"
+        )
+        parts.append(
+            "设备 shell：" + ("已授权 phone_shell，仅在 Android 设备当前 ADB 权限下执行前台命令。"
+                            if security.allow_shell_tool else "未授权 phone_shell。")
         )
     return "\n".join(parts)
 
@@ -176,7 +189,7 @@ _HELP_TEXT = """手机操控插件指令：
 /phone auto list                   列出自主浏览任务
 /phone quota [audit [小时]]       查看 token 额度与对账明细（audit=对照 AstrBot 实际 usage）
 /phone play [tokens]              立即静默玩手机一轮（可指定本轮 token 预算）
-/phone interactions [n]           查看今日主动评论/被动回复/发帖次数、上限与最近记录
+/phone interactions [n]           查看点赞/收藏/评论/回复/发帖的授权、用量与最近记录
 /phone continuous on|off|status [间隔秒] [token预算]  持续刷手机（一轮接一轮，可学习内容）
 /phone stop [job_id|all]          停止本插件后台/持续刷任务，回桌面并清理后台
 /phone learn [关键词|条数]         查看 AI 在手机上学到的内容档案

@@ -523,7 +523,7 @@ class AdbClient:
     # ------------------------------------------------------------------
     # 子进程执行
     # ------------------------------------------------------------------
-    async def _run_adb(self, argv: Sequence[str], *, timeout: float | None = None) -> tuple[int, bytes, bytes]:
+    async def _run_adb(self, argv: Sequence[str], *, timeout: float | None = None, output_limit: int | None = None) -> tuple[int, bytes, bytes]:
         """启动一次 adb 子进程并返回 ``(returncode, stdout, stderr)``。
 
         超时或启动失败时抛 ``AdbCommandError`` / ``AdbNotConfiguredError``；
@@ -553,8 +553,24 @@ class AdbClient:
                 command=_argv_text(argv),
                 detail=str(exc),
             ) from exc
+        async def read_bounded(stream: asyncio.StreamReader) -> bytes:
+            data = bytearray()
+            truncated = False
+            while chunk := await stream.read(8192):
+                remaining = max(0, int(output_limit) - len(data))
+                data.extend(chunk[:remaining])
+                truncated |= len(chunk) > remaining
+            return bytes(data) + (b"\n[output truncated]" if truncated else b"")
+
+        async def collect() -> tuple[bytes, bytes]:
+            if output_limit is None:
+                return await proc.communicate()
+            stdout, stderr = await asyncio.gather(read_bounded(proc.stdout), read_bounded(proc.stderr))
+            await proc.wait()
+            return stdout, stderr
+
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=effective_timeout)
+            stdout, stderr = await asyncio.wait_for(collect(), timeout=effective_timeout)
         except asyncio.CancelledError:
             try:
                 proc.kill()
@@ -935,6 +951,13 @@ class AdbClient:
             retry=retry,
         )
         return _decode(stdout)
+
+    async def shell_result(self, command: str, *, timeout: float) -> dict:
+        """单次设备 shell 执行，保留退出码与两路有界输出。"""
+        rc, stdout, stderr = await self._run_adb(
+            self._base_command() + ["shell", command], timeout=timeout, output_limit=8192
+        )
+        return {"exit_code": rc, "stdout": _decode(stdout), "stderr": _decode(stderr)}
 
     async def exec_out(self, *args: str, timeout: float | None = None) -> bytes:
         """执行 ``adb exec-out`` 并返回原始字节（适用于截图、cat 二进制）。"""

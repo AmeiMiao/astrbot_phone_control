@@ -284,3 +284,37 @@ def test_traffic_log_lines_masks_sensitive_params_and_truncates():
     assert "小黑盒" in text
     assert "响应：" in text
     assert len(lines[1]) < 130
+
+
+def test_agent_lifecycle_resets_light_interaction_quota_and_releases_pending(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        event = SimpleNamespace(unified_msg_origin="webchat:FriendMessage:light-uat", role="admin")
+        extra = {}
+        event.get_extra = lambda key, default=None: extra.get(key, default)
+        event.set_extra = lambda key, value: extra.__setitem__(key, value)
+        event.get_sender_id = lambda: "1"
+        event.get_platform_name = lambda: "webchat"
+        event.get_message_str = lambda: ""
+        tools = {t.name: t for t in plugin.context.tools}
+        assert "phone_shell" in tools
+        assert "phone_shell" in plugin_main._PHONE_CONTROL_TOOLS
+        try:
+            plugin.raw_config["security"].update(allow_interactions=True, max_likes_per_session=1)
+            ctx = SimpleNamespace(context=SimpleNamespace(event=event))
+            await plugin.track_task_agent_begin(event)
+            first = extra["phone_interaction_run"]
+            assert "已预留" in await tools["phone_interaction_gate"].call(ctx, kind="like")
+            assert "名额已满" in await tools["phone_interaction_gate"].call(ctx, kind="favorite")
+            await plugin.on_task_agent_done(event)
+            assert not plugin.interactions.reservations()
+            await plugin.track_task_agent_begin(event)
+            assert first != extra["phone_interaction_run"]
+            assert "已预留" in await tools["phone_interaction_gate"].call(ctx, kind="favorite")
+            await plugin.on_task_agent_done(event)
+            assert not plugin.interactions.reservations()
+        finally:
+            await plugin.terminate()
+    asyncio.run(scenario())
