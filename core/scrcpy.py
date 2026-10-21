@@ -1010,7 +1010,7 @@ class ScrcpyClient:
         command = (
             f"{shlex.quote(sys.executable)} {shlex.quote(str(helper))} {int(fd)}"
             f" | {shlex.quote(ffmpeg)} -hide_banner -loglevel error"
-            " -fflags flush_packets -flush_packets 1"
+            " -fflags nobuffer -flags low_delay -probesize 32 -analyzeduration 0 -flush_packets 1"
             " -f h264 -i pipe:0 -f image2pipe -vcodec mjpeg -q:v 4 pipe:1"
             f" 2>> {shlex.quote(str(self._decoder_log))}"
             f" | {shlex.quote(sys.executable)} {shlex.quote(str(frame_writer))}"
@@ -1553,6 +1553,12 @@ class ScrcpyClient:
         except OSError as exc:
             self._on_stream_lost(f"控制通道写入失败：{exc}")
             raise ScrcpyError(f"scrcpy 控制通道写入失败：{exc}") from exc
+
+    async def request_frame(self) -> None:
+        """使用 scrcpy RESET_VIDEO 刷新静态画面，保持现有服务和控制连接。"""
+        if not self.video:
+            raise ScrcpyError("视频通道未启用")
+        await self._send_control(bytes((17,)))
 
     async def get_clipboard(self, *, timeout: float = 3.0) -> str:
         """请求设备当前剪贴板，逐帧读取回应；不触发复制按键或改变剪贴板。"""

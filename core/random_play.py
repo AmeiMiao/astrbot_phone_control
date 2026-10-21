@@ -89,6 +89,7 @@ _SILENT_AND_SHARE = (
     "是否值得分享；只有确实值得对方看才用 phone_share_to_user，且必须带内容链接或截图"
     "（链接优先：App 分享按钮或 phone_traffic 的「可分享链接」；拿不到链接必须 "
     "include_screenshot=true；复制链接后 phone_clipboard 读取），禁止只发文字；"
+    "每篇内容独立任务：图文点开前 phone_content begin；视频打开并确认起点后begin，read先理解正文或试看。感兴趣再decide continue并read续看。看评论前独立decide read_comments；想回复具体已读评论再decide reply_comment并申请互动名额，看评论不等于回复。点赞收藏可选且遵守权限，结束finish后再换内容。"
     "帖子默认回顶截图，视频传 content_type=video、当前画面传 screen；分享目标先 phone_recent_chat 看最近聊天"
     "再按对方喜好自己选，同一内容只发一次、短时间别刷屏。"
 )

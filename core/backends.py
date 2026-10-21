@@ -4,8 +4,8 @@
 
 * **不引入额外强依赖**：scrcpy 模块（``core.scrcpy``）可选，模块不存在或
   启动失败时自动回退 ADB，并只告警一次、记录 ``last_error``；
-* **懒启动**：第一次需要控制/感知时才启动 scrcpy；空闲 ``control.scrcpy.idle_stop_seconds``
-  无手机工具调用后停止连接/解码，避免常驻开销；
+* **连接维护**：常驻开关开启时预热并保持所选通道；关闭时按
+  ``control.scrcpy.idle_stop_seconds`` 空闲停止，停止和卸载显式收尾；
 * **视频按需**：启动时由 ``perception.screen_source`` 决定视频通道——
   ``adb`` 只开控制通道（server ``video=false``，无 H264 编码/解码），
   ``auto``/``scrcpy`` 才启用视频镜像；仅控制通道运行期间若配置改为需要视频，
@@ -327,13 +327,16 @@ class ScrcpyControlBackend:
         fallback: AdbControlBackend,
         *,
         log: LogFn | None = None,
+        on_result: Callable[[str], None] | None = None,
     ) -> None:
+        self._on_result = on_result or (lambda source: None)
         self.client = client
         self.fallback = fallback
         self._log = log or (lambda message: None)
         self._warned: set[str] = set()
 
     def _warn_once(self, key: str, message: str) -> None:
+        self._on_result("ADBKeyboard" if key == "input_text" else "adb")
         if key in self._warned:
             return
         self._warned.add(key)
@@ -346,6 +349,7 @@ class ScrcpyControlBackend:
         result = func(*args, **kwargs)
         if inspect.isawaitable(result):
             result = await result
+        self._on_result("scrcpy")
         return result
 
     async def tap(self, x: int, y: int) -> None:
@@ -416,6 +420,7 @@ class ScrcpyControlBackend:
     async def input_text(self, text: str, *, press_enter: bool = False) -> None:
         # 中文/非 ASCII 或 scrcpy 输入失败 → ADBKeyboard；字母数字优先低延迟注入
         if not _is_ascii(text):
+            self._on_result("ADBKeyboard")
             await self.fallback.input_text(text, press_enter=press_enter)
             return
         try:
@@ -684,6 +689,17 @@ class ScrcpyPerceptionBackend:
         self, *, fast: bool = False, expected_package: str = ""
     ) -> tuple[bytes, str, dict[str, Any]]:
         frame = await self._latest_frame(self.fresh_ms)
+        if frame is None:
+            refresh = getattr(self.client, "request_frame", None)
+            if callable(refresh):
+                try:
+                    await _await_maybe(refresh())
+                except Exception as exc:
+                    self._fallback(f"scrcpy 请求新帧失败：{exc}", log=True)
+            deadline = time.monotonic() + 2.0
+            while frame is None and time.monotonic() < deadline:
+                await asyncio.sleep(.05)
+                frame = await self._latest_frame(self.fresh_ms)
         if frame is not None:
             data, fmt, meta = frame
             expected = str(expected_package or "").strip()
@@ -814,6 +830,11 @@ class BackendManager:
         self._factory_video_kwarg: bool | None = None
         self.fallback_reason = ""
         self._closed = False
+        self.recoveries = 0
+        self.fallback_count = 0
+        self.last_success_at = 0.0
+        self.last_control_source = "未执行"
+        self.last_capture_source = "未执行"
         self.last_error = ""
         self._started_at = 0.0
         self._last_activity = 0.0
@@ -887,8 +908,29 @@ class BackendManager:
             ),
         )
 
+    def record_capture(self, source: str) -> None:
+        self.last_capture_source = source
+        if source == "scrcpy":
+            self.last_success_at = time.time()
+            self.fallback_reason = ""
+        else:
+            _control, _scrcpy, perception = self._config_sections()
+            if self._wants_scrcpy_video(perception):
+                self.fallback_count += 1
+                self._warn(f"截图实际回退 ADB：{self.fallback_reason or self.last_error or '视频尚未就绪'}")
+
+    def _control_result(self, source: str) -> None:
+        self.last_control_source = source
+        if source == "scrcpy":
+            self.last_success_at = time.time()
+
     def status_lines(self) -> list[str]:
-        return self.status().lines()
+        control, scrcpy, perception = self._config_sections()
+        return self.status().lines() + [
+            f"配置后端：控制={getattr(control, 'backend', 'auto')}；截图={self._screen_source(perception)}",
+            f"常驻={bool(getattr(scrcpy, 'keep_alive', True))}；恢复={self.recoveries}；感知回退={self.fallback_count}",
+            f"最近实际来源：控制={self.last_control_source}；截图={self.last_capture_source}；scrcpy最近成功={self.last_success_at:.0f}",
+        ]
 
     # ---- 生命周期 -----------------------------------------------------
 
@@ -1063,6 +1105,7 @@ class BackendManager:
                     self._scrcpy_client,
                     self._adb_control,
                     log=self._warn,
+                    on_result=self._control_result,
                 )
         else:
             self.control_backend = self._adb_control
@@ -1121,10 +1164,18 @@ class BackendManager:
                 caps = await self._refresh_scrcpy_caps()
                 if caps.get("control") is False:
                     await self._stop_current_client()
+                    self.recoveries += 1
             await self._ensure_scrcpy(need_control=need_control, need_perception=need_perception)
             if self._needs_video_upgrade(need_perception=need_perception):
                 await self._upgrade_scrcpy_video()
             if self._scrcpy_client is not None:
+                if need_perception and self._scrcpy_want_video:
+                    deadline = time.monotonic() + 3.0
+                    while not self._scrcpy_caps.get("video") and time.monotonic() < deadline:
+                        await asyncio.sleep(.05)
+                        await self._refresh_scrcpy_caps()
+                        if getattr(self._scrcpy_client, "last_error", ""):
+                            break
                 await self._refresh_scrcpy_caps()
                 self._apply_backends()
 
@@ -1183,6 +1234,8 @@ class BackendManager:
         if self._scrcpy_client is None:
             return False
         _control, scrcpy, _perception = self._config_sections()
+        if bool(getattr(scrcpy, "keep_alive", False)):
+            return False
         try:
             idle = max(10, int(getattr(scrcpy, "idle_stop_seconds", 120)))
         except (TypeError, ValueError):

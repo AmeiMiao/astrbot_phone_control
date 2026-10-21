@@ -138,6 +138,8 @@ def build_addon_script(log_path: str | Path, body_chars: int = DEFAULT_BODY_CHAR
 
 import json
 import time
+import uuid
+from pathlib import Path
 
 LOG_PATH = {log_literal}
 BODY_CHARS = {chars}
@@ -157,6 +159,43 @@ def _text_body(message):
         return ""
 
 
+def _save_content(flow):
+    control = Path(LOG_PATH).parent / "content_capture.json"
+    try:
+        state = json.loads(control.read_text())
+    except (OSError, ValueError):
+        return
+    if time.time() > state.get("expires", 0):
+        return
+    root = Path(state["directory"])
+    if not root.is_dir() or root.name != state.get("task"):
+        return
+    files = list(root.glob("resource-*"))
+    if len(files) >= 160 or sum(p.stat().st_size for p in files) > 64 * 1024 * 1024:
+        return
+    response = flow.response
+    ctype = str(response.headers.get("content-type", "")).split(";")[0].lower()
+    token = "resource-" + uuid.uuid4().hex
+    record = {{"url": str(flow.request.pretty_url), "ts": time.time()}}
+    if ctype in {{"image/jpeg", "image/png", "image/webp", "image/gif"}}:
+        data = response.content or b""
+        if not data or len(data) > 10 * 1024 * 1024:
+            return
+        name = token + "." + ctype.split("/")[1]
+        (root / name).write_bytes(data)
+        record["image_path"] = name
+    elif "json" in ctype:
+        text = response.get_text(strict=False) or ""
+        if len(text.encode("utf-8")) > 512 * 1024:
+            return
+        name = token + ".body"
+        (root / name).write_text(text)
+        record["text_path"] = name
+    else:
+        return
+    (root / (token + ".json")).write_text(json.dumps(record, ensure_ascii=False))
+
+
 class PhoneTrafficAddon:
     def response(self, flow):
         try:
@@ -171,6 +210,10 @@ class PhoneTrafficAddon:
                 "body": _text_body(response),
                 "duration_ms": 0,
             }}
+            try:
+                _save_content(flow)
+            except (OSError, ValueError, KeyError) as exc:
+                record["content_error"] = str(exc)[:200]
             with open(LOG_PATH, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
         except Exception:

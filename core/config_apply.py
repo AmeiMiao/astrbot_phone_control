@@ -63,6 +63,8 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "perception.ocr_provider_id",
         "perception.ocr_timeout_seconds",
         "perception.verify_timeout_seconds",
+        "control.scrcpy.keep_alive",
+        "media.preview_seconds",
         "media.enabled",
         "media.audio_enabled",
         "media.audio_source",

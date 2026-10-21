@@ -571,6 +571,8 @@ class CommandsMixin:
         resource_errors = []
         target = rest[0] if rest else "all"
         job_id = "" if target.lower() in {"all", "-a", "全部"} else target
+        if hasattr(self.service, "_contents"):
+            await self.service.contents.close(abnormal=True)
         self._phone_stopped = True
         self.device_gate.force_release("phone_stop")
         self._continuous_enabled = False
@@ -802,6 +804,7 @@ class CommandsMixin:
 
     async def _cmd_watch(self, event: AstrMessageEvent, rest: list[str]) -> None:
         """``/phone watch [秒数] [问题]``：识别当前正在播放的内容。"""
+        self._phone_stopped = False
         seconds = 0.0
         if rest:
             text = str(rest[0]).strip().lower().replace("秒", "").replace("s", "")

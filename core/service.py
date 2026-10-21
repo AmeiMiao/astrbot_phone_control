@@ -37,13 +37,6 @@ from .errors import (
 )
 from .interactions import InteractionStore
 from .learning import LearningError, LearningStore
-from .media import (
-    build_vision_prompt,
-    clamp_seconds as clamp_media_seconds,
-    clean_transcript as clean_media_transcript,
-    plan_frame_times,
-    safe_unlink as safe_unlink_media,
-)
 from .models import BrowseRequest, BrowseResult, DeviceInfo, ScreenSnapshot, UiNode
 from .novelty import NoveltyStore
 from .page_content import (
@@ -349,6 +342,13 @@ class PhoneService:
         except Exception:  # noqa: BLE001 - 鸭子类型事件
             origin = ""
         return should_yield_to_user(origin=origin, user_active=self.user_priority.active)
+
+    @property
+    def contents(self):
+        from .content_task import ContentTasks
+        if not hasattr(self, "_contents"):
+            self._contents = ContentTasks(self)
+        return self._contents
 
     @property
     def experiences(self):
@@ -719,6 +719,9 @@ class PhoneService:
             + (f"/{info.current_activity}" if info.current_activity else ""),
         ]
         lines.extend(self._backend_status_lines())
+        lines.append(self.experiences.status_text())
+        if hasattr(self, "_contents"):
+            lines.append("内容任务：" + json.dumps(self.contents.status(), ensure_ascii=False))
         return "\n".join(lines)
 
     async def screen(self, max_nodes: int = 0) -> tuple[str, ScreenSnapshot]:
@@ -929,6 +932,7 @@ class PhoneService:
                     f"截图完成：source={meta.get('source', 'backend')}，"
                     f"method={meta.get('method')}，耗时={meta.get('elapsed_ms')}ms"
                 )
+            manager.record_capture(str(meta.get("source") or "scrcpy"))
             if record_metric:
                 self._record_screenshot_metric(meta)
             return data, path, meta
@@ -980,6 +984,9 @@ class PhoneService:
                 meta["elapsed_ms"] = float(duration)
             if action_meta.get("path"):
                 resolved = Path(str(action_meta["path"]))
+        manager = getattr(self, "backends", None)
+        if manager is not None:
+            manager.record_capture(str(meta.get("source") or "adb"))
         meta.setdefault("elapsed_ms", elapsed_fallback)
         meta.setdefault("fast", use_fast)
         if fallback_used:
@@ -1173,320 +1180,24 @@ class PhoneService:
             provider_id = str(provider_config.get("id") or "")
         return provider_id, "当前会话 Provider"
 
-    async def _capture_media_frames(
-        self,
-        config: PhoneConfig,
-        seconds: float,
-        *,
-        foreground: str = "",
-    ) -> tuple[list[Path], list[str]]:
-        """录制期间按计划时刻抓关键帧（最多 media.max_frames 张）。"""
-        media_config = config.media
-        offsets = plan_frame_times(
-            seconds,
-            interval=media_config.frame_interval_seconds,
-            max_frames=media_config.max_frames,
-        )
-        paths: list[Path] = []
-        errors: list[str] = []
-        started = time.monotonic()
-        for offset in offsets:
-            wait = started + float(offset) - time.monotonic()
-            if wait > 0:
-                await asyncio.sleep(wait)
-            try:
-                _data, path, _meta = await self.capture(expected_package=foreground)
-                paths.append(path)
-            except Exception as exc:  # noqa: BLE001 - 单帧失败继续抓后续帧
-                errors.append(str(exc))
-        return paths, errors
-
-    async def _generate_media_vision(
-        self,
-        provider_id: str,
-        prompt: str,
-        frames: list[Path],
-        timeout: float,
-        *,
-        event: Any = None,
-    ) -> str:
-        """调用视觉 Provider 描述关键帧；多图失败时回退单图。"""
-        app_context = self.app_context
-        if app_context is None:
-            raise PhoneControlError("AstrBot 上下文不可用，无法描述关键画面")
-        generate = getattr(app_context, "llm_generate", None)
-        if not callable(generate):
-            raise PhoneControlError("AstrBot 不支持 LLM 图片输入")
-        limit = max(1.0, float(timeout))
-
-        async def _call(targets: list[Path]) -> str:
-            response = await asyncio.wait_for(
-                generate(
-                    chat_provider_id=provider_id,
-                    prompt=prompt,
-                    image_urls=[str(item) for item in targets],
-                ),
-                timeout=limit,
-            )
-            text = _llm_response_text(response)
-            # 内部识图调用不在 Agent 钩子内，按返回 usage 立即精确记账
-            try:
-                self.record_internal_usage(
-                    getattr(response, "usage", None),
-                    source="internal:media_vision",
-                    event=event,
-                    prompt_text=prompt,
-                    completion_text=text,
-                    image_count=len(targets),
-                )
-            except Exception as exc:  # noqa: BLE001 - 记账失败不影响识别
-                logger.debug("媒体识图 usage 记账失败：%s", exc)
-            return text
-
-        try:
-            return await _call(frames)
-        except Exception:
-            if len(frames) <= 1:
-                raise
-            # 部分 Provider 对多图支持不稳定：回退最后一张，保证有画面描述
-            return await _call(frames[-1:])
-
-    async def watch_media(
-        self,
-        event: Any,
-        *,
-        seconds: float = 0.0,
-        question: str = "",
-        mode: str = "auto",
-    ) -> str:
-        """识别设备当前播放的视频/直播/音乐：声音转写 + 关键画面描述。
-
-        Args:
-            event: 触发事件（用于 Provider 解析/会话偏好）。
-            seconds: 录制/观察时长；0 表示取 ``media.seconds``。
-            question: 想重点关注的问题（可选，交给视觉提示词）。
-            mode: ``auto|audio|frames|both``；auto 按 ``media.audio_enabled`` 决定。
-        """
+    async def watch_media(self, event: Any, *, seconds: float = 0, question: str = "", mode: str = "auto") -> str:
+        """通过统一内容任务理解当前视频；非 Agent 调用在返回前结束任务。"""
         self.guard_device("watch_media")
         self.ensure_configured()
-        config = self.config
-        media_config = config.media
-        if not media_config.enabled:
-            raise PhoneControlError("流媒体内容识别已关闭（配置 media.enabled=false）")
-        mode_text = str(mode or "auto").strip().lower()
-        if mode_text not in {"auto", "audio", "frames", "both"}:
-            mode_text = "auto"
-        if mode_text == "auto":
-            mode_text = "both" if media_config.audio_enabled else "frames"
-        if mode_text in {"audio", "both"} and not media_config.audio_enabled:
-            raise PhoneControlError(
-                "已关闭声音采集（配置 media.audio_enabled=false），"
-                "请改用 mode=frames 或先开启声音采集"
-            )
-        requested = clamp_media_seconds(
-            seconds or media_config.seconds,
-            default=float(media_config.seconds),
-            maximum=float(media_config.max_seconds),
-            minimum=3.0,
-        )
-        question_text = " ".join(str(question or "").split())[:200]
-        foreground = ""
-        activity = ""
+        manager=self.contents
+        owner=manager.owner(event)
+        if owner not in manager.active:
+            package,activity=await self.actions.foreground()
+            await manager.begin(event,kind="video",content_id=f"{package}/{activity}",question=question,mode=mode)
+        if manager.current(event)["kind"]!="video":
+            raise PhoneControlError("当前是图文任务，请结束后再看视频")
         try:
-            foreground, activity = await self.actions.foreground()
-        except Exception:  # noqa: BLE001 - 前台信息失败不影响识别
-            foreground, activity = "", ""
-        # 先预热控制/感知后端：scrcpy 控制客户端启动时会清理残留 server，
-        # 若在音频采集期间才启动会把本次音频 server 杀掉（导致录音提前结束）。
-        manager = getattr(self, "backends", None)
-        if manager is not None:
-            try:
-                await manager.perception()
-            except Exception as exc:  # noqa: BLE001 - 预热失败仍可继续，帧采集会兜底
-                logger.debug("媒体识别预热感知后端失败：%s", exc)
-        started = time.monotonic()
-        warnings: list[str] = []
-        audio_task: asyncio.Task | None = None
-        clip: Any = None
-        audio_error = ""
-        if mode_text in {"audio", "both"}:
-            media_client = getattr(self, "media", None)
-            if media_client is None:
-                audio_error = "设备音频采集客户端未初始化（可重载插件）"
-            else:
-                try:
-                    audio_task = asyncio.create_task(
-                        media_client.capture(
-                            requested,
-                            source=str(media_config.audio_source or "output"),
-                            maximum=float(media_config.max_seconds),
-                        )
-                    )
-                except Exception as exc:  # noqa: BLE001 - 创建任务失败按不可用处理
-                    audio_error = str(exc)
-        frames: list[Path] = []
-        frame_errors: list[str] = []
-        if mode_text in {"frames", "both"}:
-            try:
-                frames, frame_errors = await self._capture_media_frames(
-                    config,
-                    requested,
-                    foreground=foreground,
-                )
-            except Exception as exc:  # noqa: BLE001 - 抓帧失败不阻塞声音识别
-                frame_errors = [str(exc)]
-        if audio_task is not None:
-            try:
-                clip = await audio_task
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - 音频失败降级为仅画面
-                audio_error = str(exc)
-        transcript = ""
-        asr_note = ""
-        asr_seconds = 0.0
-        provider_note = ""
-        if clip is not None:
-            if clip.warning:
-                warnings.append(clip.warning)
-            if clip.silent:
-                # 静音片段送 ASR 容易被模型幻觉成「嗯。」等文本，直接跳过转写
-                asr_note = (
-                    "采集到的音频近乎静音（App 可能禁止播放捕获/设备静音/播放暂停），"
-                    "已跳过语音转写"
-                )
-            else:
-                provider, provider_note = await self._resolve_media_stt_provider(event, config)
-                if provider is None:
-                    asr_note = f"不可用：{provider_note}"
-                else:
-                    asr_started = time.monotonic()
-                    try:
-                        raw_text = await asyncio.wait_for(
-                            provider.get_text(str(clip.path)),
-                            timeout=float(media_config.asr_timeout_seconds),
-                        )
-                        asr_seconds = time.monotonic() - asr_started
-                        transcript = clean_media_transcript(raw_text)
-                        if not transcript:
-                            asr_note = "未识别到语音（可能为纯音乐/环境音或音量过低）"
-                    except asyncio.TimeoutError:
-                        asr_note = (
-                            f"超时（>{media_config.asr_timeout_seconds}s，"
-                            f"Provider {provider_note}）"
-                        )
-                    except Exception as exc:  # noqa: BLE001 - ASR 失败不影响画面描述
-                        asr_note = f"失败：{exc}"
-        elif audio_error:
-            asr_note = f"不可用：{audio_error}"
-        elif mode_text == "frames":
-            asr_note = "未采集（本次只看画面）"
-        vision_text = ""
-        vision_note = ""
-        vision_seconds = 0.0
-        if frames:
-            provider_id, vision_provider_note = await self._resolve_media_vision_provider_id(
-                event, config
-            )
-            if not provider_id:
-                vision_note = f"不可用：{vision_provider_note}"
-            else:
-                prompt = build_vision_prompt(
-                    len(frames),
-                    question=question_text,
-                    audio_available=bool(transcript),
-                )
-                vision_started = time.monotonic()
-                try:
-                    vision_text = await self._generate_media_vision(
-                        provider_id,
-                        prompt,
-                        frames,
-                        float(media_config.vision_timeout_seconds),
-                        event=event,
-                    )
-                    vision_seconds = time.monotonic() - vision_started
-                except asyncio.TimeoutError:
-                    vision_note = (
-                        f"超时（>{media_config.vision_timeout_seconds}s，"
-                        f"{vision_provider_note}）"
-                    )
-                except Exception as exc:  # noqa: BLE001 - 视觉失败如实降级
-                    vision_note = f"失败：{exc}"
-        elif frame_errors:
-            vision_note = f"不可用：{frame_errors[0]}"
-        elif mode_text == "audio":
-            vision_note = "未采集（本次只听声音）"
-        elapsed = time.monotonic() - started
-        if not transcript and not vision_text:
-            if clip is not None and not media_config.keep_audio:
-                safe_unlink_media(getattr(clip, "path", ""))
-            reasons = []
-            if asr_note:
-                reasons.append(f"声音：{asr_note}")
-            if vision_note:
-                reasons.append(f"画面：{vision_note}")
-            if not reasons:
-                reasons.append("没有采到声音或画面")
-            raise PhoneControlError("媒体识别失败：" + "；".join(reasons))
-        app_text = foreground or "未知前台"
-        if activity:
-            app_text += f"（{activity.split('/')[-1]}）"
-        parts = [
-            f"【媒体识别】前台 {app_text}；观察 {requested:.1f}s"
-            f"（录音 {clip.seconds:.1f}s，关键帧 {len(frames)} 张，"
-            f"总耗时 {elapsed:.1f}s）"
-        ]
-        if transcript:
-            parts.append(f"【语音转写】{transcript}")
-        elif asr_note:
-            parts.append(f"【语音转写】{asr_note}")
-        if vision_text:
-            parts.append(f"【画面描述】{vision_text}")
-        elif vision_note:
-            parts.append(f"【画面描述】{vision_note}")
-        if warnings:
-            parts.append("【注意】" + "；".join(warnings))
-        parts.append(
-            "【提示】据此内容汇报/学习，不要编造未识别到的细节；"
-            "同一段内容不要反复识别。"
-        )
-        record = {
-            "ts": time.time(),
-            "foreground": foreground,
-            "activity": activity,
-            "seconds": requested,
-            "mode": mode_text,
-            "question": question_text,
-            "audio_seconds": float(getattr(clip, "seconds", 0.0) or 0.0),
-            "audio_peak": int(getattr(clip, "peak", 0) or 0),
-            "audio_path": str(getattr(clip, "path", "")) if getattr(clip, "path", None) and media_config.keep_audio else "",
-            "audio_error": audio_error,
-            "transcript": transcript,
-            "asr_note": asr_note,
-            "asr_provider": provider_note,
-            "asr_seconds": round(asr_seconds, 2),
-            "frames": [str(item) for item in frames],
-            "frame_errors": frame_errors,
-            "vision": vision_text,
-            "vision_note": vision_note,
-            "vision_seconds": round(vision_seconds, 2),
-            "elapsed": round(elapsed, 2),
-            "warnings": warnings,
-        }
-        try:
-            media_dir = self.data_dir / "media"
-            media_dir.mkdir(parents=True, exist_ok=True)
-            with (media_dir / "sessions.jsonl").open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-        except OSError as exc:
-            logger.warning("写入媒体识别记录失败：%s", exc)
-        if clip is not None:
-            if media_config.keep_audio:
-                parts.append(f"【录音】{clip.path}")
-            else:
-                safe_unlink_media(getattr(clip, "path", ""))
-        return "\n".join(parts)
+            result=await manager.read(event,seconds=seconds)
+            return json.dumps(result,ensure_ascii=False)
+        finally:
+            getter=getattr(event,"get_extra",None)
+            if not callable(getter) or not getter("phone_agent_run_active"):
+                await manager.finish_owner(owner,abnormal=False)
 
     # ---- 截图自动清理 --------------------------------------------------
 
@@ -1504,6 +1215,8 @@ class PhoneService:
             perception = self.config.perception
         except Exception:  # noqa: BLE001 - 配置异常时不动磁盘
             return result
+        if hasattr(self, "_contents"):
+            self._contents.cleanup()
         if not perception.screenshot_auto_clean:
             # 关闭自动清理时不删任何文件（force 仅跳过节流，不绕过开关）。
             return result

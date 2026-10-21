@@ -10,6 +10,7 @@ import os
 import signal
 import sys
 import uuid
+import time
 from contextlib import suppress
 from pathlib import Path
 
@@ -23,8 +24,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def revision() -> str:
     """代码内容指纹用于区分同版本号下的代码更新。"""
     digest = hashlib.sha256()
-    paths = [ROOT / "metadata.yaml", ROOT / "main.py", *sorted((ROOT / "core").rglob("*.py")),
-             *sorted((ROOT / "bin").glob("*.py"))]
+    paths = [
+        ROOT / "metadata.yaml",
+        ROOT / "main.py",
+        *sorted((ROOT / "core").rglob("*.py")),
+        *sorted((ROOT / "bin").glob("*.py")),
+    ]
     for path in paths:
         digest.update(path.relative_to(ROOT).as_posix().encode())
         digest.update(path.read_bytes())
@@ -32,13 +37,23 @@ def revision() -> str:
 
 
 def guarded_command(command, resource: Path) -> list[str]:
-    return [sys.executable, str(ROOT / "bin/phone_process_guard.py"),
-            "--resource", str(resource), "--revision", revision(), "--ttl", str(TTL),
-            "--", *map(str, command)]
+    return [
+        sys.executable,
+        str(ROOT / "bin/phone_process_guard.py"),
+        "--resource",
+        str(resource),
+        "--revision",
+        revision(),
+        "--ttl",
+        str(TTL),
+        "--",
+        *map(str, command),
+    ]
 
 
 def start_heartbeat(process) -> asyncio.Task:
     """任务取消/插件退出时关闭心跳管道，监护器自行结束子进程组。"""
+
     async def beat():
         try:
             while process.returncode is None:
@@ -49,6 +64,7 @@ def start_heartbeat(process) -> asyncio.Task:
             return
         finally:
             process.stdin.close()
+
     task = asyncio.create_task(beat(), name="astrbot_phone_control_process_heartbeat")
     task.add_done_callback(lambda _: process.stdin.close())
     return task
@@ -88,15 +104,26 @@ async def reclaim_legacy_processes(markers) -> int:
     for pid, (argv, _parent, _start) in processes.items():
         text = " ".join(argv)
         executable = any(Path(arg).name in {"mitmdump", "phone-wg"} for arg in argv[:2])
-        decoder = len(argv) > 2 and argv[:2] in (["sh", "-c"], ["/bin/sh", "-c"]) and "scrcpy_feed.py" in text
+        decoder = (
+            len(argv) > 2
+            and argv[:2] in (["sh", "-c"], ["/bin/sh", "-c"])
+            and "scrcpy_feed.py" in text
+        )
         tokens = argv
         if decoder:
             try:
                 tokens = shlex.split(argv[2])
             except ValueError:
                 continue
-        matches = any(str(marker) in tokens or f"confdir={marker}" in tokens for marker in markers)
-        if pid != os.getpid() and (executable or decoder) and matches and not guarded(pid):
+        matches = any(
+            str(marker) in tokens or f"confdir={marker}" in tokens for marker in markers
+        )
+        if (
+            pid != os.getpid()
+            and (executable or decoder)
+            and matches
+            and not guarded(pid)
+        ):
             owned.add(pid)
     for _ in range(len(processes)):
         children = {pid for pid, (_, parent, _) in processes.items() if parent in owned}
@@ -128,27 +155,38 @@ class DeviceLease:
 
     def __init__(self, adb, name: str):
         self.adb = adb
-        self.path = f"/data/local/tmp/phone-lease-{name}-{revision()[:12]}-{uuid.uuid4().hex}"
+        self.path = (
+            f"/data/local/tmp/phone-lease-{name}-{revision()[:12]}-{uuid.uuid4().hex}"
+        )
         self.task = None
         self.watchdog_pid = None
 
     async def prepare(self) -> None:
         prefix = self.path.rsplit("-", 2)[0]
         previous = await self.adb.shell(f"ls {prefix}-* 2>/dev/null || true", timeout=5)
-        paths = [line.strip() for line in str(previous).splitlines()
-                 if line.strip().startswith(prefix + "-") and " " not in line.strip()]
+        paths = [
+            line.strip()
+            for line in str(previous).splitlines()
+            if line.strip().startswith(prefix + "-") and " " not in line.strip()
+        ]
         if paths:
-            await self.adb.shell("rm -f " + " ".join(map(shlex.quote, paths)), timeout=5)
+            await self.adb.shell(
+                "rm -f " + " ".join(map(shlex.quote, paths)), timeout=5
+            )
             # 看门狗最多 2 秒一次检查，再给强制退出和清理留 2 秒。
             await asyncio.sleep(4)
 
     def watchdog_body(self, pid: str, cleanup: str = "") -> str:
         if pid:
             identity = f"$(awk '{{print $22}}' /proc/{pid}/stat 2>/dev/null)"
-            alive = (f'kill -0 {pid} 2>/dev/null && '
-                     f'[ "$(awk \'{{print $22}}\' /proc/{pid}/stat 2>/dev/null)" = "$IDENTITY" ]')
-            terminate = (f'if {alive}; then kill {pid} 2>/dev/null; sleep 1; '
-                         f'if {alive}; then kill -9 {pid} 2>/dev/null; fi; fi; ')
+            alive = (
+                f"kill -0 {pid} 2>/dev/null && "
+                f'[ "$(awk \'{{print $22}}\' /proc/{pid}/stat 2>/dev/null)" = "$IDENTITY" ]'
+            )
+            terminate = (
+                f"if {alive}; then kill {pid} 2>/dev/null; sleep 1; "
+                f"if {alive}; then kill -9 {pid} 2>/dev/null; fi; fi; "
+            )
         else:
             identity, alive, terminate = "", "true", ""
         return (
@@ -156,7 +194,9 @@ class DeviceLease:
             f"E=$(cat {shlex.quote(self.path)} 2>/dev/null); "
             'case "$E" in ""|*[!0-9]*) break;; esac; '
             '[ "$(date +%s)" -lt "$E" ] || break; sleep 2; done; '
-            + terminate + (cleanup or "true") + f"; rm -f {shlex.quote(self.path)}"
+            + terminate
+            + (cleanup or "true")
+            + f"; rm -f {shlex.quote(self.path)}"
         )
 
     def wrap_launch(self, command: str) -> str:
@@ -166,15 +206,18 @@ class DeviceLease:
             raise ValueError("设备启动命令缺少 PID 标记")
         # 子 shell 继承本次服务 PID；看门狗不依赖宿主的 adb 连接。
         body = self.watchdog_body("$1")
-        replacement = (f'& P=$!; echo PID=$P; echo $(( $(date +%s) + {TTL} )) > {self.path}; '
-                       f'sh -c {shlex.quote(body)} phone-watch "$P" < /dev/null > /dev/null 2>&1 & echo GUARD_PID=$!')
+        replacement = (
+            f"& P=$!; echo PID=$P; echo $(( $(date +%s) + {TTL} )) > {self.path}; "
+            f'sh -c {shlex.quote(body)} phone-watch "$P" < /dev/null > /dev/null 2>&1 & echo GUARD_PID=$!'
+        )
         return command.replace(marker, replacement)
 
     async def arm(self, pid: int | None, *, cleanup: str = "") -> None:
         body = self.watchdog_body(str(int(pid)) if pid else "", cleanup)
         output = await self.adb.shell(
             f"echo $(( $(date +%s) + {TTL} )) > {self.path}; sh -c {shlex.quote(body)} "
-            "< /dev/null > /dev/null 2>&1 & echo GUARD_PID=$!", timeout=10,
+            "< /dev/null > /dev/null 2>&1 & echo GUARD_PID=$!",
+            timeout=10,
         )
         self.observe(output)
 
@@ -185,17 +228,38 @@ class DeviceLease:
         self.watchdog_pid = int(match.group(1))
 
         async def beat():
+            last_success = time.monotonic()
+            failures = 0
             try:
                 while True:
-                    await asyncio.sleep(INTERVAL)
-                    await self.adb.shell(
-                        f"echo $(( $(date +%s) + {TTL} )) > {self.path}", timeout=5)
-            except Exception as exc:
-                logger.warning("设备子进程心跳中断，租约到期后退出：%s", exc)
+                    await asyncio.sleep(1 if failures else INTERVAL)
+                    if time.monotonic() - last_success >= TTL - 2:
+                        logger.warning("设备心跳未在租约期限内恢复，等待子进程退出")
+                        break
+                    command = (
+                        f"E=$(cat {shlex.quote(self.path)} 2>/dev/null); N=$(date +%s); "
+                        'case "$E" in ""|*[!0-9]*) exit 75;; esac; '
+                        f'[ "$E" -gt "$N" ] || exit 75; echo $((N + {TTL})) > {shlex.quote(self.path)}'
+                    )
+                    try:
+                        await self.adb.shell(command, timeout=3)
+                    except Exception as exc:
+                        failures += 1
+                        logger.warning(
+                            "设备心跳暂时失败（%s），租约期内重试：%s", failures, exc
+                        )
+                        continue
+                    if failures:
+                        logger.info("设备心跳已恢复，连续失败次数=%s", failures)
+                    failures = 0
+                    last_success = time.monotonic()
             finally:
                 with suppress(Exception):
                     await self.adb.shell(f"rm -f {self.path}", timeout=5)
-        self.task = asyncio.create_task(beat(), name="astrbot_phone_control_device_heartbeat")
+
+        self.task = asyncio.create_task(
+            beat(), name="astrbot_phone_control_device_heartbeat"
+        )
 
     async def close(self):
         await stop_heartbeat(self.task)
@@ -204,5 +268,7 @@ class DeviceLease:
         if self.watchdog_pid:
             await self.adb.shell(
                 f"N=0; while kill -0 {self.watchdog_pid} 2>/dev/null && [ $N -lt 40 ]; "
-                "do sleep 0.1; N=$((N+1)); done", timeout=6)
+                "do sleep 0.1; N=$((N+1)); done",
+                timeout=6,
+            )
             self.watchdog_pid = None

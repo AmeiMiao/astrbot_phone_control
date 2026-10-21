@@ -383,6 +383,7 @@ class MediaSettings:
     asr_timeout_seconds: int = 60
     vision_timeout_seconds: int = 60
     keep_audio: bool = False
+    preview_seconds: int = 8
 
 
 @dataclass(frozen=True)
@@ -446,6 +447,7 @@ class ScrcpySettings:
 
     max_size: int = DEFAULT_SCRCPY_MAX_SIZE
     server_jar: str = DEFAULT_SCRCPY_SERVER_JAR
+    keep_alive: bool = True
     idle_stop_seconds: int = DEFAULT_SCRCPY_IDLE_STOP_SECONDS
 
 
@@ -956,6 +958,7 @@ class PhoneConfig:
                 warn_fn,
                 MEDIA_AUDIO_SOURCES,
             ),
+            preview_seconds=_as_int(_pick(media_card, source, "preview_seconds"), 8, "media.preview_seconds", warn_fn, minimum=3, maximum=media_max_seconds),
             seconds=media_seconds,
             max_seconds=media_max_seconds,
             frame_interval_seconds=_as_float(
@@ -1488,6 +1491,7 @@ class PhoneConfig:
                     "control.scrcpy.server_jar",
                     warn_fn,
                 ),
+                keep_alive=_as_bool(_pick(scrcpy_card, source, "keep_alive"), True, "control.scrcpy.keep_alive", warn_fn),
                 idle_stop_seconds=_as_int(
                     _pick(scrcpy_card, source, "idle_stop_seconds"),
                     DEFAULT_SCRCPY_IDLE_STOP_SECONDS,

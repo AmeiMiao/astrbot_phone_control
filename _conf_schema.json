@@ -80,7 +80,10 @@
       },
       "background_keep_packages": {
         "type": "list",
-        "default": ["com.wireguard.android", "com.tailscale.ipn"],
+        "default": [
+          "com.wireguard.android",
+          "com.tailscale.ipn"
+        ],
         "description": "后台清理保留名单",
         "hint": "填写需要常驻的完整包名。默认保留 WireGuard 与 Tailscale；停止手机、任务收尾、浏览清理、清理工具及抓包初始化均保留名单内应用。"
       },
@@ -659,6 +662,12 @@
             "default": "",
             "description": "scrcpy-server jar 路径",
             "hint": "留空用插件自带 bin/scrcpy-server-v5.0.1。"
+          },
+          "keep_alive": {
+            "type": "bool",
+            "description": "scrcpy 常驻连接",
+            "default": true,
+            "hint": "预热并保持所选 scrcpy 通道；停止手机、停用和卸载仍彻底停止。"
           }
         }
       },
@@ -882,7 +891,13 @@
         "type": "bool",
         "default": false,
         "description": "保留录音文件",
-        "hint": "排障用；开启后识别完成仍保留 WAV，默认 false 在识别后删除"
+        "hint": "媒体素材由内容任务保护，并使用截图自动清理开关和保留时限统一管理。"
+      },
+      "preview_seconds": {
+        "type": "int",
+        "description": "视频首次试看秒数",
+        "default": 8,
+        "hint": "3–60 秒，后续按单段采集时长顺序续看。"
       }
     }
   },

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import asyncio
 import base64
 
@@ -195,7 +196,7 @@ class PhoneWatchMediaTool(_PhoneToolBase):
         "识别手机当前正在播放的视频/直播/音乐内容：录一小段设备播放的声音并转写为文字，"
         "同时在录制期间抓关键画面交给视觉模型描述，返回『语音转写 + 画面描述』。"
         "标题/评论/弹幕不足以判断内容，或刷视频、看直播需要真正理解时使用；"
-        "默认录 20 秒（可传 seconds，3 秒到 media.max_seconds），同一段内容不要反复识别；"
+        "首次试看取 media.preview_seconds，后续续看需 phone_content decide continue；可传 seconds。"
         "只录设备播放声音（output），无音频/DRM 内容时只返回画面描述。"
     )
     parameters: dict = Field(
@@ -221,7 +222,7 @@ class PhoneWatchMediaTool(_PhoneToolBase):
                     "type": "string",
                     "enum": ["auto", "audio", "frames", "both"],
                     "description": (
-                        "识别方式：auto=按配置（默认声音+画面）；audio=只转写声音；"
+                        "识别方式：auto=按配置（默认声音+画面）；audio=只理解声音；"
                         "frames=只看画面；both=两者都做"
                     ),
                     "default": "auto",
@@ -236,11 +237,4 @@ class PhoneWatchMediaTool(_PhoneToolBase):
         seconds = _as_float(kwargs.get("seconds"), 0)
         question = str(kwargs.get("question") or "").strip()
         mode = str(kwargs.get("mode") or "auto").strip()
-        return _ok(
-            await self.service.watch_media(
-                event,
-                seconds=seconds,
-                question=question,
-                mode=mode,
-            )
-        )
+        return _ok(await self.service.watch_media(event,seconds=seconds,question=question,mode=mode))

@@ -26,7 +26,7 @@ def main(argv: list[str]) -> int:
     buf = b""
     while True:
         try:
-            chunk = sys.stdin.buffer.read(65536)
+            chunk = sys.stdin.buffer.read1(65536)
         except (KeyboardInterrupt, OSError):
             break
         if not chunk:

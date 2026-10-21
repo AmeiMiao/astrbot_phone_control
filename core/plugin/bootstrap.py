@@ -512,6 +512,8 @@ class BootstrapMixin:
         except Exception as exc:  # noqa: BLE001 - WireGuard 失败不能阻塞插件启用
             logger.warning("WireGuard 启动失败：%s", exc)
         self._start_wireguard_keepalive()
+        self.service.contents
+        self._on_backends_started()
         if not self._verification.paused:
             self._start_random_play_loop()
             self._start_screenshot_cleanup_loop()
@@ -591,6 +593,8 @@ class BootstrapMixin:
                 await task
             except asyncio.CancelledError:
                 pass
+        if hasattr(self.service, "_contents"):
+            await self.service.contents.close(abnormal=True)
         traffic_task = getattr(self, "_traffic_keepalive_task", None)
         self._traffic_keepalive_task = None
         if traffic_task is not None and not traffic_task.done():

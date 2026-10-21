@@ -454,6 +454,8 @@ class PhoneControlPlugin(
         try:
             umo = str(getattr(event, "unified_msg_origin", "") or "")
             self._active_agent_tasks.pop(umo, None)
+            if hasattr(self.service, "_contents"):
+                await self.service.contents.finish_owner(self.service.contents.owner(event), abnormal=False)
             # 先释放本 run 的设备租约，后续收尾/恢复调度才能看到真实占用。
             self.device_gate.release_event(event)
             await self._restore_task_provider_preference(umo)
@@ -468,6 +470,7 @@ class PhoneControlPlugin(
                     await self._stop_live_screen("任务结束")
             if used_phone_control or is_task:
                 await self._auto_cleanup_after_task(event)
+            await self.service.experiences.finish(event)
             self._schedule_usage_reconcile(event)
         except Exception as exc:  # noqa: BLE001 - 收尾失败不影响 Agent 结束
             logger.warning("任务结束收尾失败：%s", exc)

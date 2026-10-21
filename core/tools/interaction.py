@@ -86,6 +86,10 @@ class PhoneInteractionGateTool(_PhoneToolBase):
             return _error(exc)
         security = config.security
         cooldown_kind: str | None = None
+        if kind == KIND_COMMENT and hasattr(self.service, "_contents"):
+            task = self.service.contents.active.get(self.service.contents.owner(event))
+            if task is not None and not any(d["decision"] == "reply_comment" for d in task["decisions"]):
+                return "error: 阅读评论不等于回复；请先针对已读评论独立 decide reply_comment"
         if kind == KIND_COMMENT:
             allow = security.allow_comments
             max_per_day = security.max_comments_per_day

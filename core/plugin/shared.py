@@ -64,18 +64,19 @@ _PHONE_CONTROL_TOOLS = frozenset(
         "phone_open_app",
         "phone_browse",
         "phone_watch_media",
+        "phone_content",
     }
 )
 
 
 _GUIDANCE = (
-    "【手机操控能力】32 个 phone_* 工具；先 phone_skill 读手册。\n"
+    "【手机操控能力】33 个 phone_* 工具；先 phone_skill 读手册。\n"
     "回复：默认 1–2 句、≤80 字；任务结果只给 1–3 个要点，不复述过程/工具输出"
     "（用户要求详情除外）。\n"
     "静默：仅主人可用；后台任务静默，完成后一次性汇报。\n"
     "额度/频率默认不限制（在配置 quota/互动限额里显式填正数才生效）。\n"
-    "App 记忆：操作 App 前先 phone_app_memory 查经验并按经验操作；界面与经验不符说明"
-    " App 已改版，先重新探索，再用 phone_app_remember 更新该页面经验。\n"
+    "App 经验：操作前 phone_app_memory 查询；界面变化先探索再更新经验，成功路径在任务结束自动总结。\n"
+    "内容任务：图文打开前begin，视频确认起点后begin；phone_content 分段read、独立决定续看/看评论/回复，完成finish。看评论不等于回复。\n"
     "任务优先：用户手机任务优先于 AI 自刷/随机/后台任务；自刷被暂停时立即收尾让路。\n"
     "看与分享：看和分享是两次独立判断——先决定是否点开/继续看（感兴趣只说明值得看，"
     "不触发分享），看完后再单独判断是否值得分享；只有确实值得对方看才 phone_share_to_user，"

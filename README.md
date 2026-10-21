@@ -6,7 +6,7 @@
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.1.1` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.1.2` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat-fun/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -14,7 +14,7 @@
 
 `astrbot_phone_control` 是 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的手机操控插件。
 它通过远程 ADB（可选 scrcpy / minitouch 后端）操作一台安卓模拟器，把「看屏幕、点滑动、
-输入、打开 App、理解内容、记录记忆」封装成 32 个 LLM 工具，并提供 `/phone` 命令族、
+输入、打开 App、理解内容、记录记忆」封装成 33 个 LLM 工具，并提供 `/phone` 命令族、
 定时自主任务、只读监控面板与配置热应用。
 
 插件不绑定具体 App：内置抖音 / B 站 / 小黑盒画像，其余任意已安装 App 用通用文本抽取兜底。
@@ -23,6 +23,9 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 
 ## 特性
 
+- **连接常驻**：`control.scrcpy.keep_alive=true` 默认预热所选通道；首帧等待、断线恢复和实际回退原因可查，`/phone stop` 彻底停止。
+- **内容任务**：`phone_content` 管理单篇图文或视频，原图正文关联、8 秒试看与 20 秒续看、评论阅读和回复分别决定。素材正常执行时受保护，结束按截图时限清理，异常立即回收。
+- **经验自动归档**：有成功操作和后续页面证据时自动总结 App 使用经验，写入所选插件档案或知识库；待写重试与错误可在状态查看。
 - **设备操控**：ADB / scrcpy 控制，UI 树解析、快速截图、点击/滑动/输入/按键/App 启停、后台清理。
 - **自主玩手机**：定时自主浏览、随机玩手机、持续刷手机；用户任务优先抢占，轮次/预算/间隔可配。
 - **内容理解**：信息流卡片抽取、浏览日记、学习档案、App 使用经验；经验可存入插件档案或 AstrBot 知识库，按选择查询与注入。
@@ -118,7 +121,7 @@ AI：返回设备连接、前台 App、电量与分辨率
 /phone stop [job_id|all]                 停任务/抓包/随机与持续刷，回桌面强停应用
 ```
 
-完整命令、32 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
+完整命令、33 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
 
 ## 安全与隐私
 
@@ -140,7 +143,7 @@ core/plugin/           插件运行逻辑 mixins（装配/生命周期、命令�
 core/service.py        能力门面 PhoneService（状态/UI/截图/浏览/日记/分享/抓包页面内容）
 core/verification_controller.py  验证会话控制器（尝试次数/总时限/人工接管/持久化）
 core/wireguard.py      WireGuard 组网：X25519 密钥、helper 配置/状态文件、子进程生命周期、ADB over WG
-core/tools/            32 个 LLM 工具实现（按域拆分）
+core/tools/            33 个 LLM 工具实现（按域拆分）
 core/*.py              设备层与纯逻辑模块（ADB/UI/动作/配置/抓包/记忆/新鲜感等）
 skills/                AI 行为手册（自主浏览、互动、验证、媒体、整理）
 views/dashboard/       只读监控面板与学习记录页

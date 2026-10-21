@@ -1,0 +1,255 @@
+"""内容任务的真实文件生命周期、身份关联和音频连续性回归。"""
+
+import asyncio
+import json
+import os
+import socket
+import threading
+import time
+from types import SimpleNamespace
+import wave
+
+import pytest
+from core.config import PhoneConfig
+from core.content_task import ContentTasks
+from core.errors import PhoneControlError, MediaCaptureError
+from core.media import AudioStream, BYTES_PER_SECOND, normalize_pcm
+from core.post_material import load_post_material
+
+
+def service(tmp_path, clean=True):
+    async def foreground():
+        return "test.app", "Post"
+
+    return SimpleNamespace(
+        data_dir=tmp_path,
+        config=PhoneConfig.from_mapping(
+            {
+                "perception": {
+                    "screenshot_auto_clean": clean,
+                    "screenshot_retention_minutes": 1,
+                }
+            }
+        ),
+        actions=SimpleNamespace(foreground=foreground),
+        guard_device=lambda _: None,
+        traffic=None,
+    )
+
+
+def test_expired_assets_survive_active_task_and_clean_after_finish(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        e = SimpleNamespace(unified_msg_origin="owner")
+        t = await m.begin(e, kind="post", content_id="123")
+        p = m.root / t["id"] / "frame-test.jpg"
+        p.write_bytes(b"image")
+        os.utime(p, (time.time() - 120,) * 2)
+        m.cleanup()
+        assert p.exists()
+        await m.finish_owner("owner", abnormal=False)
+        assert not p.exists()
+
+    asyncio.run(run())
+
+
+def test_abnormal_cleans_even_if_auto_clean_off_and_does_not_touch_other_files(
+    tmp_path,
+):
+    async def run():
+        s = service(tmp_path, False)
+        m = ContentTasks(s)
+        e = SimpleNamespace(unified_msg_origin="owner")
+        keep = tmp_path / "app_memory.json"
+        keep.write_text("memory")
+        t = await m.begin(e, kind="post", content_id="123")
+        p = m.root / t["id"] / "image.jpg"
+        p.write_bytes(b"image")
+        await m.finish_owner("owner", abnormal=True)
+        assert not p.parent.exists()
+        assert keep.read_text() == "memory"
+
+    asyncio.run(run())
+
+
+def test_other_session_cannot_take_content_or_end_owner(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        a = SimpleNamespace(unified_msg_origin="a")
+        b = SimpleNamespace(unified_msg_origin="b")
+        t = await m.begin(a, kind="post", content_id="123")
+        with pytest.raises(PhoneControlError):
+            m.current(b, t["id"])
+        with pytest.raises(PhoneControlError):
+            await m.begin(b, kind="post", content_id="456")
+        assert m.current(a)["content_id"] == "123"
+        await m.close()
+
+    asyncio.run(run())
+
+
+def test_comments_and_reply_decisions_are_separate(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        e = SimpleNamespace(unified_msg_origin="a")
+        t = await m.begin(e, kind="post", content_id="123")
+        with pytest.raises(PhoneControlError):
+            await m.decide(e, "read_comments", "感兴趣")
+        t["summaries"].append("已读正文")
+        with pytest.raises(PhoneControlError):
+            await m.decide(e, "reply_comment", "想回复", target="具体评论")
+        decision = await m.decide(e, "read_comments", "对讨论有兴趣")
+        assert decision["permission_granted"] is False
+        assert [d["decision"] for d in t["decisions"]] == ["read_comments"]
+        await m.close()
+
+    asyncio.run(run())
+
+
+def test_restart_reclaims_abandoned_tasks_and_preserves_completed(tmp_path):
+    root = tmp_path / "content_tasks"
+    a = root / ("a" * 32)
+    b = root / ("b" * 32)
+    for p, status in ((a, "active"), (b, "completed")):
+        p.mkdir(parents=True)
+        (p / "state.json").write_text(json.dumps({"status": status}))
+        (p / "audio.wav").write_bytes(b"sound")
+    ContentTasks(service(tmp_path, False))
+    assert not a.exists()
+    assert (b / "audio.wav").exists()
+
+
+def test_only_same_content_original_images_are_used(tmp_path):
+    (tmp_path / "post.body").write_text(
+        json.dumps(
+            {
+                "data": {
+                    "id": "123",
+                    "title": "目标正文",
+                    "images": ["https://img/target.png"],
+                    "recommendations": [
+                        {
+                            "id": "456",
+                            "content": "不要混入",
+                            "images": ["https://img/other.png"],
+                        }
+                    ],
+                }
+            }
+        )
+    )
+    for index, url in enumerate(
+        ["https://api/posts/123", "https://img/target.png", "https://img/other.png"]
+    ):
+        record = {"url": url}
+        if index == 0:
+            record["text_path"] = "post.body"
+        else:
+            record["image_path"] = f"{index}.png"
+            (tmp_path / f"{index}.png").write_bytes(b"png")
+        (tmp_path / f"resource-{index}.json").write_text(json.dumps(record))
+    text, images = load_post_material(tmp_path, "123")
+    assert text == "目标正文"
+    assert images == [tmp_path / "1.png"]
+
+
+def test_continuous_audio_segment_cursor_has_no_gap_or_overlap(tmp_path):
+    async def run():
+        left, right = socket.socketpair()
+        stream = AudioStream(None, tmp_path / "source.pcm", "output")
+        # PCM 各秒有不同值，用实际 WAV 数据证明连续分段没有重放或跳过。
+        pcm = b"".join(bytes([n]) * BYTES_PER_SECOND for n in range(1, 7))
+        thread = threading.Thread(target=lambda: (right.sendall(pcm), right.close()))
+        thread.start()
+        read = asyncio.create_task(asyncio.to_thread(stream.read, left))
+        while stream.size < len(pcm):
+            await asyncio.sleep(0.01)
+        stream.stop_event.set()
+        try:
+            await read
+        except MediaCaptureError as exc:
+            assert "提前断开" in str(exc)
+        stream.task = asyncio.create_task(asyncio.sleep(0))
+        p = await stream.segment(0, 3, tmp_path / "one.wav")
+        q = await stream.segment(3, 6, tmp_path / "two.wav")
+        with wave.open(str(p)) as f:
+            a = f.readframes(f.getnframes())
+        with wave.open(str(q)) as f:
+            b = f.readframes(f.getnframes())
+        assert a == normalize_pcm(pcm[: 3 * BYTES_PER_SECOND])
+        assert b == normalize_pcm(pcm[3 * BYTES_PER_SECOND :])
+        assert stream.path.read_bytes() == pcm
+        left.close()
+        thread.join()
+
+    asyncio.run(run())
+
+
+def test_failed_understanding_cleans_assets_preserves_summary_and_cursor(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        e = SimpleNamespace(unified_msg_origin="a")
+        t = await m.begin(e, kind="post", content_id="123")
+        t["summaries"] = ["先前理解的摘要"]
+        t["cursor"] = 1
+
+        async def failure(*a, **k):
+            raise RuntimeError("模型不可用")
+
+        m.understand = failure
+        m.post_material = lambda t: ("正文", [tmp_path / "image.png"])
+        with pytest.raises(RuntimeError, match="模型不可用"):
+            await m.read(e)
+        assert t["cursor"] == 1 and not m.active
+        assert not (m.root / t["id"]).exists()
+        history = json.loads((m.root / "history.jsonl").read_text())
+        assert history["summaries"] == ["先前理解的摘要"]
+
+    asyncio.run(run())
+
+
+def test_audio_placeholder_adapter_uses_real_stt_result_instead_of_claiming_audio(
+    tmp_path,
+):
+    async def run():
+        s = service(tmp_path)
+        calls = []
+
+        class ProviderAnthropic:
+            pass
+
+        class STT:
+            async def get_text(self, path):
+                return "实际转写文字"
+
+        class Context:
+            def get_provider_by_id(self, id):
+                return ProviderAnthropic()
+
+            async def llm_generate(self, **kwargs):
+                calls.append(kwargs)
+                return SimpleNamespace(completion_text="识别结果", usage=None)
+
+        async def vision(*args):
+            return "model", "model"
+
+        async def stt(*args):
+            return STT(), "STT"
+
+        s.app_context = Context()
+        s._resolve_media_vision_provider_id = vision
+        s._resolve_media_stt_provider = stt
+        s.record_internal_usage = lambda *a, **k: None
+        m = ContentTasks(s)
+        result = await m.understand(
+            None,
+            {"question": ""},
+            "内容",
+            [tmp_path / "image.png"],
+            tmp_path / "audio.wav",
+        )
+        assert "实际转写文字" in calls[0]["prompt"]
+        assert "audio_urls" not in calls[0]
+        assert "已使用语音转写" in result
+
+    asyncio.run(run())

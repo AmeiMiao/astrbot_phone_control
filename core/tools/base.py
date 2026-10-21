@@ -337,6 +337,13 @@ def _wrap_call(handler):
                     gate.release_event(event)
                 except Exception:  # noqa: BLE001 - 释放失败由 stale 回收兜底
                     pass
+        if event is not None and hasattr(self.service, "experiences"):
+            try:
+                self.service.experiences.observe(event, self.name, kwargs, _result_text(result))
+                if self.name in {"phone_screen", "phone_read_screen"} and hasattr(self.service, "_contents"):
+                    self.service.contents.observe(event, _result_text(result))
+            except Exception as exc:
+                logger.warning("收集操作经验证据失败：%s", exc)
         # 额度接近上限时在结果尾部追加软告警（不改变工具结果本身）
         try:
             warning = self.service.quota_warning_text()

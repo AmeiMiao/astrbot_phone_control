@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - AstrBot 版本或单测环境没有该
 
 from ..actions import DeviceActions
 from ..adb import AdbClient
-from ..app_memory import AppMemoryStore
+from ..app_memory import AppMemoryStore, AppMemoryError
 from ..apps import (
     KNOWN_APP_LABELS,
     UNKNOWN_APP_HINT_TEMPLATE,
@@ -284,7 +284,7 @@ class RuntimeMixin:
         return client
 
     def _on_backends_started(self) -> None:
-        """scrcpy 启动后开启空闲检查（不常驻，空闲即停）。"""
+        """启动后维护所选连接，并执行空闲停止与经验补写。"""
         try:
             task = getattr(self, "_backend_idle_task", None)
             if task is not None and not task.done():
@@ -297,7 +297,7 @@ class RuntimeMixin:
             self._backend_idle_task = None
 
     async def _backend_idle_loop(self) -> None:
-        """后端空闲检查：超过 control.scrcpy.idle_stop_seconds 停止 scrcpy。"""
+        """维护常驻连接；关闭常驻时按空闲时限停止。"""
         try:
             while True:
                 try:
@@ -308,10 +308,19 @@ class RuntimeMixin:
                     idle = 120
                 await asyncio.sleep(max(1.0, min(5.0, idle / 3.0)))
                 manager = getattr(self, "backends", None)
-                if manager is None or not manager.scrcpy_running:
+                if manager is None:
                     return
-                if await manager.maybe_stop_idle():
-                    return
+                try:
+                    await self.service.experiences.flush()
+                except (OSError, ValueError, AppMemoryError) as exc:
+                    logger.warning("App经验待写队列不可用：%s", exc)
+                if getattr(self, "_phone_stopped", False):
+                    continue
+                if self.service.config.control.scrcpy.keep_alive:
+                    await manager.ensure()
+                if not manager.scrcpy_running:
+                    continue
+                await manager.maybe_stop_idle()
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - 空闲检查失败只记录
@@ -657,8 +666,12 @@ class RuntimeMixin:
     def _maybe_warm_scrcpy(self, event: AstrMessageEvent, req: Any) -> None:
         """手机相关请求时后台预热 scrcpy（60s 最多一次，不阻塞 LLM）。"""
         try:
-            if getattr(self, "_phone_stopped", False) or getattr(self, "_terminated", False):
+            if getattr(self, "_terminated", False):
                 return
+            if getattr(self, "_phone_stopped", False):
+                if not self._looks_like_phone_request(event, req):
+                    return
+                self._phone_stopped = False
             manager = getattr(self.service, "backends", None)
             if manager is None or manager.scrcpy_running:
                 return

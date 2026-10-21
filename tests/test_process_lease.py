@@ -105,3 +105,29 @@ def test_reclaim_untended_process_uses_exact_data_directory(tmp_path):
             if proc.poll() is None:
                 proc.terminate()
             proc.wait(timeout=3)
+
+
+def test_device_heartbeat_retries_transient_failure_without_extending_expiry(monkeypatch):
+    import asyncio
+    import core.process_lease as leases
+    async def run():
+        calls=[];recovered=asyncio.Event()
+        class Adb:
+            async def shell(self,command,**kwargs):
+                calls.append(command)
+                if 'case "$E"' in command:
+                    if len([x for x in calls if 'case "$E"' in x])==1:
+                        raise TimeoutError('临时ADB延迟')
+                    recovered.set()
+                return ''
+        sleep=asyncio.sleep
+        async def quick_sleep(seconds):await sleep(.001)
+        monkeypatch.setattr(leases.asyncio,'sleep',quick_sleep)
+        lease=leases.DeviceLease(Adb(),'audio');lease.observe('GUARD_PID=123')
+        await asyncio.wait_for(recovered.wait(),1)
+        await leases.stop_heartbeat(lease.task)
+        beats=[x for x in calls if 'case "$E"' in x]
+        assert len(beats)>=2
+        assert all('[ "$E" -gt "$N" ] || exit 75' in x for x in beats)
+        assert leases.TTL==15
+    asyncio.run(run())

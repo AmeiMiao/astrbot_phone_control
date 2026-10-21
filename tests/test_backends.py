@@ -245,7 +245,7 @@ def test_scrcpy_perception_backend_fresh_and_stale(tmp_path):
 
 def test_manager_lazy_scrcpy_and_idle_stop():
     clock = [100.0]
-    raw = {"perception": {"screen_source": "auto", "live_screen_enabled": True}}
+    raw = {"control": {"scrcpy": {"keep_alive": False}}, "perception": {"screen_source": "auto", "live_screen_enabled": True}}
 
     async def scenario():
         client = FakeScrcpyClient()
@@ -888,4 +888,47 @@ def test_transient_scrcpy_failure_recovers_after_backoff(tmp_path):
         assert (await manager.control()).name == "scrcpy"
         assert len(attempts) == 2
         await manager.stop()
+    asyncio.run(run())
+
+
+def test_keep_alive_preserves_one_client_and_explicit_stop_wins():
+    async def run():
+        client=FakeScrcpyClient()
+        manager=BackendManager(config_provider=lambda:_config({'control':{'scrcpy':{'keep_alive':True}},'perception':{'screen_source':'adb'}}),actions=FakeActions(),adb=None,data_dir='/tmp/keep-alive',scrcpy_factory=lambda:client)
+        await manager.ensure()
+        assert await manager.maybe_stop_idle(now=time.monotonic()+10000) is False
+        assert client.started and not client.stopped
+        await manager.close()
+        await manager.ensure()
+        assert client.stopped and not manager.scrcpy_running
+    asyncio.run(run())
+
+
+def test_first_frame_waits_for_decoder_and_uses_scrcpy():
+    async def run():
+        client=FakeScrcpyClient();calls=[0]
+        original=client.capabilities
+        def capabilities():
+            caps=original();calls[0]+=1;caps['video']=calls[0]>=3;return caps
+        client.capabilities=capabilities
+        manager=BackendManager(config_provider=lambda:_config({'perception':{'screen_source':'scrcpy'}}),actions=FakeActions(),adb=None,data_dir='/tmp/first-frame',scrcpy_factory=lambda:client)
+        backend=await manager.perception()
+        assert backend.name=='scrcpy' and calls[0]>=3
+        await manager.close()
+    asyncio.run(run())
+
+
+def test_static_old_frame_requests_fresh_frame_without_adb():
+    async def run():
+        class Client:
+            refreshed=False
+            def capabilities(self):return {'video':True}
+            def latest_frame(self,**kwargs):
+                if not self.refreshed:return None
+                return b'new-frame','jpeg',{'source':'scrcpy','ts':time.time()}
+            async def request_frame(self):self.refreshed=True
+        fallback=AdbPerceptionBackend(FakeActions(),'/tmp/static-refresh')
+        backend=ScrcpyPerceptionBackend(Client(),fallback)
+        data,fmt,meta=await backend.screenshot()
+        assert data==b'new-frame' and meta['source']=='scrcpy'
     asyncio.run(run())

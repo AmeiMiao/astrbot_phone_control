@@ -27,6 +27,7 @@ from .app_tools import (
 )
 from .share import PhoneShareToUserTool
 from .clipboard import PhoneClipboardTool
+from .content_task import PhoneContentTool
 from .content import (
     PhoneAppMemoryTool,
     PhoneAppRememberTool,
@@ -78,6 +79,7 @@ TOOL_NAMES = (
     "phone_app_memory",
     "phone_app_remember",
     "phone_watch_media",
+    "phone_content",
 )
 
 
@@ -255,6 +257,7 @@ def build_phone_tools(service: Any) -> list[FunctionTool]:
         PhoneAppMemoryTool(service=service),
         PhoneAppRememberTool(service=service),
         PhoneWatchMediaTool(service=service),
+        PhoneContentTool(service=service),
     ]
     names = tuple(tool.name for tool in tools)
     if names != TOOL_NAMES:  # pragma: no cover - 常量与实现不一致时直接暴露

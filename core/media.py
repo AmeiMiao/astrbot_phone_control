@@ -2,7 +2,7 @@
 
 手机上的视频、直播、音乐看不到也听不到时，主 Agent 只能靠标题猜内容。本模块
 用 scrcpy v5.0.1 的音频通道把「设备正在播放的声音」采集成 PCM，再交给 AstrBot
-的 STT Provider 转写；画面部分由工具层按间隔抓关键帧交给视觉 Provider 描述。
+的媒体理解模型或 STT Provider；画面由内容任务按间隔采集并分批理解。
 
 音频通道实现要点（scrcpy v5.0.1 真机验证）：
 
@@ -31,6 +31,9 @@ import re
 import socket
 import struct
 import time
+import threading
+from array import array
+import sys
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -514,7 +517,10 @@ class MediaAudioCapture:
         async with self._capture_lock():
             return await self._capture_locked(duration, source)
 
-    async def _capture_locked(self, seconds: float, source: str) -> AudioClip:
+    def stream(self, path: Path, *, source: str = "output"):
+        return AudioStream(self, path, source)
+
+    async def _capture_locked(self, seconds: float, source: str, stream=None) -> AudioClip:
         jar = await self._resolve_jar()
         version = _parse_server_version(jar.name)
         remote_jar = REMOTE_JAR_TEMPLATE.format(version=version)
@@ -561,7 +567,7 @@ class MediaAudioCapture:
             self._device_lease.observe(output)
             self._log(
                 f"音频采集 server 已启动（pid={pid}，scid={scid:x}，"
-                f"source={source}，{seconds:.1f}s）"
+                f"source={source}，{'连续采集' if stream is not None else str(round(seconds,1))+'s'}）"
             )
 
             try:
@@ -576,7 +582,11 @@ class MediaAudioCapture:
                         ) from exc
                     raise
                 target_bytes = int(round(seconds * BYTES_PER_SECOND))
-                pcm = await asyncio.to_thread(_read_pcm_stream, sock, target_bytes)
+                if stream is None:
+                    pcm = await asyncio.to_thread(_read_pcm_stream, sock, target_bytes)
+                else:
+                    await asyncio.to_thread(stream.read, sock)
+                    pcm = b""
             except MediaCaptureError:
                 raise
             except OSError as exc:
@@ -589,6 +599,9 @@ class MediaAudioCapture:
                     pass
             await self._stop_server(pid, port)
 
+        if stream is not None:
+            await self._remove_remote_log(remote_log)
+            return AudioClip(path=stream.path, seconds=pcm_duration(stream.size), pcm_bytes=stream.size, source=source, scid=scid, peak=0)
         actual_seconds = pcm_duration(len(pcm))
         if actual_seconds < _MIN_VALID_SECONDS:
             log_tail = await self._read_log_tail(remote_log)
@@ -629,3 +642,101 @@ class MediaAudioCapture:
             truncated=truncated,
             warning=warning,
         )
+
+
+class AudioStream:
+    """任务独占的连续 PCM 流；按时间切 WAV，模型推理期间继续缓存。"""
+
+    def __init__(self, capture, path, source):
+        self.capture = capture
+        self.path = Path(path)
+        self.source = source
+        self.stop_event = threading.Event()
+        self.started = 0.0
+        self.size = 0
+        self.task = None
+
+    async def start(self):
+        async def run():
+            async with self.capture._capture_lock():
+                return await self.capture._capture_locked(0, self.source, stream=self)
+        self.task = asyncio.create_task(run(), name="astrbot_phone_control_content_audio")
+        deadline = time.monotonic() + 40
+        try:
+            while not self.started:
+                if self.task.done():
+                    await self.task
+                    raise MediaCaptureError("连续音频采集未就绪")
+                if time.monotonic() >= deadline:
+                    raise MediaCaptureError("连续音频采集启动超时")
+                await asyncio.sleep(.05)
+        except BaseException:
+            await self.stop()
+            raise
+
+    def read(self, sock):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        sock.settimeout(.5)
+        last_data = time.monotonic()
+        with self.path.open("wb", buffering=0) as f:
+            while not self.stop_event.is_set():
+                try:
+                    data = sock.recv(65536)
+                except socket.timeout:
+                    if time.monotonic() - last_data > 4:
+                        raise MediaCaptureError("连续音频流超过 4 秒无数据")
+                    continue
+                if not data:
+                    raise MediaCaptureError("连续音频流提前断开")
+                if not self.started:
+                    self.started = time.monotonic()
+                f.write(data)
+                self.size += len(data)
+                last_data = time.monotonic()
+
+    async def segment(self, start, end, path):
+        target = int(end * BYTES_PER_SECOND)
+        deadline = time.monotonic() + max(5, end - pcm_duration(self.size) + 5)
+        while self.size < target:
+            if self.task.done():
+                await self.task
+                raise MediaCaptureError("音频流不足以完成当前片段")
+            if time.monotonic() >= deadline:
+                raise MediaCaptureError("等待音频片段超时")
+            await asyncio.sleep(.05)
+        offset = int(start * BYTES_PER_SECOND) // 4 * 4
+        length = (target - offset) // 4 * 4
+        with self.path.open("rb") as f:
+            f.seek(offset)
+            pcm = f.read(length)
+        if len(pcm) != length:
+            raise MediaCaptureError("音频片段尚未完整写入")
+        write_wav(path, normalize_pcm(pcm))
+        return path
+
+    async def stop(self):
+        self.stop_event.set()
+        if self.task is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(self.task), 45)
+            except asyncio.TimeoutError:
+                self.task.cancel()
+                try:
+                    await self.task
+                except asyncio.CancelledError:
+                    pass
+            except Exception as exc:
+                self.error=str(exc)
+                self.capture._log(f"连续音频收尾：{exc}")
+
+
+def normalize_pcm(pcm: bytes) -> bytes:
+    """模型输入按峰值归一化；静音不放大，原始流由任务保留。"""
+    values=array("h",pcm)
+    if sys.byteorder!="little":values.byteswap()
+    peak=max((abs(value) for value in values),default=0)
+    if peak<=_SILENCE_PEAK:return pcm
+    gain=min(256.,8192./peak)
+    normalized=array("h",(int(value*gain) for value in values))
+    if sys.byteorder!="little":normalized.byteswap()
+    return normalized.tobytes()
