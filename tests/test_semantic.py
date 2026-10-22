@@ -1086,3 +1086,30 @@ def test_maintainer_writes_empty_index_when_no_local_records(tmp_path):
     assert snapshot is not None
     assert snapshot.count == 0
     assert provider.batch_calls == []
+
+
+def test_reader_supports_batch_only_provider(tmp_path):
+    """Provider 只实现 get_embeddings 时，Reader 仍可查询（逐条包装）。"""
+
+    class BatchOnlyProvider(FakeEmbeddingProvider):
+        get_embedding = None  # 显式去掉单条接口
+
+        async def get_embeddings(self, texts):
+            self.batch_calls.append(list(texts))
+            return [list(self.vectors.get(text, self.default_vector)) for text in texts]
+
+    provider = BatchOnlyProvider(vectors={"甲": [1.0, 0.0, 0.0]})
+    index, resolver, config, reader = _reader_fixture(tmp_path, provider)
+    asyncio.run(
+        build_index(
+            index,
+            [_doc("learning:a", "甲")],
+            embed=provider.get_embeddings,
+            provider_id="fake-embed",
+            model="fake-model",
+            dim=3,
+        )
+    )
+    text = asyncio.run(reader.render("甲"))
+    assert text.startswith(RECALL_HEADER)
+    assert provider.batch_calls[-1] == ["甲"]

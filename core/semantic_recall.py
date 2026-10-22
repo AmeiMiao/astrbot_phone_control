@@ -359,7 +359,7 @@ class SemanticReader:
         if snapshot is None or snapshot.count == 0:
             return ""
         try:
-            raw_vector = await provider.provider.get_embedding(text)
+            raw_vector = await self._query_embedding(provider, text)
         except Exception as exc:  # noqa: BLE001 - 查询失败本轮跳过
             self._debug_once(
                 f"embed:{type(exc).__name__}",
@@ -388,6 +388,20 @@ class SemanticReader:
             snapshot.search, query_vector, top_k=top_k, min_score=min_score
         )
         return format_hits(hits, max_chars=max_chars)
+
+    @staticmethod
+    async def _query_embedding(provider: ResolvedEmbedding, text: str) -> Any:
+        """查询一条文本的向量（兼容只有批量接口的 Provider 实现）。"""
+        getter = getattr(provider.provider, "get_embedding", None)
+        if callable(getter):
+            return await getter(text)
+        get_many = getattr(provider.provider, "get_embeddings", None)
+        if not callable(get_many):
+            raise SemanticBuildError("Embedding Provider 缺少查询 embedding 的接口")
+        result = await get_many([text])
+        if not isinstance(result, (list, tuple)) or not result:
+            raise SemanticBuildError("Embedding Provider 返回空向量结果")
+        return result[0]
 
     async def _snapshot(
         self, provider: ResolvedEmbedding
