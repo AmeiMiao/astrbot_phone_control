@@ -5,6 +5,15 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+from contextlib import AsyncExitStack, ExitStack
+
+from ..data_migration import (
+    DataMigrationError,
+    apply_data_migration,
+    prepare_data_migration,
+)
+from ..config_migration import SOURCE_PLUGIN
+from ..saved_images import image_library
 
 from ..config import PhoneConfig, require_configured
 from ..errors import PhoneControlError
@@ -16,6 +25,18 @@ from .compat import error_response, json_response, plugin_main_module
 class ConfigMigrationMixin:
     def _config_migration_routes(self, base):
         return (
+            (
+                f"{base}/data-migration",
+                self.dashboard_data_migration_preview,
+                ["GET"],
+                "预览原插件持久化资料迁移",
+            ),
+            (
+                f"{base}/data-migration",
+                self.dashboard_data_migration_apply,
+                ["POST"],
+                "导入原插件持久化资料",
+            ),
             (
                 f"{base}/config-migration",
                 self.dashboard_config_migration_preview,
@@ -122,3 +143,111 @@ class ConfigMigrationMixin:
             return error_response(
                 "导入配置失败，请检查原配置与存储权限", status_code=500
             )
+
+    def _data_migration_inputs(self):
+        if self.data_dir.name != PLUGIN_NAME:
+            raise DataMigrationError("当前数据目录不支持自动定位原插件资料")
+        return self.data_dir.parent
+
+    def _check_data_migration_idle(self):
+        lookup = getattr(self.context, "get_registered_star", None)
+        if not callable(lookup):
+            raise DataMigrationError("无法查询原插件状态，请检查 AstrBot 插件管理器")
+        source = lookup(SOURCE_PLUGIN)
+        if source is not None and getattr(source, "activated", True):
+            raise DataMigrationError("请先在插件管理中停用原插件，再导入资料")
+        config = self.service.config
+        if any(
+            (
+                config.auto.enabled,
+                config.auto.random_enabled,
+                config.auto.continuous_enabled,
+                config.wireguard.enabled,
+                config.traffic.enabled,
+            )
+        ):
+            raise DataMigrationError("请先关闭自主任务、WireGuard 和抓包，再导入资料")
+        active = getattr(self, "_active_agent_tasks", {})
+        contents = getattr(self.service, "_contents", None)
+        if (
+            self.device_gate.busy
+            or self.service.user_priority.active
+            or any(not item[0].done() for item in active.values())
+            or (contents is not None and contents.active)
+        ):
+            raise DataMigrationError("手机任务正在运行，请完成或停止任务后再导入资料")
+
+    def _reload_migrated_data(self):
+        for store in (
+            self.service.learning,
+            self.app_memory,
+            self.service.novelty,
+            self.telemetry,
+        ):
+            store._entries.clear()
+            store._load()
+
+    async def dashboard_data_migration_preview(self):
+        try:
+            query = plugin_main_module().request.query
+            option = query.get("include_keys", "false")
+            if option not in ("true", "false"):
+                raise DataMigrationError("密钥选项必须为 true 或 false")
+            plan = prepare_data_migration(
+                self._data_migration_inputs(),
+                PLUGIN_NAME,
+                include_keys=option == "true",
+            )
+            return json_response(plan.summary())
+        except (ConfigMigrationError, ValueError, OSError) as exc:
+            # 路径和格式错误只显示可预期文案，不回显资料内容。
+            message = (
+                str(exc)
+                if isinstance(exc, ConfigMigrationError)
+                else "无法读取迁移资料，请检查格式与文件权限"
+            )
+            return error_response(message, status_code=400)
+
+    async def dashboard_data_migration_apply(self):
+        try:
+            body = await plugin_main_module().request.json()
+            if (
+                not isinstance(body, dict)
+                or not isinstance(body.get("token"), str)
+                or not isinstance(body.get("include_keys", False), bool)
+            ):
+                raise DataMigrationError("请先预览资料，再确认导入")
+            if not hasattr(self, "_config_migration_lock"):
+                self._config_migration_lock = asyncio.Lock()
+            async with self._config_migration_lock:
+                self._check_data_migration_idle()
+                async with AsyncExitStack() as locks:
+                    await locks.enter_async_context(self.diary._lock)
+                    await locks.enter_async_context(image_library(self.service).lock)
+                    await locks.enter_async_context(self.service.experiences.lock)
+                    self._check_data_migration_idle()
+                    # 后续文件事务为同步操作，事件循环内不会交错写入；线程存储锁同时保护缓存。
+                    with ExitStack() as threads:
+                        for store in (
+                            self.service.learning,
+                            self.app_memory,
+                            self.service.novelty,
+                            self.telemetry,
+                        ):
+                            threads.enter_context(store._lock)
+                        plan = apply_data_migration(
+                            self._data_migration_inputs(),
+                            PLUGIN_NAME,
+                            body["token"],
+                            include_keys=body.get("include_keys", False),
+                            reload=self._reload_migrated_data,
+                        )
+                result = plan.summary()
+                result["message"] = (
+                    f"已导入 {len(plan.writes)} 个资料文件，缓存已刷新；当前记录与原插件资料保持完整"
+                )
+                return json_response(result)
+        except ConfigMigrationError as exc:
+            return error_response(str(exc), status_code=400)
+        except (ValueError, OSError):
+            return error_response("资料导入失败，请检查存储权限与格式", status_code=500)

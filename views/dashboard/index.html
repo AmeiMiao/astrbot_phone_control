@@ -19,7 +19,7 @@
           <button class="nav-item active" data-view="dashboard" type="button">监控面板</button>
           <button class="nav-item" data-view="learning" type="button">学习记录</button>
           <button class="nav-item" data-view="images" type="button">保存的图片</button>
-          <button class="nav-item" data-view="migration" type="button">配置迁移</button>
+          <button class="nav-item" data-view="migration" type="button">配置与数据迁移</button>
         </nav>
         <div class="sider-foot">
           <a
@@ -144,14 +144,26 @@
           <p class="hint">删除会移除图片库记录与服务端原图；手机相册副本由手机管理。仅存手机的图片需连接保存时使用的设备后查看。</p>
         </section>
         <section id="view-migration" class="view" hidden>
-          <header class="page-head"><div><h1>原插件配置迁移</h1><p class="subtitle">从 astrbot_phone_control 读取配置，只填充本插件仍为默认值的字段。</p></div></header>
+          <header class="page-head"><div><h1>原插件配置与数据迁移</h1><p class="subtitle">从 astrbot_phone_control 读取配置，只填充本插件仍为默认值的字段。</p></div></header>
           <div class="card">
             <p>先停用原插件，再使用本插件；两者的手机工具和指令服务同一类设备。原配置与原插件数据保持完整。导入前自动备份本插件配置，自定义字段保持当前值。</p>
-            <p>仅迁移配置，浏览档案、图片、记忆和设备密钥留在各自插件的数据目录中。</p>
+            <h2>配置迁移</h2>
             <button id="btn-migration-preview" class="btn ghost" type="button">预览原配置</button>
             <button id="btn-migration-apply" class="btn primary" type="button" disabled>确认导入</button>
             <p id="migration-status" role="status">预览后可查看待导入与保留的字段名，配置值不会在此显示。</p>
             <pre id="migration-fields" style="white-space:pre-wrap"></pre>
+          </div>
+          <div class="card">
+            <h2>持久化数据迁移</h2>
+            <p>合并日记、聊天记忆、学习档案、App 经验、兴趣状态、互动/用量/指标及内容任务历史，并复制截图和保存的图片。相同记录去重，冲突时保留本插件当前记录；截图重名时单独保存原图。图片路径自动指向本插件目录。</p>
+            <p>导入前停用原插件，关闭本插件自主任务、WireGuard 与抓包，等待手机任务结束。导入前自动备份目标资料，成功后刷新内存；原文件保持完整。运行状态、任务预约、媒体缓存与外部知识库由各自模块管理。</p>
+            <label><input id="data-migration-keys" type="checkbox">同时补充缺失的 ADB / WireGuard 设备密钥（已有密钥保持当前值）</label>
+            <div class="toolbar">
+              <button id="btn-data-migration-preview" class="btn ghost" type="button">预览持久化数据</button>
+              <button id="btn-data-migration-apply" class="btn primary" type="button" disabled>确认导入数据</button>
+            </div>
+            <p id="data-migration-status" role="status">预览仅显示文件名、数量与体积，资料正文及密钥不会在此显示。</p>
+            <pre id="data-migration-files" style="white-space:pre-wrap"></pre>
           </div>
         </section>
       </main>
