@@ -542,12 +542,12 @@
     return el;
   }
 
-  function confirmAction(message) {
+  function confirmAction(message, confirmLabel = "确认删除") {
     return new Promise(resolve => {
       const previous = document.activeElement;
       const dialog = document.createElement("dialog");
       dialog.className = "confirm-dialog";
-      dialog.setAttribute("aria-label", "确认删除");
+      dialog.setAttribute("aria-label", confirmLabel);
       const text = document.createElement("p");
       text.textContent = message;
       const actions = document.createElement("div");
@@ -557,7 +557,7 @@
         if (previous?.isConnected) previous.focus();
         resolve(value);
       };
-      actions.append(button("取消", () => finish(false)), button("确认删除", () => finish(true)));
+      actions.append(button("取消", () => finish(false)), button(confirmLabel, () => finish(true)));
       dialog.append(text, actions);
       dialog.addEventListener("cancel", event => { event.preventDefault(); finish(false); });
       document.body.appendChild(dialog);
@@ -694,7 +694,7 @@
 
   async function applyMigration() {
     if (!state.migrationToken) return;
-    if (!await confirmAction("导入预览中的原插件配置？自定义设置保持当前值，原插件文件保持完整。导入后将按新配置连接设备并调整后台任务。")) return;
+    if (!await confirmAction("导入预览中的原插件配置？自定义设置保持当前值，原插件文件保持完整。导入后将按新配置连接设备并调整后台任务。", "确认导入")) return;
     $("btn-migration-apply").disabled = true;
     try {
       const result = await state.bridge.apiPost("dashboard/config-migration", { token: state.migrationToken });
