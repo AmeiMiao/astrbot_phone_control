@@ -176,6 +176,12 @@ from .shared import (
 )
 
 from ..service import PhoneService
+from ..semantic import SemanticIndex
+from ..semantic_recall import (
+    SemanticEmbeddingResolver,
+    SemanticMaintainer,
+    SemanticReader,
+)
 from ..verification_controller import PhoneVerification
 from .compat import plugin_main_module
 
@@ -406,6 +412,23 @@ class BootstrapMixin:
         self.app_memory = AppMemoryStore(self.data_dir)
         self.service.app_memory = self.app_memory
         self.service.memory_sync_hook = self._sync_memory
+        # 聊天语义找回：本地向量索引 + 后台维护。读路径只持有索引/Provider/配置，
+        # 不持有 service，普通聊天因此不会触碰 ADB、设备或手机后台任务。
+        self.semantic_index = SemanticIndex(self.data_dir / "semantic")
+        self.semantic_resolver = SemanticEmbeddingResolver(self.context)
+        self.semantic_reader = SemanticReader(
+            self.semantic_index,
+            self.semantic_resolver,
+            lambda: self.service.config.recall,
+        )
+        self.semantic_maintainer = SemanticMaintainer(
+            index=self.semantic_index,
+            resolver=self.semantic_resolver,
+            config_getter=lambda: self.service.config,
+            data_dir=self.data_dir,
+        )
+        self.service.semantic_refresh_hook = self.semantic_maintainer.request_refresh
+        self._semantic_task: asyncio.Task | None = None
         # 插件加载时立即按配置清理一次残留截图（可能已占 GB 级磁盘）。
         try:
             self.service.cleanup_screenshots(force=True)
@@ -498,6 +521,9 @@ class BootstrapMixin:
             ])
             LIVE_PLUGIN_INSTANCES.add(self)
             self._live_instance_registered = True
+        # 语义索引维护放在设备相关初始化之前：假开启（未配置 ADB）时也按配置
+        # 后台建索引；任务本身只读本地档案，不阻塞 initialize。
+        self._start_semantic_maintenance()
         if not self.service.configured:
             logger.warning(
                 "未配置 ADB 地址/端口，插件保持未启用状态："
@@ -548,6 +574,26 @@ class BootstrapMixin:
         # 实时屏幕不常驻：等玩手机/后台任务会话第一次调用手机工具时再懒启动。
         logger.debug("实时屏幕：未启动（仅在任务运行期间按需启动）")
 
+    def _start_semantic_maintenance(self) -> None:
+        """启动聊天语义找回的后台索引维护任务。
+
+        只在 ``recall.enabled`` 时启动；后台任务先空闲再构建索引，不阻塞插件
+        初始化，也不受 ADB 是否配置影响。重复调用幂等。
+        """
+        maintainer = getattr(self, "semantic_maintainer", None)
+        if maintainer is None:
+            return
+        try:
+            if not self.service.config.recall.enabled:
+                return
+        except Exception as exc:  # noqa: BLE001 - 配置异常时不启动维护任务
+            logger.debug("读取 recall 配置失败，跳过语义索引维护：%s", exc)
+            return
+        task = getattr(self, "_semantic_task", None)
+        if task is not None and not task.done():
+            return
+        self._semantic_task = maintainer.start()
+
     async def terminate(self) -> None:
         """插件停用/重载：停止后台任务并释放 adb 子进程资源（幂等）。"""
         if getattr(self, "_terminated", False):
@@ -562,6 +608,14 @@ class BootstrapMixin:
 
     async def _terminate_impl(self) -> None:
         """终止流程实现：取消后台任务、恢复设备状态并关闭资源。"""
+        # 语义索引维护只读写插件数据目录：先取消，避免停用过程中继续后台构建。
+        maintainer = getattr(self, "semantic_maintainer", None)
+        self._semantic_task = None
+        if maintainer is not None:
+            try:
+                await maintainer.stop()
+            except Exception as exc:  # noqa: BLE001 - 停用收尾失败只记录
+                logger.warning("停止语义索引维护失败：%s", exc)
         resources = [getattr(self, "_traffic", None), getattr(self, "_wireguard", None),
                      getattr(self, "_media_capture", None)]
         manager = getattr(self, "backends", None)

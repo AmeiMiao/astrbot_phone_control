@@ -187,6 +187,7 @@ from .core.plugin.shared import (
     _build_guidance,
 )
 from .core.service import PhoneService
+from .core.semantic import RECALL_MARKER
 from .core.plugin.config_migration import ConfigMigrationMixin
 from .core.verification_controller import PhoneVerification
 
@@ -600,3 +601,67 @@ class PhoneControlPlugin(
             parts.append(TextPart(text=section).mark_as_temp())
         except Exception as exc:  # noqa: BLE001 - 提示词注入失败不应影响对话
             logger.warning("注入手机能力提示词失败：%s", exc)
+
+    @filter.on_llm_request()
+    async def inject_semantic_recall(self, event: AstrMessageEvent, req: Any) -> None:
+        """按聊天语义找回历史记忆并注入本轮临时内容块。
+
+        与 ``inject_phone_guidance`` 完全独立：只读本地向量索引并计算一次查询
+        embedding，不登记用户任务、不计费、不预热 scrcpy/ADB、不创建后台任务；
+        未配置 ADB 的假开启状态同样可用。任何超时/异常都静默降级，不影响对话。
+        """
+        try:
+            config = self._config()
+            if not config.recall.enabled:
+                return
+            # 只处理普通聊天：cron/后台/自主任务不注入。
+            if str(event.get_platform_name() or "").lower() == "cron":
+                return
+            try:
+                if self.service.is_task_session(event):
+                    return
+            except Exception:  # noqa: BLE001 - 无法判定的会话按任务处理，宁可不注入
+                return
+            if event.get_extra("cron_payload"):
+                return
+            try:
+                denied = check_admin_permission(event, config)
+            except Exception:  # noqa: BLE001 - 权限判定异常按未授权处理
+                denied = "error: 无法校验手机操作权限"
+            if denied:
+                return
+            message_type = None
+            try:
+                message_type = event.get_message_type()
+            except Exception:  # noqa: BLE001 - 鸭子类型事件没有消息类型
+                message_type = None
+            if getattr(message_type, "name", "") == "GROUP_MESSAGE":
+                # 手机记忆属于个人数据：默认只在私聊注入，避免泄露到群聊。
+                return
+            query = str(event.get_message_str() or "").strip()
+            if not query:
+                # 语音/图片等消息可能没有文本，回退到本轮请求文本。
+                query = str(getattr(req, "prompt", "") or "").strip()
+            if not query or query.startswith("/"):
+                return
+            reader = getattr(self, "semantic_reader", None)
+            if reader is None:
+                return
+            parts = getattr(req, "extra_user_content_parts", None)
+            if parts is None:
+                parts = []
+                try:
+                    req.extra_user_content_parts = parts
+                except Exception:  # noqa: BLE001 - 鸭子类型请求不可写时跳过注入
+                    return
+            for part in parts:
+                text = part if isinstance(part, str) else getattr(part, "text", "")
+                if text and RECALL_MARKER in str(text):
+                    return
+            section = await reader.render(query)
+            if not section:
+                return
+            # 动态内容不写 system_prompt（会破坏前缀缓存），且不持久化到会话历史。
+            parts.append(TextPart(text=section).mark_as_temp())
+        except Exception as exc:  # noqa: BLE001 - 找回失败绝不影响对话
+            logger.debug("聊天语义找回注入失败（本轮跳过）：%s", exc)

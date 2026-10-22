@@ -110,6 +110,16 @@ DEFAULT_LIVE_SCREEN_IDLE_STOP_SECONDS = 90
 MEMORY_BACKENDS = ("local", "companion", "livingmemory", "companion+livingmemory")
 DEFAULT_MEMORY_BACKEND = "local"
 DEFAULT_MEMORY_COMPANION_USER_ID = ""
+# 聊天语义找回（recall 卡片）：本地向量索引 + Embedding Provider。
+DEFAULT_RECALL_ENABLED = False
+DEFAULT_RECALL_EMBEDDING_PROVIDER_ID = ""
+DEFAULT_RECALL_TOP_K = 5
+DEFAULT_RECALL_MIN_SCORE = 0.25
+DEFAULT_RECALL_MAX_CHARS = 1200
+DEFAULT_RECALL_INDEX_MAX_DOCS = 2000
+DEFAULT_RECALL_DOC_CHARS = 300
+DEFAULT_RECALL_TIMEOUT_SECONDS = 3
+DEFAULT_RECALL_REFRESH_MINUTES = 10
 DEFAULT_OCR_PROVIDER_ID = ""
 DEFAULT_OCR_TIMEOUT_SECONDS = 30
 DEFAULT_WAIT_DEFAULT_SECONDS = 2.0
@@ -487,6 +497,25 @@ class MemorySettings:
 
 
 @dataclass(frozen=True)
+class RecallSettings:
+    """聊天语义找回：把本地学习档案/浏览日记/App 经验建成向量索引，普通聊天按语义注入。"""
+
+    enabled: bool = DEFAULT_RECALL_ENABLED
+    embedding_provider_id: str = DEFAULT_RECALL_EMBEDDING_PROVIDER_ID
+    """留空时自动选择 AstrBot 已配置的 Embedding Provider。"""
+    top_k: int = DEFAULT_RECALL_TOP_K
+    min_score: float = DEFAULT_RECALL_MIN_SCORE
+    max_chars: int = DEFAULT_RECALL_MAX_CHARS
+    index_max_docs: int = DEFAULT_RECALL_INDEX_MAX_DOCS
+    doc_chars: int = DEFAULT_RECALL_DOC_CHARS
+    timeout_seconds: int = DEFAULT_RECALL_TIMEOUT_SECONDS
+    refresh_minutes: int = DEFAULT_RECALL_REFRESH_MINUTES
+    include_diary: bool = True
+    include_learning: bool = True
+    include_app_experience: bool = True
+
+
+@dataclass(frozen=True)
 class VerificationSettings:
     """验证/做题页面的自动尝试上限与人工协助策略。"""
 
@@ -625,6 +654,7 @@ class PhoneConfig:
     wireguard: WireGuardSettings = field(default_factory=WireGuardSettings)
     prompt: PromptSettings = field(default_factory=PromptSettings)
     novelty: NoveltySettings = field(default_factory=NoveltySettings)
+    recall: RecallSettings = field(default_factory=RecallSettings)
     debug: DebugSettings = field(default_factory=DebugSettings)
 
     @classmethod
@@ -1574,6 +1604,96 @@ class PhoneConfig:
 
         novelty = novelty_settings_from_raw(card("novelty"), source, warn_fn)
 
+        recall_card = card("recall")
+        recall = RecallSettings(
+            enabled=_as_bool(
+                _pick(recall_card, source, "enabled"),
+                DEFAULT_RECALL_ENABLED,
+                "recall.enabled",
+                warn_fn,
+            ),
+            embedding_provider_id=_as_str(
+                _pick(recall_card, source, "embedding_provider_id"),
+                DEFAULT_RECALL_EMBEDDING_PROVIDER_ID,
+                "recall.embedding_provider_id",
+                warn_fn,
+            ),
+            top_k=_as_int(
+                _pick(recall_card, source, "top_k"),
+                DEFAULT_RECALL_TOP_K,
+                "recall.top_k",
+                warn_fn,
+                minimum=1,
+                maximum=20,
+            ),
+            min_score=_as_float(
+                _pick(recall_card, source, "min_score"),
+                DEFAULT_RECALL_MIN_SCORE,
+                "recall.min_score",
+                warn_fn,
+                minimum=0.0,
+                maximum=1.0,
+            ),
+            max_chars=_as_int(
+                _pick(recall_card, source, "max_chars"),
+                DEFAULT_RECALL_MAX_CHARS,
+                "recall.max_chars",
+                warn_fn,
+                minimum=100,
+                maximum=8000,
+            ),
+            index_max_docs=_as_int(
+                _pick(recall_card, source, "index_max_docs"),
+                DEFAULT_RECALL_INDEX_MAX_DOCS,
+                "recall.index_max_docs",
+                warn_fn,
+                minimum=10,
+                maximum=50000,
+            ),
+            doc_chars=_as_int(
+                _pick(recall_card, source, "doc_chars"),
+                DEFAULT_RECALL_DOC_CHARS,
+                "recall.doc_chars",
+                warn_fn,
+                minimum=50,
+                maximum=2000,
+            ),
+            timeout_seconds=_as_int(
+                _pick(recall_card, source, "timeout_seconds"),
+                DEFAULT_RECALL_TIMEOUT_SECONDS,
+                "recall.timeout_seconds",
+                warn_fn,
+                minimum=1,
+                maximum=30,
+            ),
+            refresh_minutes=_as_int(
+                _pick(recall_card, source, "refresh_minutes"),
+                DEFAULT_RECALL_REFRESH_MINUTES,
+                "recall.refresh_minutes",
+                warn_fn,
+                minimum=0,
+                maximum=1440,
+            ),
+            include_diary=_as_bool(
+                _pick(recall_card, source, "include_diary"),
+                True,
+                "recall.include_diary",
+                warn_fn,
+            ),
+            include_learning=_as_bool(
+                _pick(recall_card, source, "include_learning"),
+                True,
+                "recall.include_learning",
+                warn_fn,
+            ),
+            include_app_experience=_as_bool(
+                _pick(recall_card, source, "include_app_experience"),
+                True,
+                "recall.include_app_experience",
+                warn_fn,
+            ),
+        )
+
         return cls(
             adb=adb,
             security=security,
@@ -1590,5 +1710,6 @@ class PhoneConfig:
             wireguard=wireguard,
             prompt=prompt,
             novelty=novelty,
+            recall=recall,
             debug=debug,
         )

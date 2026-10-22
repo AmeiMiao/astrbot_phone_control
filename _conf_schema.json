@@ -628,6 +628,85 @@
       }
     }
   },
+  "recall": {
+    "type": "object",
+    "description": "聊天语义找回",
+    "hint": "把学习档案、浏览日记与 App 使用经验建成插件本地向量索引；普通聊天按当前消息语义检索相关记忆，以临时内容块注入本轮请求。只读本地记忆，不连接手机、不触发手机后台任务；找不到 Embedding Provider 或检索失败时自动跳过。需先在 AstrBot 配置 Embedding Provider。",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "启用聊天语义找回",
+        "hint": "默认关闭；开启后插件空闲时在后台建立/增量更新索引，普通聊天按语义注入相关记忆。只对授权用户的私聊生效，任务/定时/群聊不注入。"
+      },
+      "embedding_provider_id": {
+        "type": "string",
+        "default": "",
+        "description": "Embedding Provider ID",
+        "hint": "留空自动选择 AstrBot 已配置的 Embedding Provider（若存在默认标记则优先使用默认）；填写后按 ID 精确匹配。找不到 Provider 时禁用找回并在日志记录一次警告。"
+      },
+      "top_k": {
+        "type": "int",
+        "default": 5,
+        "description": "注入记忆条数上限",
+        "hint": "1-20，默认 5；只注入相似度达到 min_score 的条目。"
+      },
+      "min_score": {
+        "type": "float",
+        "default": 0.25,
+        "description": "最小余弦相似度",
+        "hint": "0-1，默认 0.25；越高越严格，越低越容易注入弱相关记忆。"
+      },
+      "max_chars": {
+        "type": "int",
+        "default": 1200,
+        "description": "注入文本字符上限",
+        "hint": "100-8000，默认 1200；控制普通聊天新增的上下文体积。"
+      },
+      "index_max_docs": {
+        "type": "int",
+        "default": 2000,
+        "description": "索引最多文档数",
+        "hint": "10-50000，默认 2000；超出按时间淘汰最旧文档。"
+      },
+      "doc_chars": {
+        "type": "int",
+        "default": 300,
+        "description": "单条文档字符上限",
+        "hint": "50-2000，默认 300；学习内容本身最多 500 字，日记/经验会截断后入库。"
+      },
+      "timeout_seconds": {
+        "type": "int",
+        "default": 3,
+        "description": "查询超时秒数",
+        "hint": "1-30，默认 3；读取索引与查询 embedding 超时即跳过本轮找回，不影响聊天。"
+      },
+      "refresh_minutes": {
+        "type": "int",
+        "default": 10,
+        "description": "后台增量检查间隔（分钟）",
+        "hint": "0=仅在写入学习/日记与插件启动后检查；默认 10。普通聊天永远不触发索引构建。"
+      },
+      "include_diary": {
+        "type": "bool",
+        "default": true,
+        "description": "索引浏览日记",
+        "hint": "把浏览日记的 App/标题/正文/摘要/备注纳入索引。"
+      },
+      "include_learning": {
+        "type": "bool",
+        "default": true,
+        "description": "索引学习档案",
+        "hint": "把 phone_learn 写入的学习记录纳入索引。"
+      },
+      "include_app_experience": {
+        "type": "bool",
+        "default": true,
+        "description": "索引 App 使用经验",
+        "hint": "纳入插件本地 app_memory.json 的 App 使用经验；App 经验选择知识库后端时不读写知识库（普通聊天不访问知识库）。"
+      }
+    }
+  },
   "perception": {
     "type": "object",
     "description": "屏幕感知",
