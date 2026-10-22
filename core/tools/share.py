@@ -34,7 +34,9 @@ class PhoneShareToUserTool(_PhoneToolBase):
         "从最近抓包提取）；复制链接后用 phone_clipboard 读取。"
         "content_type=post（默认）附图前自动回到帖子顶部并确认，不能直接复用中途截图；"
         "视频传 video、其他画面传 screen，保留当前画面。拿不到链接时自动附图。"
-        "同一内容只发一次、短时间不要刷屏（建议每轮不超过 3 条，默认静默）。"
+        "同一内容只发一次、短时间不要刷屏（建议每轮不超过 3 条，默认静默）；"
+        "自刷/随机/持续刷对同一目标会话还有冷却（auto.share_cooldown_minutes，默认 30 分钟），"
+        "冷却内会被拒绝，不要反复重试。"
         "自刷/随机/持续刷任务必须先 phone_recent_chat 看最近群聊/私聊在聊什么，"
         "再按对方喜好选择具体 target（不要用固定目标）；未先查聊天记忆会被拒绝。"
         "私聊只能分享给最近有交流的用户；白天时段外（默认 08:00–22:00 中国时区）"
@@ -137,6 +139,16 @@ class PhoneShareToUserTool(_PhoneToolBase):
                 "error: 分享前必须先调用 phone_recent_chat 查看最近聊天记忆，再按群/人的"
                 "喜好选择具体分享对象；不要用固定或无依据的目标"
             )
+        # 同一目标会话的主动分享冷却：避免自刷任务反复给同一个人/群发内容刷屏。
+        if autonomous:
+            remaining = self.service.share_cooldown_remaining(target)
+            if remaining > 0:
+                minutes = max(1, (remaining + 59) // 60)
+                return (
+                    f"error: 距上次向该会话分享不足冷却时长（还需约 {minutes} 分钟，"
+                    "间隔由 auto.share_cooldown_minutes 配置）；本轮不要反复尝试，"
+                    "保持静默收尾即可。"
+                )
         # 抓包优先：模型没给链接时，自动从最近 flow 提取可分享链接（分享按钮触发的
         # 分享接口响应通常带有 share_url/jump_url）。优先匹配当前前台 App 的流量，
         # 避免把其他 App 的链接误当成当前内容的分享链接。
@@ -204,6 +216,8 @@ class PhoneShareToUserTool(_PhoneToolBase):
             return f"error: 分享失败：{exc}"
         if not sent:
             return f"error: 分享失败：没有找到目标会话 {target}"
+        if autonomous:
+            self.service.record_share(target)
         if target == str(getattr(event, "unified_msg_origin", "") or "").strip():
             event.set_extra("phone_shared_current_run", True)
         forms: list[str] = []

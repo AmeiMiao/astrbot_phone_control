@@ -21,6 +21,11 @@ DEFAULT_SHARE_START_HOUR = 8
 DEFAULT_SHARE_END_HOUR = 22
 DEFAULT_USER_RECENT_HOURS = 24
 MIN_USER_RECENT_HOURS = 1
+# 同一目标会话两次主动分享的最小间隔（分钟）；0=不限制。
+DEFAULT_SHARE_COOLDOWN_MINUTES = 30
+MAX_SHARE_COOLDOWN_MINUTES = 1440
+SHARE_STATE_FILENAME = "share_state.json"
+MAX_SHARE_STATE_TARGETS = 100
 _FALLBACK_TZ = timezone(timedelta(hours=8))
 
 
@@ -125,3 +130,93 @@ def is_recent_interaction(
     current = float(now) if now is not None else time.time()
     window = normalize_user_recent_hours(hours) * 3600
     return (current - value) <= window
+
+
+def normalize_share_cooldown_minutes(raw: Any) -> int:
+    """归一化分享冷却分钟数：默认 30，负数按 0，超过上限按上限收敛。"""
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_SHARE_COOLDOWN_MINUTES
+    if value < 0:
+        return 0
+    return min(MAX_SHARE_COOLDOWN_MINUTES, value)
+
+
+def share_cooldown_remaining_seconds(
+    last_ts: Any,
+    *,
+    minutes: Any = None,
+    now: float | None = None,
+) -> int:
+    """返回距离冷却结束还需等待的秒数（0=可分享）。"""
+    cooldown = normalize_share_cooldown_minutes(
+        DEFAULT_SHARE_COOLDOWN_MINUTES if minutes is None else minutes
+    )
+    if cooldown <= 0:
+        return 0
+    try:
+        last = float(last_ts)
+    except (TypeError, ValueError):
+        return 0
+    if last <= 0:
+        return 0
+    current = float(now) if now is not None else time.time()
+    remaining = cooldown * 60 - (current - last)
+    return max(0, int(remaining))
+
+
+def load_share_state(path: Any) -> dict[str, float]:
+    """读取按目标会话记录的上次分享时间；文件缺失/损坏时返回空表。"""
+    import json
+    from pathlib import Path
+
+    target = Path(path)
+    try:
+        raw = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    state: dict[str, float] = {}
+    for key, value in raw.items():
+        try:
+            ts = float(value)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(key, str) and key.strip() and ts > 0:
+            state[key.strip()] = ts
+    return state
+
+
+def save_share_state(path: Any, state: dict[str, float]) -> None:
+    """原子写入分享状态；失败静默忽略（冷却记录属于 best-effort）。"""
+    import json
+    import os
+    from pathlib import Path
+
+    target = Path(path)
+    items = sorted(
+        ((str(key), float(value)) for key, value in state.items() if value > 0),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:MAX_SHARE_STATE_TARGETS]
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(target.name + ".tmp")
+        temporary.write_text(
+            json.dumps(dict(items), ensure_ascii=False), encoding="utf-8"
+        )
+        os.replace(temporary, target)
+    except (OSError, TypeError, ValueError):
+        return
+
+
+def record_share(
+    state: dict[str, float], target: Any, *, ts: float | None = None
+) -> dict[str, float]:
+    """把一次成功分享写入状态表（原地更新并返回）。"""
+    key = str(target or "").strip()
+    if key:
+        state[key] = float(ts) if ts is not None else time.time()
+    return state

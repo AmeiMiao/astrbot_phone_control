@@ -59,10 +59,16 @@ from .plugin_shared import (
 from .scheduler import CONTINUOUS_JOB_ORIGIN
 from .scheduler import JOB_ORIGIN as AUTO_BROWSE_JOB_ORIGIN
 from .screenshot_cleanup import cleanup_directory
+from .play_flow import share_rule_text
 from .share_policy import (
+    SHARE_STATE_FILENAME,
     classify_session_umo,
     is_recent_interaction,
     is_share_window,
+    load_share_state,
+    record_share,
+    save_share_state,
+    share_cooldown_remaining_seconds,
     share_window_text,
 )
 from .task_priority import UserTaskPriority, should_yield_to_user
@@ -1695,6 +1701,30 @@ class PhoneService:
         )
         return allowed, window
 
+    # ---- 分享冷却（按目标会话） --------------------------------------
+
+    def _share_state_path(self) -> Path:
+        return self.data_dir / SHARE_STATE_FILENAME
+
+    def share_cooldown_remaining(self, target: str) -> int:
+        """距离上次向该目标分享还需等待的秒数（0=可分享）。"""
+        try:
+            minutes = self.config.auto.share_cooldown_minutes
+        except Exception:  # noqa: BLE001 - 配置读取失败按不限制处理
+            minutes = 0
+        state = load_share_state(self._share_state_path())
+        return share_cooldown_remaining_seconds(
+            state.get(str(target or "").strip()), minutes=minutes
+        )
+
+    def record_share(self, target: str) -> None:
+        """记录一次成功分享的目标时间（供按目标会话冷却）。"""
+        key = str(target or "").strip()
+        if not key:
+            return
+        state = load_share_state(self._share_state_path())
+        save_share_state(self._share_state_path(), record_share(state, key))
+
     def shareable_sessions(self, limit: int = 30) -> list[dict[str, Any]]:
         """可主动分享的会话：全部群聊 + 最近有交流的私聊用户。"""
         auto = self.config.auto
@@ -1742,7 +1772,7 @@ class PhoneService:
         return ""
 
     def share_policy_hint(self) -> str:
-        """给自刷/随机/持续刷提示词用的分享策略说明（目标由 AI 判断）。"""
+        """给自刷/随机/持续刷提示词用的分享策略说明（目标与冷却由配置约束）。"""
         auto = self.config.auto
         allowed, window = self.share_allowed_now()
         if auto.share_quiet_hours_enabled and not allowed:
@@ -1750,15 +1780,12 @@ class PhoneService:
                 f"\n分享：现在是免打扰时段（分享时段 {window}），本轮不要主动分享，"
                 "保持静默收尾即可。"
             )
+        text = share_rule_text(auto.share_cooldown_minutes)
         return (
-            "\n分享：看和分享是两次独立判断——先决定要不要点开/继续看（感兴趣只说明值得看，"
-            "不触发分享），看完后再单独判断是否值得分享；只有确实值得对方看才分享，且必须带"
-            "内容链接或截图（链接优先：App 分享按钮，或从 phone_traffic 响应的「可分享链接」"
-            "取 link；拿不到链接用 include_screenshot=true 截图），禁止纯文字；同一内容只发"
-            "一次、短时间别刷屏（建议每轮≤3 条）。分享目标由你根据最近聊天内容判断：先 "
-            "phone_recent_chat 看最近群聊/私聊在聊什么、喜欢什么，再决定分享到哪个群或哪个人，"
-            "不要使用固定目标；私聊只分享给最近有交流的用户（"
-            f"{auto.share_user_recent_hours} 小时内聊过），群聊按最近聊天内容选；"
+            "\n分享：" + text
+            + "分享目标由你根据最近聊天内容判断：先 phone_recent_chat 看最近群聊/私聊在聊什么、"
+            "喜欢什么，再决定分享到哪个群或哪个人，不要使用固定目标；私聊只分享给最近有交流"
+            f"的用户（{auto.share_user_recent_hours} 小时内聊过），群聊按最近聊天内容选；"
             f"当前处于分享时段 {window}。"
         )
 

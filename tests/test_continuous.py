@@ -87,6 +87,10 @@ def test_note_contains_required_rules():
     assert "phone_bypass_verify" in note
     # 读懂内容而不是无脑滑
     assert "无脑滑动" in note
+    # 行为流程：自己的兴趣优先，中途不感兴趣可退出，分享/互动放在结束后判断
+    assert "按自己的兴趣看" in note
+    assert "不感兴趣直接退出" in note
+    assert "分享/互动结束后再判断" in note
     assert "标题" in note and "正文" in note and "评论" in note
     # 每轮必须记录学习内容
     assert "必须至少调用一次 phone_learn" in note
@@ -100,7 +104,8 @@ def test_note_contains_required_rules():
     assert "静默" in note
     assert "10–30 分钟" in note
     assert "如实" in note
-    assert len(note) <= 600
+    # 提示词保持简短：行为流程改写后上限放宽到 720 字符
+    assert len(note) <= 720
 
 
 def test_note_has_no_history_narrative_by_default():
@@ -115,7 +120,8 @@ def test_note_budget_and_apps():
     )
     assert "本轮预算 12000 tokens" in note
     assert "抖音、哔哩哔哩" in note
-    assert len(note) <= 600
+    # 提示词保持简短：行为流程改写后上限放宽到 720 字符
+    assert len(note) <= 720
     # 预算关闭时不出预算提示；非法预算也不抛异常
     assert "预算" not in build_continuous_note(target_tokens=0)
     assert "预算" not in build_continuous_note(target_tokens=-5)

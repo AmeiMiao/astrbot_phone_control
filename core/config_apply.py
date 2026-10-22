@@ -96,6 +96,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "auto.share_end_hour",
         "auto.share_timezone",
         "auto.share_user_recent_hours",
+        "auto.share_cooldown_minutes",
         "auto.share_only_interesting",
         "auto.continuous_gap_seconds",
         "auto.continuous_target_tokens",

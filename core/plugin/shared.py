@@ -16,6 +16,7 @@ from ..plugin_shared import (
 )
 from ..config import PhoneConfig
 from ..identity import PLUGIN_NAME
+from ..play_flow import FLOW_RULE, share_cooldown_text
 from ..share_policy import share_window_text
 
 
@@ -79,12 +80,11 @@ _GUIDANCE = (
     "App 经验：打开 App/读取屏幕后会自动按当前 App、当前页面召回经验，按召回内容操作；界面与经验不符或操作报错说明经验可能失效，先重新探索，再用 phone_app_remember 覆盖更新（成功后清除失效标记）。\n"
     "内容任务：图文打开前begin，视频确认起点后begin；phone_content 分段read、独立决定续看/看评论/回复，完成finish。看评论不等于回复。\n"
     "任务优先：用户手机任务优先于 AI 自刷/随机/后台任务；自刷被暂停时立即收尾让路。\n"
-    "看与分享：看和分享是两次独立判断——先决定是否点开/继续看（感兴趣只说明值得看，"
-    "不触发分享），看完后再单独判断是否值得分享；只有确实值得对方看才 phone_share_to_user，"
-    "且必须带内容链接或截图（链接优先：App 分享按钮或 phone_traffic 的「可分享链接」；"
-    "复制链接后用 phone_clipboard 读取；拿不到链接必须 include_screenshot=true），禁止只发文字；"
-    "帖子默认 content_type=post 回顶后截图，视频传 video、当前画面传 screen；分享目标先 phone_recent_chat "
-    "看最近聊天再按对方喜好选择。\n"
+    "看与分享：" + FLOW_RULE + "看和分享是两次独立判断（先决定看不看、看完再判断分不分享），"
+    "只有确实值得对方看才 phone_share_to_user，且必须带内容链接或截图（链接优先：App 分享按钮"
+    "或 phone_traffic 的「可分享链接」；复制链接后用 phone_clipboard 读取；拿不到链接必须 "
+    "include_screenshot=true），禁止纯文字；帖子默认 content_type=post 回顶后截图，视频传 "
+    "video、当前画面传 screen；分享目标先 phone_recent_chat 看最近聊天再按对方喜好选择。\n"
     "新鲜感：同类内容刷多了会看腻（novelty.* 可配，阈值 0=关闭）；提示词会列出已看腻/"
     "接近阈值的主题，刷到同类内容时降低打开/停留概率，优先换主题或换 App；一段时间不看"
     "会自然恢复。\n"
@@ -140,12 +140,14 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
         )
         quiet = bool(auto.share_quiet_hours_enabled)
         parts.append(
-            "分享：看和分享分开判断——先决定要不要点开/继续看，看完后再单独判断是否值得分享，"
-            "不要因为感兴趣就同时看+分享；分享必须带链接或截图（链接优先：App 分享按钮，或从 "
-            "phone_traffic 的「可分享链接」取 link；拿不到链接用 include_screenshot=true 截图），"
-            "禁止纯文字；同一内容只发一次、短时间别刷屏。目标由你根据 phone_recent_chat 的最近"
-            "聊天内容自己判断（群聊按聊天内容，私聊只分享给最近"
-            f"有交流的用户，{auto.share_user_recent_hours} 小时内聊过），不要用固定目标；"
+            "分享：" + FLOW_RULE
+            + "看和分享是两次独立判断（先决定看不看、看完再单独判断分不分享）；"
+            "分享必须带链接或截图（链接优先：App 分享按钮，或从 phone_traffic 的"
+            "「可分享链接」取 link；拿不到链接用 include_screenshot=true 截图），"
+            "禁止纯文字；同一内容只发一次、每轮≤3 条不刷屏；"
+            + share_cooldown_text(auto.share_cooldown_minutes)
+            + "目标由你根据 phone_recent_chat 的最近聊天内容自己判断（群聊按聊天内容，私聊只分享给"
+            f"最近有交流的用户，{auto.share_user_recent_hours} 小时内聊过），不要用固定目标；"
             + (
                 f"分享时段 {window}，其余时间为免打扰，自刷任务不主动分享。"
                 if quiet

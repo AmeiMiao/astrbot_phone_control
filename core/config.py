@@ -45,6 +45,7 @@ from .media import (
     MIN_SECONDS as MEDIA_MIN_SECONDS,
 )
 from .share_policy import (
+    DEFAULT_SHARE_COOLDOWN_MINUTES,
     DEFAULT_SHARE_END_HOUR,
     DEFAULT_SHARE_START_HOUR,
     DEFAULT_SHARE_TIMEZONE,
@@ -447,6 +448,8 @@ class AutoSettings:
     share_end_hour: int = DEFAULT_SHARE_END_HOUR
     share_timezone: str = DEFAULT_SHARE_TIMEZONE
     share_user_recent_hours: int = DEFAULT_USER_RECENT_HOURS
+    share_cooldown_minutes: int = DEFAULT_SHARE_COOLDOWN_MINUTES
+    """同一目标会话两次主动分享的最小间隔（分钟，0=不限制）。"""
     random_enabled: bool = True
     random_interval_min: int = DEFAULT_RANDOM_INTERVAL_MIN
     random_interval_max: int = DEFAULT_RANDOM_INTERVAL_MAX
@@ -1316,6 +1319,14 @@ class PhoneConfig:
                 "auto.share_user_recent_hours",
                 warn_fn,
                 minimum=1,
+            ),
+            share_cooldown_minutes=_as_int(
+                _pick(auto_card, source, "share_cooldown_minutes"),
+                DEFAULT_SHARE_COOLDOWN_MINUTES,
+                "auto.share_cooldown_minutes",
+                warn_fn,
+                minimum=0,
+                maximum=1440,
             ),
             random_enabled=_as_bool(
                 _pick(auto_card, source, "random_enabled"),

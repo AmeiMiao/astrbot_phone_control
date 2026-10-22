@@ -12,6 +12,8 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 
+from .play_flow import FLOW_RULE, share_rule_text
+
 MIN_INTERVAL_MINUTES = 1.0
 # 随机间隔不设上限（用户可配置任意低频率）
 DEFAULT_PROBABILITY = 0.5
@@ -69,13 +71,15 @@ def should_play(
 
 _MEMORY_SOURCES = (
     "你的情绪与喜好来自：你自己的人格设定、上次浏览/玩手机的回忆（phone_recall_diary）、"
-    "最近聊天里用户和群友的喜好（phone_recent_chat），以及环境里可用的长期记忆工具"
-    "（若有 recall_long_term_memory 可先回忆，结束时可 memorize_long_term_memory）。"
+    "以及环境里可用的长期记忆工具（若有 recall_long_term_memory 可先回忆，"
+    "结束时可 memorize_long_term_memory）。最近聊天（phone_recent_chat）用于结束后"
+    "判断分享/互动对象，不是你开始刷手机的动机。"
 )
 
 _INTERACTION_HINT = (
-    "若主人已开启评论/发帖且此刻心情合适，可先用 phone_interaction_gate 申请 1 次，"
-    "再自己用低层工具完成，结束后调用 phone_interaction_record 记录；每轮最多 1 条，不刷屏。"
+    "互动是内容看完/玩完后的独立判断：想评论/发帖/点赞时再申请名额——若主人已开启对应"
+    "开关，可先用 phone_interaction_gate 申请 1 次，再自己用低层工具完成，结束后调用"
+    " phone_interaction_record 记录；每轮最多 1 条，不刷屏。"
 )
 
 _CONCISE_REPLY = (
@@ -84,14 +88,14 @@ _CONCISE_REPLY = (
 )
 
 _SILENT_AND_SHARE = (
-    "默认保持静默：普通操作在后台连续进行，不要逐条汇报。看和分享是两次独立判断："
-    "先决定要不要点开/继续看（感兴趣只说明值得看，不触发分享），看完后再单独判断"
-    "是否值得分享；只有确实值得对方看才用 phone_share_to_user，且必须带内容链接或截图"
-    "（链接优先：App 分享按钮或 phone_traffic 的「可分享链接」；拿不到链接必须 "
-    "include_screenshot=true；复制链接后 phone_clipboard 读取），禁止只发文字；"
-    "每篇内容独立任务：图文点开前 phone_content begin；视频打开并确认起点后begin，read先理解正文或试看。感兴趣再decide continue并read续看。看评论前独立decide read_comments；想回复具体已读评论再decide reply_comment并申请互动名额，看评论不等于回复。点赞收藏可选且遵守权限，结束finish后再换内容。"
-    "帖子默认回顶截图，视频传 content_type=video、当前画面传 screen；分享目标先 phone_recent_chat 看最近聊天"
-    "再按对方喜好自己选，同一内容只发一次、短时间别刷屏。"
+    "默认保持静默：普通操作在后台连续进行，不要逐条汇报。"
+    + FLOW_RULE
+    + share_rule_text()
+    + "每篇内容独立任务：图文点开前 phone_content begin；视频打开并确认起点后begin，"
+    "read先理解正文或试看。感兴趣再decide continue并read续看。看评论前独立decide "
+    "read_comments；想回复具体已读评论再decide reply_comment并申请互动名额，"
+    "看评论不等于回复。点赞收藏可选且遵守权限，结束finish后再换内容。"
+    "帖子默认回顶截图，视频传 content_type=video、当前画面传 screen。"
 )
 
 
@@ -108,9 +112,9 @@ def build_play_note(
     novelty = str(novelty_hint or "").strip()
     return (
         "现在是你的自由活动时间：用手机自己决定玩什么、看什么，按人格与当下心情来。"
-        "先 phone_recent_chat 看看用户/群最近聊什么、喜欢什么，再 phone_list_apps 或"
-        "回桌面看图标决定玩哪个 App；不熟悉的界面用 phone_screen 边看边试"
-        "（实时页面可用 mode=image）。"
+        "先想你自己此刻想玩什么，再 phone_list_apps 或回桌面看图标决定玩哪个 App；"
+        "不熟悉的界面用 phone_screen 边看边试（实时页面可用 mode=image）。"
+        "结束后若要判断分享或互动，再 phone_recent_chat 看最近聊天与对方喜好。"
         + _MEMORY_SOURCES
         + _SILENT_AND_SHARE
         + (str(share_hint).strip() if str(share_hint or "").strip() else "")
@@ -158,10 +162,11 @@ def build_random_play_note(
         )
     note = (
         "现在是你的随机自由活动时间：用手机自己决定玩什么、看什么，按你自己的人格与"
-        "当下心情来就好。" + mood_hint + "先 phone_recent_chat 看看用户/群最近聊什么、喜欢什么；"
+        "当下心情来就好。" + mood_hint + "先想你自己此刻对什么感兴趣，"
         "再 phone_list_apps 看看装了哪些 App，或 phone_key home 回桌面再用 phone_screen "
         "看图标；也可以打开任意 App 自由探索（不限于预置画像），遇到不熟悉的界面就用 "
         "phone_screen 边看边试（实时页面可用 mode=image）。"
+        "结束后若要判断分享或互动，再 phone_recent_chat 看最近聊天与对方喜好。"
         "给自己一个预算：大约 5–10 次操作或 3–5 分钟就收尾；同一页面连续两次没有新内容"
         "就换 App 或结束，避免一直在同一页打转。"
         + _MEMORY_SOURCES
