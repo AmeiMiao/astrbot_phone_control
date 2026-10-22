@@ -11,6 +11,10 @@
 - 信息流浏览默认 App `browse.default_app` 默认留空：`/phone browse` 未指定 App 时从已安装第三方 App 中随机选一个，并在结果中显示选中项；`phone_browse` 工具 `app` 留空同样随机。
 - 图片保存配置从「信息流浏览」卡片移到独立的「图片保存」卡片（`image.auto_save_images` / `image.image_storage_location` / `image.save_images_both`）；旧版 `browse.*` 非默认值在插件加载时自动迁移并清理旧键，配置页不再显式选择。
 
+### Fixed
+
+- 修复 `/phone browse` 未指定 App 时随机选择逻辑缺少导入导致的指令失败。
+
 ## [0.1.4.10] - 2026-10-22
 
 ### Changed

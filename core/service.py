@@ -21,6 +21,7 @@ from .apps import (
     UNKNOWN_APP_HINT_TEMPLATE,
     app_label_for_package,
     parse_package_list,
+    pick_random_app,
     resolve_app,
     resolve_package,
 )
