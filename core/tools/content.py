@@ -173,6 +173,7 @@ class PhoneLearnTool(_PhoneToolBase):
         event = _event_of(context)
         attribution = self.service.learning_attribution(event)
         kind = str(attribution.get("kind") or "")
+        local_enabled = bool(self.service.config.memory.local_enabled)
         backend = self.service.config.memory.backend
         remote_enabled = wants_companion(backend) or wants_livingmemory(backend)
         companion_payload = (
@@ -205,9 +206,15 @@ class PhoneLearnTool(_PhoneToolBase):
                 else:
                     text += f"；已计入用户信息（{detail}）"
             elif kind == "autonomous":
-                text += "；自行唤醒学习不计入用户记忆，已保存在插件本地"
+                text += "；自行唤醒学习不计入用户记忆" + (
+                    "，已保存在插件本地" if local_enabled else "；本地存储已关闭，未保存"
+                )
             else:
-                text += f"；记忆插件同步失败（{detail or '未知原因'}），已保存在插件本地"
+                text += f"；记忆插件同步失败（{detail or '未知原因'}）" + (
+                    "，已保存在插件本地" if local_enabled else "，本地存储已关闭，未保存"
+                )
+        elif not local_enabled and not remote_enabled:
+            text += "；本地存储已关闭且未开启记忆插件同步，本条学习内容未保存"
         # 标记本轮确实记录了学习内容，供插件判断持续刷是否「有看有记」；
         # 打标失败不影响工具返回。
         try:

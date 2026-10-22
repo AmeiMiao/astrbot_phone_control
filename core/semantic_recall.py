@@ -576,6 +576,10 @@ class SemanticMaintainer:
         recall = getattr(config, "recall", None)
         if recall is None or not bool(getattr(recall, "enabled", False)):
             return False
+        # 本地存储关闭时不建索引：聊天找回只读插件本地档案。
+        memory = getattr(config, "memory", None)
+        if memory is not None and not bool(getattr(memory, "local_enabled", True)):
+            return False
         provider = self._resolver.resolve(recall.embedding_provider_id)
         if provider is None:
             return False

@@ -413,6 +413,9 @@ class PhoneControlPlugin(
             platform = str(event.get_platform_name() or "")
             if platform.lower() == "cron":
                 return
+            # 本地存储关闭后不再把聊天内容写入插件本地。
+            if not self._config().memory.local_enabled:
+                return
             message_type = event.get_message_type()
             is_group = getattr(message_type, "name", "") == "GROUP_MESSAGE"
             self.chat_memory.record(
@@ -572,16 +575,22 @@ class PhoneControlPlugin(
             # 浏览日志/学习档案/App 经验/新鲜感/验证状态属于手机活动记忆，
             # 只在手机任务或明确的手机请求里注入，普通对话不扩大上下文。
             if is_task or looks_like_phone:
-                if config.browse.auto_remember and config.prompt.diary_limit > 0:
+                local_memory = bool(config.memory.local_enabled)
+                if (
+                    local_memory
+                    and config.browse.auto_remember
+                    and config.prompt.diary_limit > 0
+                ):
                     diary_text = self.diary.render_for_prompt(config.prompt.diary_limit)
                     if diary_text:
                         sections.append(diary_text)
-                try:
-                    learning_text = self.service.learning.render_for_prompt(3)
-                except Exception:  # noqa: BLE001 - 学习档案读取失败不影响提示词
-                    learning_text = ""
-                if learning_text:
-                    sections.append(learning_text)
+                if local_memory:
+                    try:
+                        learning_text = self.service.learning.render_for_prompt(3)
+                    except Exception:  # noqa: BLE001 - 学习档案读取失败不影响提示词
+                        learning_text = ""
+                    if learning_text:
+                        sections.append(learning_text)
                 if config.prompt.app_memory_enabled and (config.prompt.app_memory_backend == "knowledge_base" or config.prompt.app_memory_limit > 0):
                     try:
                         app_memory_text = await self.service.experiences.render_for_prompt(
@@ -631,6 +640,9 @@ class PhoneControlPlugin(
         try:
             config = self._config()
             if not config.recall.enabled:
+                return
+            # 聊天语义找回只读插件本地记忆；本地存储关闭时不再注入。
+            if not config.memory.local_enabled:
                 return
             # 只处理普通聊天：cron/后台/自主任务不注入。
             if str(event.get_platform_name() or "").lower() == "cron":

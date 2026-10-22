@@ -1559,23 +1559,33 @@ class PhoneService:
         initiator_user_id: str = "",
         requested_by: str = "",
     ) -> str:
-        """记录一条学习内容（供持续刷/自主学习使用）。"""
-        try:
-            record = self.learning.record(
-                content=content,
-                source=source,
-                tags=tags if isinstance(tags, list) else [],
-                attribution=attribution,
-                origin=origin,
-                origin_detail=origin_detail,
-                initiator_user_id=initiator_user_id,
-                requested_by=requested_by,
-            )
-        except LearningError as exc:
-            raise ActionFailedError(str(exc)) from exc
-        total = len(self.learning.entries())
-        self.request_semantic_refresh()
-        snippet = str(record.get("content") or "")[:80]
+        """记录一条学习内容（供持续刷/自主学习使用）。
+
+        本地存储关闭时不再写入插件本地学习档案，只返回结果文案；调用方负责
+        判断是否还有 MemoryCompanion / LivingMemory 同步等远端去向。
+        """
+        local_enabled = bool(self.config.memory.local_enabled)
+        record: dict[str, Any] = {}
+        total = 0
+        if local_enabled:
+            try:
+                record = self.learning.record(
+                    content=content,
+                    source=source,
+                    tags=tags if isinstance(tags, list) else [],
+                    attribution=attribution,
+                    origin=origin,
+                    origin_detail=origin_detail,
+                    initiator_user_id=initiator_user_id,
+                    requested_by=requested_by,
+                )
+            except LearningError as exc:
+                raise ActionFailedError(str(exc)) from exc
+            total = len(self.learning.entries())
+            self.request_semantic_refresh()
+        snippet = str(record.get("content") or content or "")[:80]
+        if not local_enabled:
+            return f"本地存储已关闭，学习内容未写入插件本地：{snippet}"
         return f"已记录学习内容（累计 {total} 条）：{snippet}"
 
     def learning_attribution(self, event: Any) -> dict[str, str]:
@@ -1821,7 +1831,7 @@ class PhoneService:
         self._invalidate_ui_cache()
         if label and result.app == package:
             result.app = label
-        if remember and config.browse.auto_remember:
+        if remember and config.browse.auto_remember and config.memory.local_enabled:
             try:
                 round_info = current_round()
                 await self.diary.add_browse_async(

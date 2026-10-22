@@ -115,6 +115,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "prompt.app_memory_kb_name",
         "control.scrcpy.idle_stop_seconds",
         "debug.log_actions",
+        "memory.local_enabled",
         "memory.companion_enabled",
         "memory.livingmemory_enabled",
         "memory.companion_user_id",

@@ -111,6 +111,9 @@ DEFAULT_LIVE_SCREEN_FRAMES = 3
 DEFAULT_LIVE_SCREEN_IDLE_STOP_SECONDS = 90
 MEMORY_BACKENDS = ("local", "companion", "livingmemory", "companion+livingmemory")
 DEFAULT_MEMORY_BACKEND = "local"
+# 本地存储开关：关闭后学习档案/浏览日志/聊天记忆不再写入插件本地，
+# 依赖本地档案的聊天语义找回同时停用（配置卡片随条件隐藏）。
+DEFAULT_MEMORY_LOCAL_ENABLED = True
 DEFAULT_MEMORY_COMPANION_USER_ID = ""
 # 聊天语义找回（recall 卡片）：本地向量索引 + Embedding Provider。
 DEFAULT_RECALL_ENABLED = False
@@ -497,10 +500,13 @@ class ControlSettings:
 class MemorySettings:
     """记忆/学习内容的存储去向（本地插件 / MemoryCompanion / LivingMemory）。
 
-    本地档案始终写入；``companion_enabled`` 与 ``livingmemory_enabled``
-    独立控制是否额外同步到对应记忆插件，便于按条件显示相关配置项。
+    ``local_enabled`` 控制是否写入插件本地档案；``companion_enabled`` 与
+    ``livingmemory_enabled`` 独立控制是否额外同步到对应记忆插件，便于按条件
+    显示相关配置项。关闭本地存储时不再写学习档案/浏览日志/聊天记忆，依赖本地
+    档案的聊天语义找回同步停用。
     """
 
+    local_enabled: bool = DEFAULT_MEMORY_LOCAL_ENABLED
     companion_enabled: bool = False
     livingmemory_enabled: bool = False
     companion_user_id: str = DEFAULT_MEMORY_COMPANION_USER_ID
@@ -1541,6 +1547,12 @@ class PhoneConfig:
             companion_enabled = legacy_companion
             livingmemory_enabled = legacy_livingmemory
         memory = MemorySettings(
+            local_enabled=_as_bool(
+                _pick(memory_card, source, "local_enabled"),
+                DEFAULT_MEMORY_LOCAL_ENABLED,
+                "memory.local_enabled",
+                warn_fn,
+            ),
             companion_enabled=companion_enabled,
             livingmemory_enabled=livingmemory_enabled,
             companion_user_id=_as_str(

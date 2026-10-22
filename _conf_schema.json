@@ -554,20 +554,26 @@
   },
   "memory": {
     "description": "记忆存储",
-    "hint": "学习档案的存储去向：插件本地档案始终保留，可额外同步到 MemoryCompanion / LivingMemory。App 使用经验在提示词注入卡片选择独立存储位置。",
+    "hint": "选择记忆存放位置：插件本地保存学习档案、浏览日志与聊天记忆；关闭本地保存后不再写插件本地，可依靠 MemoryCompanion / LivingMemory 等记忆插件。聊天语义找回依赖本地记忆，本地保存关闭时一并停用并隐藏。",
     "type": "object",
     "items": {
+      "local_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "保存到插件本地",
+        "hint": "关闭后不再把学习档案、浏览日志与聊天记忆写入插件本地（已有本地文件不删除但不再读写）；聊天语义找回同时停用并隐藏。已开启的 MemoryCompanion / LivingMemory 同步不受影响。"
+      },
       "companion_enabled": {
         "type": "bool",
         "default": false,
         "description": "同步到 MemoryCompanion",
-        "hint": "开启后学习记录同步到 astrbot_plugin_memory_companion；插件本地档案始终保留。未开启时不显示绑定用户与「个人记忆-行动」配置。"
+        "hint": "开启后学习记录同步到 astrbot_plugin_memory_companion；未开启时不显示绑定用户与「个人记忆-行动」配置。"
       },
       "livingmemory_enabled": {
         "type": "bool",
         "default": false,
         "description": "同步到 LivingMemory",
-        "hint": "开启后学习记录写入 astrbot_plugin_livingmemory；插件本地档案始终保留。可与 MemoryCompanion 同时开启。"
+        "hint": "开启后学习记录写入 astrbot_plugin_livingmemory；可与 MemoryCompanion 同时开启。"
       },
       "companion_user_id": {
         "description": "记忆绑定用户 ID",
@@ -606,6 +612,9 @@
     "type": "object",
     "description": "聊天语义找回",
     "hint": "把学习档案、浏览日记与 App 使用经验建成插件本地向量索引；普通聊天按当前消息语义检索相关记忆，以临时内容块注入本轮请求。只读本地记忆，不连接手机、不触发手机后台任务；找不到 Embedding Provider 或检索失败时自动跳过。需先在 AstrBot 配置 Embedding Provider。",
+    "condition": {
+      "memory.local_enabled": true
+    },
     "items": {
       "enabled": {
         "type": "bool",
