@@ -526,7 +526,11 @@ class MemorySettings:
 
 @dataclass(frozen=True)
 class RecallSettings:
-    """聊天语义找回：把本地学习档案/浏览日记/App 经验建成向量索引，普通聊天按语义注入。"""
+    """聊天语义找回：把本地学习档案/浏览日志建成向量索引，普通聊天按语义注入。
+
+    App 使用经验使用独立索引与独立向量模型配置（见 ``PromptSettings``），
+    不再进入聊天找回索引。
+    """
 
     enabled: bool = DEFAULT_RECALL_ENABLED
     embedding_provider_id: str = DEFAULT_RECALL_EMBEDDING_PROVIDER_ID
@@ -540,7 +544,6 @@ class RecallSettings:
     refresh_minutes: int = DEFAULT_RECALL_REFRESH_MINUTES
     include_diary: bool = True
     include_learning: bool = True
-    include_app_experience: bool = True
 
 
 @dataclass(frozen=True)
@@ -591,8 +594,8 @@ class PromptSettings:
     diary_limit: int = 5
     app_memory_enabled: bool = True
     app_memory_limit: int = 5
-    app_memory_backend: str = "plugin"
-    app_memory_kb_name: str = ""
+    app_memory_embedding_provider_id: str = ""
+    """App 经验召回使用的向量模型 Provider ID；留空用默认 Embedding Provider。"""
 
 
 @dataclass(frozen=True)
@@ -1692,11 +1695,12 @@ class PhoneConfig:
                 "prompt.app_memory_enabled",
                 warn_fn,
             ),
-            app_memory_backend=_as_choice(
-                _pick(prompt_card, source, "app_memory_backend"),
-                "plugin", "prompt.app_memory_backend", warn_fn, ("plugin", "knowledge_base"),
+            app_memory_embedding_provider_id=_as_str(
+                _pick(prompt_card, source, "app_memory_embedding_provider_id"),
+                "",
+                "prompt.app_memory_embedding_provider_id",
+                warn_fn,
             ),
-            app_memory_kb_name=str(_pick(prompt_card, source, "app_memory_kb_name") or "").strip(),
             app_memory_limit=_as_int(
                 _pick(prompt_card, source, "app_memory_limit"),
                 5,
@@ -1798,12 +1802,6 @@ class PhoneConfig:
                 _pick(recall_card, source, "include_learning"),
                 True,
                 "recall.include_learning",
-                warn_fn,
-            ),
-            include_app_experience=_as_bool(
-                _pick(recall_card, source, "include_app_experience"),
-                True,
-                "recall.include_app_experience",
                 warn_fn,
             ),
         )

@@ -611,7 +611,7 @@
   "recall": {
     "type": "object",
     "description": "聊天语义找回",
-    "hint": "把学习档案、浏览日记与 App 使用经验建成插件本地向量索引；普通聊天按当前消息语义检索相关记忆，以临时内容块注入本轮请求。只读本地记忆，不连接手机、不触发手机后台任务；找不到 Embedding Provider 或检索失败时自动跳过。需先在 AstrBot 配置 Embedding Provider。",
+    "hint": "把学习档案与浏览日志建成插件本地向量索引；普通聊天按当前消息语义检索相关记忆，以临时内容块注入本轮请求。只读本地记忆，不连接手机、不触发手机后台任务；找不到 Embedding Provider 或检索失败时自动跳过。需先在 AstrBot 配置 Embedding Provider。App 使用经验使用独立索引与独立向量模型配置，不进入本索引。",
     "condition": {
       "memory.local_enabled": true
     },
@@ -711,15 +711,6 @@
         "condition": {
           "enabled": true
         }
-      },
-      "include_app_experience": {
-        "type": "bool",
-        "default": true,
-        "description": "索引 App 使用经验",
-        "hint": "纳入插件本地 app_memory.json 的 App 使用经验；App 经验选择知识库后端时不读写知识库（普通聊天不访问知识库）。",
-        "condition": {
-          "enabled": true
-        }
       }
     }
   },
@@ -737,37 +728,22 @@
         "type": "bool",
         "default": true,
         "description": "开启 App 使用经验记录",
-        "hint": "记录、查询与注入 App 布局及操作经验。"
+        "hint": "记录、查询与注入 App 布局及操作经验；经验只保存在插件本地，不需要选择存储位置。"
       },
-      "app_memory_backend": {
+      "app_memory_embedding_provider_id": {
         "type": "string",
-        "default": "plugin",
-        "description": "App 经验存储位置",
-        "options": [
-          "plugin",
-          "knowledge_base"
-        ],
+        "default": "",
         "condition": {
           "app_memory_enabled": true
         },
-        "hint": "plugin=插件档案；knowledge_base=AstrBot 知识库。记录与查询仅使用所选存储。"
-      },
-      "app_memory_kb_name": {
-        "type": "string",
-        "default": "",
-        "description": "AstrBot 知识库名称或 ID",
-        "condition": {
-          "app_memory_enabled": true,
-          "app_memory_backend": "knowledge_base"
-        },
-        "hint": "选择已有且配置好 Embedding Provider 的知识库。失败会返回具体错误，请先在 AstrBot 知识库页面创建并验证。"
+        "description": "App 经验向量模型（Embedding Provider ID）",
+        "hint": "用于操作前按当前 App/页面语义召回经验；留空自动使用 AstrBot 已配置的默认 Embedding Provider。未配置向量模型时按页面关键词与更新时间查找经验，不影响记录与操作。"
       },
       "app_memory_limit": {
         "type": "int",
         "default": 5,
         "condition": {
-          "app_memory_enabled": true,
-          "app_memory_backend": "plugin"
+          "app_memory_enabled": true
         },
         "description": "注入 App 经验条数上限",
         "hint": "提示词最多注入几个 App 的使用经验；默认 5；0=不注入。"

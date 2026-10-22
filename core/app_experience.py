@@ -1,9 +1,13 @@
-"""App 经验的唯一存储入口：插件档案或 AstrBot 知识库。"""
+"""App 经验的唯一存储入口：插件本地档案（``app_memory.json``）。
+
+App 操控经验只保存在插件数据目录，不再写 AstrBot 知识库，也没有存储位置选择。
+需要语义召回时由 :mod:`core.app_recall` 使用独立向量索引读取本档案；本模块同时
+负责自动总结后的待写队列、重试与索引刷新通知。
+"""
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
 import hashlib
 import json
 import time
@@ -11,7 +15,6 @@ import time
 from .app_memory import (
     AppMemoryEntry,
     AppMemoryError,
-    _entry_from_dict,
     _normalize_app,
     _normalize_note,
     _normalize_page,
@@ -32,150 +35,41 @@ class AppExperience:
         if not self.settings.app_memory_enabled:
             raise AppMemoryError("App 使用经验记录未开启")
 
-    async def helper(self):
-        self.require_enabled()
-        name = self.settings.app_memory_kb_name.strip()
-        if not name:
-            raise AppMemoryError("请在配置中选择 App 经验使用的 AstrBot 知识库")
-        manager = getattr(self.service.app_context, "kb_manager", None)
-        if manager is None:
-            raise AppMemoryError("AstrBot 知识库管理器不可用")
-        helper = await manager.get_kb_by_name(name)
-        if helper is None:
-            raise AppMemoryError(f"AstrBot 知识库不存在：{name}")
-        if getattr(helper, "init_error", ""):
-            raise AppMemoryError(f"AstrBot 知识库未就绪：{helper.init_error}")
-        return helper
+    def request_index_refresh(self) -> None:
+        """请求后台刷新 App 经验独立索引（只置位事件，不做 IO）。"""
+        hook = getattr(self.service, "app_recall_refresh_hook", None)
+        if not callable(hook):
+            return
+        try:
+            hook()
+        except Exception:  # noqa: BLE001 - 索引刷新失败不影响经验写入
+            pass
 
-    @staticmethod
-    def prefix(app=None):
-        return "phone-app-" + (
-            hashlib.sha256(app.encode()).hexdigest()[:20] + "-" if app else ""
-        )
-
-    async def documents(self, helper, app=None):
-        prefix = self.prefix(app)
-        result = []
-        offset = 0
-        while True:
-            docs = await helper.list_documents(offset=offset, limit=100, search=prefix)
-            result.extend(doc for doc in docs if doc.doc_name.startswith(prefix))
-            if len(docs) < 100:
-                return result
-            offset += len(docs)
-
-    async def read_entry(self, helper, doc):
-        chunks = await helper.get_chunks_by_doc_id(doc.doc_id, offset=0, limit=2)
-        if len(chunks) != 1:
-            raise AppMemoryError(f"App 经验文档结构异常：{doc.doc_name}")
-        entry = _entry_from_dict(json.loads(chunks[0]["content"]))
-        if entry is None:
-            raise AppMemoryError(f"App 经验文档内容异常：{doc.doc_name}")
-        return entry
+    # ---- 记录/查询/渲染（本地档案） ----------------------------------
 
     async def remember(self, **kwargs):
         self.require_enabled()
-        if self.settings.app_memory_backend == "plugin":
-            return self.service.app_memory.remember(**kwargs)
-        resolved = _normalize_app(kwargs.get("app"))
-        if resolved is None:
-            raise AppMemoryError("App 名称不能为空")
-        app, label = resolved
-        page = _normalize_page(kwargs.get("page"))
-        entry = AppMemoryEntry(
-            app=app,
-            label=label,
-            page=page,
-            note=_normalize_note(kwargs.get("note")),
-            steps=_normalize_steps(kwargs.get("steps")),
-            updated_at=time.time(),
-        )
-        name = (
-            self.prefix(app) + hashlib.sha256(page.encode()).hexdigest()[:20] + ".json"
-        )
-        async with self.lock:
-            helper = await self.helper()
-            old = [
-                doc for doc in await self.documents(helper, app) if doc.doc_name == name
-            ]
-            entries = [await self.read_entry(helper, doc) for doc in old]
-            entry = replace(
-                entry, version=max((e.version for e in entries), default=0) + 1
-            )
-            same = next(
-                (e for e in entries if e.note == entry.note and e.steps == entry.steps),
-                None,
-            )
-            if same is not None:
-                return same
-            content = json.dumps(entry.as_dict(), ensure_ascii=False)
-            await helper.upload_document(
-                file_name=name,
-                file_content=None,
-                file_type="json",
-                pre_chunked_text=[content],
-            )
-            for doc in old:
-                await helper.delete_document(doc.doc_id)
-            return entry
+        entry = self.service.app_memory.remember(**kwargs)
+        self.request_index_refresh()
+        return entry
 
     async def lookup(self, app, *, page="", limit=5):
         self.require_enabled()
-        if self.settings.app_memory_backend == "plugin":
-            return self.service.app_memory.lookup(app, page=page, limit=limit)
-        resolved = _normalize_app(app)
-        if resolved is None:
-            raise AppMemoryError("App 名称不能为空")
-        async with self.lock:
-            helper = await self.helper()
-            entries = [
-                await self.read_entry(helper, doc)
-                for doc in await self.documents(helper, resolved[0])
-            ]
-        latest = {}
-        for entry in sorted(
-            entries, key=lambda e: (e.version, e.updated_at), reverse=True
-        ):
-            if entry.app == resolved[0] and (not page or page in entry.page):
-                latest.setdefault(entry.page, entry)
-        return list(latest.values())[:limit]
-
-    @staticmethod
-    def render(entries, max_chars=900):
-        if not entries:
-            return ""
-        return (
-            "【App 使用经验】\n"
-            + "\n".join(
-                f"- {e.label} / {e.page or '通用'}：{e.note}；步骤：{' → '.join(e.steps)}"
-                for e in entries
-            )
-        )[:max_chars]
+        return self.service.app_memory.lookup(app, page=page, limit=limit)
 
     async def render_app(self, app, *, limit=2, max_chars=500):
         if not self.settings.app_memory_enabled:
             return ""
-        if self.settings.app_memory_backend == "plugin":
-            return self.service.app_memory.render_app(
-                app, limit=limit, max_chars=max_chars
-            )
-        return self.render(await self.lookup(app, limit=limit), max_chars)
+        return self.service.app_memory.render_app(app, limit=limit, max_chars=max_chars)
 
     async def render_for_prompt(self, *, limit=5, max_chars=900):
         if not self.settings.app_memory_enabled:
             return ""
-        if self.settings.app_memory_backend == "plugin":
-            return self.service.app_memory.render_for_prompt(
-                limit=limit, max_chars=max_chars
-            )
-        helper = await self.helper()
-        docs = await self.documents(helper)
-        entries = [await self.read_entry(helper, doc) for doc in docs]
-        entries.sort(key=lambda e: (e.updated_at, e.version), reverse=True)
-        unique = {}
-        for entry in entries:
-            unique.setdefault((entry.app, entry.page), entry)
-        return self.render(list(unique.values())[:limit], max_chars)
+        return self.service.app_memory.render_for_prompt(
+            limit=limit, max_chars=max_chars
+        )
+
+    # ---- 自动总结待写队列 ---------------------------------------------
 
     def queue_path(self):
         return self.service.data_dir / "experience_pending.json"
@@ -316,8 +210,6 @@ class AppExperience:
                         {
                             "fingerprint": fingerprint,
                             "entry": record,
-                            "backend": self.settings.app_memory_backend,
-                            "kb": self.settings.app_memory_kb_name,
                             "attempts": 0,
                             "retry_at": 0,
                         }
@@ -336,16 +228,12 @@ class AppExperience:
         if getattr(self, "_flushing", False):
             return
         self._flushing = True
+        wrote = False
         try:
             async with self.lock:
                 queue = list(self.load_queue())
             for item in queue:
                 fingerprint = item["fingerprint"]
-                if (
-                    item["backend"] != self.settings.app_memory_backend
-                    or item["kb"] != self.settings.app_memory_kb_name
-                ):
-                    continue
                 if (
                     item.get("attempts", 0) >= 5
                     or item.get("retry_at", 0) > time.time()
@@ -363,14 +251,13 @@ class AppExperience:
                 else:
                     self.last_success = time.time()
                     self.last_error = ""
+                    wrote = True
                     from astrbot.api import logger
 
                     logger.info(
-                        "App经验写入成功：%s / %s，目标=%s:%s",
+                        "App经验写入成功：%s / %s（本地档案）",
                         item["entry"]["app"],
                         item["entry"]["page"],
-                        item["backend"],
-                        item["kb"],
                     )
                     item = None
                 async with self.lock:
@@ -381,10 +268,18 @@ class AppExperience:
                     self.save_queue(current)
         finally:
             self._flushing = False
+            if wrote:
+                self.request_index_refresh()
 
     def status_text(self):
         pending = self.load_queue()
+        total = 0
+        try:
+            total = len(self.service.app_memory.entries())
+        except Exception:  # noqa: BLE001 - 统计失败不影响状态展示
+            total = 0
         return (
-            f"App经验：{self.settings.app_memory_backend}；知识库={self.settings.app_memory_kb_name or '未选择'}；待写={len(pending)}；"
-            f"最近成功={getattr(self, 'last_success', 0)}；错误={getattr(self, 'last_error', '') or next((x.get('error') for x in pending if x.get('error')), '无')}"
+            f"App经验：本地档案 {total} 条；待写={len(pending)}；"
+            f"最近成功={getattr(self, 'last_success', 0)}；"
+            f"错误={getattr(self, 'last_error', '') or next((x.get('error') for x in pending if x.get('error')), '无')}"
         )

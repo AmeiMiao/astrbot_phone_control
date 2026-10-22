@@ -6,8 +6,7 @@
 * **读路径** :class:`SemanticReader`：普通聊天只读本地索引并计算一次查询向量；
   只持有索引、Provider 解析器与配置读取函数，**不持有 PhoneService**，因此结构
   上无法访问 ADB/设备/后台任务；
-* **写路径** :class:`SemanticMaintainer`：后台任务里读取本地学习档案、浏览日记与
-  App 经验，分批调用 embedding 并原子写入新一代索引；只在插件启动空闲、写入学习/
+* **写路径** :class:`SemanticMaintainer`：后台任务里读取本地学习档案与浏览日志，分批调用 embedding 并原子写入新一代索引；只在插件启动空闲、写入学习/
   日记后（防抖）与周期检查时运行，永不从聊天 hook 触发。
 
 失败全部降级：缺少 Embedding Provider、索引缺失/损坏、查询超时或异常都只跳过
@@ -74,6 +73,20 @@ class ResolvedEmbedding:
         return provider_key(self.provider_id, self.model, self.dim)
 
 
+async def query_embedding(provider: ResolvedEmbedding, text: str) -> Any:
+    """查询一条文本的向量（兼容只有批量接口的 Provider 实现）。"""
+    getter = getattr(provider.provider, "get_embedding", None)
+    if callable(getter):
+        return await getter(text)
+    get_many = getattr(provider.provider, "get_embeddings", None)
+    if not callable(get_many):
+        raise SemanticBuildError("Embedding Provider 缺少查询 embedding 的接口")
+    result = await get_many([text])
+    if not isinstance(result, (list, tuple)) or not result:
+        raise SemanticBuildError("Embedding Provider 返回空向量结果")
+    return result[0]
+
+
 def _provider_id_of(provider: Any) -> str:
     """从 Provider 实例提取稳定 ID（优先 provider_config.id）。"""
     config = getattr(provider, "provider_config", None)
@@ -123,15 +136,25 @@ def _is_embedding_provider(provider: Any) -> bool:
 class SemanticEmbeddingResolver:
     """解析配置指定的 Embedding Provider；留空时自动选择已配置的 Provider。
 
-    * 显式 ID 不存在/不是 Embedding 类型：warning 一次并禁用找回（不静默换模型，
+    * 显式 ID 不存在/不是 Embedding 类型：warning 一次并停用（不静默换模型，
       避免索引维度/语义错配）；
     * 留空：优先使用 AstrBot 暴露的默认 embedding 标记（若版本提供），否则按
       Provider ID 排序取第一个，保证选择稳定可日志；
     * 解析结果按「请求的 ID」缓存；插件重载后随之重新解析。
+
+    ``label``/``config_key`` 用于区分不同索引（聊天找回 / App 经验召回）的告警文案。
     """
 
-    def __init__(self, context: Any) -> None:
+    def __init__(
+        self,
+        context: Any,
+        *,
+        label: str = "语义找回",
+        config_key: str = "recall.embedding_provider_id",
+    ) -> None:
         self._context = context
+        self._label = str(label or "语义找回")
+        self._config_key = str(config_key or "recall.embedding_provider_id")
         self._cached_request: str | None = None
         self._cached: ResolvedEmbedding | None = None
         self._warned: set[str] = set()
@@ -158,15 +181,15 @@ class SemanticEmbeddingResolver:
             if provider is None:
                 self._warn_once(
                     f"missing:{requested}",
-                    f"语义找回：找不到 Embedding Provider「{requested}」，"
-                    "已停用语义找回（请检查 recall.embedding_provider_id）",
+                    f"{self._label}：找不到 Embedding Provider「{requested}」，"
+                    f"已停用（请检查 {self._config_key}）",
                 )
                 return None
             if not _is_embedding_provider(provider):
                 self._warn_once(
                     f"type:{requested}",
-                    f"语义找回：Provider「{requested}」不是 Embedding 类型，"
-                    "已停用语义找回（请填写 Embedding Provider ID）",
+                    f"{self._label}：Provider「{requested}」不是 Embedding 类型，"
+                    "已停用（请填写 Embedding Provider ID）",
                 )
                 return None
             return self._build(provider, requested)
@@ -179,14 +202,13 @@ class SemanticEmbeddingResolver:
         if not providers:
             self._warn_once(
                 "no-provider",
-                "语义找回：AstrBot 未配置可用的 Embedding Provider，已停用语义找回"
-                "（请在 AstrBot 配置 Embedding Provider，或填写 "
-                "recall.embedding_provider_id）",
+                f"{self._label}：AstrBot 未配置可用的 Embedding Provider，已停用"
+                f"（请在 AstrBot 配置 Embedding Provider，或填写 {self._config_key}）",
             )
             return None
         chosen = self._pick_provider(providers)
         chosen_id = _provider_id_of(chosen)
-        logger.info("语义找回：自动选择 Embedding Provider「%s」", chosen_id)
+        logger.info("%s：自动选择 Embedding Provider「%s」", self._label, chosen_id)
         return self._build(chosen, chosen_id)
 
     def _get_provider_by_id(self, provider_id: str) -> Any:
@@ -262,15 +284,15 @@ class SemanticEmbeddingResolver:
         except Exception as exc:  # noqa: BLE001 - 维度不可用视为 Provider 不可用
             self._warn_once(
                 f"dim:{provider_id}",
-                f"语义找回：无法读取 Embedding Provider「{provider_id}」的维度"
-                f"（{exc}），已停用语义找回",
+                f"{self._label}：无法读取 Embedding Provider「{provider_id}」的维度"
+                f"（{exc}），已停用",
             )
             return None
         if dim <= 0:
             self._warn_once(
                 f"dim-zero:{provider_id}",
-                f"语义找回：Embedding Provider「{provider_id}」维度非法（{dim}），"
-                "已停用语义找回",
+                f"{self._label}：Embedding Provider「{provider_id}」维度非法（{dim}），"
+                "已停用",
             )
             return None
         return ResolvedEmbedding(
@@ -392,16 +414,7 @@ class SemanticReader:
     @staticmethod
     async def _query_embedding(provider: ResolvedEmbedding, text: str) -> Any:
         """查询一条文本的向量（兼容只有批量接口的 Provider 实现）。"""
-        getter = getattr(provider.provider, "get_embedding", None)
-        if callable(getter):
-            return await getter(text)
-        get_many = getattr(provider.provider, "get_embeddings", None)
-        if not callable(get_many):
-            raise SemanticBuildError("Embedding Provider 缺少查询 embedding 的接口")
-        result = await get_many([text])
-        if not isinstance(result, (list, tuple)) or not result:
-            raise SemanticBuildError("Embedding Provider 返回空向量结果")
-        return result[0]
+        return await query_embedding(provider, text)
 
     async def _snapshot(
         self, provider: ResolvedEmbedding
@@ -586,22 +599,12 @@ class SemanticMaintainer:
         now = time.monotonic()
         if not force and self._failures and now < self._retry_at:
             return False
-        include_app = bool(getattr(recall, "include_app_experience", True))
-        if include_app:
-            # App 经验只有「插件本地档案」能直接读取；知识库后端不在构建/聊天
-            # 路径访问 KB（避免普通聊天依赖网络知识库）。
-            prompt = getattr(config, "prompt", None)
-            if not bool(getattr(prompt, "app_memory_enabled", True)) or str(
-                getattr(prompt, "app_memory_backend", "plugin") or "plugin"
-            ) != "plugin":
-                include_app = False
         try:
             docs = await asyncio.to_thread(
                 collect_documents,
                 self._data_dir,
                 include_learning=bool(getattr(recall, "include_learning", True)),
                 include_diary=bool(getattr(recall, "include_diary", True)),
-                include_app_experience=include_app,
                 doc_chars=int(getattr(recall, "doc_chars", DEFAULT_DOC_CHARS)),
                 index_max_docs=int(
                     getattr(recall, "index_max_docs", DEFAULT_INDEX_MAX_DOCS)

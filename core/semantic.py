@@ -393,19 +393,17 @@ def collect_documents(
     *,
     include_learning: bool = True,
     include_diary: bool = True,
-    include_app_experience: bool = True,
     doc_chars: int = DEFAULT_DOC_CHARS,
     index_max_docs: int = DEFAULT_INDEX_MAX_DOCS,
 ) -> list[SemanticDoc]:
-    """从插件本地档案收集索引文档（按 id 去重、按时间倒序、按上限截断）。
+    """从插件本地档案收集聊天找回索引文档（按 id 去重、按时间倒序、按上限截断）。
+
+    App 使用经验使用独立索引（:mod:`core.app_recall`），不进入聊天找回索引。
 
     Args:
-        data_dir: 插件数据目录（``learning.jsonl``、``diary/diary.jsonl``、
-            ``app_memory.json`` 所在目录）。
+        data_dir: 插件数据目录（``learning.jsonl``、``diary/diary.jsonl`` 所在目录）。
         include_learning: 是否索引学习档案。
-        include_diary: 是否索引浏览日记。
-        include_app_experience: 是否索引插件本地 App 经验（知识库后端不经由
-            本函数读取；由调用方决定是否传入该项）。
+        include_diary: 是否索引浏览日志。
         doc_chars: 单条文档字符上限。
         index_max_docs: 最多保留文档数（超出按时间淘汰最旧文档，<=0 表示不截断）。
 
@@ -424,13 +422,6 @@ def collect_documents(
         docs.extend(
             build_diary_documents(
                 read_jsonl_entries(root / "diary" / "diary.jsonl"),
-                doc_chars=doc_chars,
-            )
-        )
-    if include_app_experience:
-        docs.extend(
-            build_app_memory_documents(
-                read_app_memory_entries(root / "app_memory.json"),
                 doc_chars=doc_chars,
             )
         )

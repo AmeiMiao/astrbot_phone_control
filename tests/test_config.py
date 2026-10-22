@@ -1315,7 +1315,6 @@ def test_recall_config_defaults_and_parsing():
     assert recall.refresh_minutes == 10
     assert recall.include_diary is True
     assert recall.include_learning is True
-    assert recall.include_app_experience is True
 
     warnings: list[str] = []
     tuned = PhoneConfig.from_mapping(
@@ -1332,7 +1331,6 @@ def test_recall_config_defaults_and_parsing():
                 "refresh_minutes": 0,
                 "include_diary": False,
                 "include_learning": False,
-                "include_app_experience": False,
             }
         },
         warn=warnings.append,
@@ -1348,7 +1346,6 @@ def test_recall_config_defaults_and_parsing():
     assert tuned.recall.refresh_minutes == 0
     assert tuned.recall.include_diary is False
     assert tuned.recall.include_learning is False
-    assert tuned.recall.include_app_experience is False
     assert warnings == []
 
     # 非法/越界值按默认或上下限收敛
@@ -1408,7 +1405,6 @@ def test_conf_schema_recall_card():
         "refresh_minutes": ("int", 10),
         "include_diary": ("bool", True),
         "include_learning": ("bool", True),
-        "include_app_experience": ("bool", True),
     }
     for name, (field_type, default) in expected.items():
         assert name in items, name
@@ -1419,10 +1415,10 @@ def test_conf_schema_recall_card():
     # 留空=自动选择 Embedding Provider 的口径写在 hint 里
     assert "Embedding Provider" in items["embedding_provider_id"]["hint"]
     assert "留空" in items["embedding_provider_id"]["hint"]
-    # 学习/日记/App 经验三个来源开关默认全部索引
+    # 学习/浏览日志来源开关默认全部索引；App 经验使用独立索引
     assert items["include_learning"]["default"] is True
     assert items["include_diary"]["default"] is True
-    assert items["include_app_experience"]["default"] is True
+    assert "include_app_experience" not in items
 def test_memory_backend_is_split_into_independent_switches():
     config = PhoneConfig.from_mapping(
         {"memory": {"companion_enabled": True, "livingmemory_enabled": True}}

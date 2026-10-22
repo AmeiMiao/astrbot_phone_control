@@ -85,7 +85,6 @@ class _ConfigWithMemory:
         embedding_provider_id = ""
         include_learning = True
         include_diary = True
-        include_app_experience = True
         doc_chars = 300
         index_max_docs = 2000
 

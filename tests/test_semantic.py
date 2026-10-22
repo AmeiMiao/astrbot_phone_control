@@ -206,7 +206,7 @@ async def _wait_until(predicate, *, timeout: float = 3.0) -> bool:
 # ----------------------------------------------------------------------
 
 
-def test_collect_documents_reads_all_sources_and_sorts_by_time(tmp_path):
+def test_collect_documents_reads_learning_and_diary_sorts_by_time(tmp_path):
     _write_learning(
         tmp_path,
         [
@@ -238,30 +238,9 @@ def test_collect_documents_reads_all_sources_and_sorts_by_time(tmp_path):
         + "\n",
         encoding="utf-8",
     )
-    (tmp_path / "app_memory.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "entries": [
-                    {
-                        "app": "com.ss.android.ugc.aweme",
-                        "label": "抖音",
-                        "page": "发布",
-                        "note": "右下角 + 号进入发布页",
-                        "steps": ["点击 +", "选择相册"],
-                        "updated_at": 30.0,
-                    }
-                ],
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
     docs = collect_documents(tmp_path)
     ids = [doc.id for doc in docs]
     assert ids == [
-        f"{SOURCE_APP_EXPERIENCE}:com.ss.android.ugc.aweme:发布",
         f"{SOURCE_DIARY}:diary-1:0",
         f"{SOURCE_LEARNING}:learn-1",
     ]
@@ -275,10 +254,6 @@ def test_collect_documents_reads_all_sources_and_sorts_by_time(tmp_path):
     assert "抖音" in diary.text and "猫咪视频" in diary.text
     assert "看了猫咪视频" in diary.text
     assert diary.display == "抖音：猫咪视频（小明）"
-    app = by_id[f"{SOURCE_APP_EXPERIENCE}:com.ss.android.ugc.aweme:发布"]
-    assert "右下角 + 号进入发布页" in app.text
-    assert "步骤：点击 + → 选择相册" in app.text
-    assert app.display.startswith("抖音 / 发布：")
     # id 稳定：同输入重复收集结果一致
     assert [doc.id for doc in collect_documents(tmp_path)] == ids
 
@@ -295,37 +270,22 @@ def test_collect_documents_include_flags(tmp_path):
         + "\n",
         encoding="utf-8",
     )
-    (tmp_path / "app_memory.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "entries": [
-                    {"app": "x", "label": "X", "page": "", "note": "经验", "updated_at": 3.0}
-                ],
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
     only_learning = collect_documents(
         tmp_path,
         include_learning=True,
         include_diary=False,
-        include_app_experience=False,
     )
     assert [doc.source for doc in only_learning] == [SOURCE_LEARNING]
     only_diary = collect_documents(
         tmp_path,
         include_learning=False,
         include_diary=True,
-        include_app_experience=False,
     )
     assert [doc.source for doc in only_diary] == [SOURCE_DIARY]
     none = collect_documents(
         tmp_path,
         include_learning=False,
         include_diary=False,
-        include_app_experience=False,
     )
     assert none == []
 
@@ -969,14 +929,9 @@ def test_maintainer_refresh_skips_when_disabled(tmp_path):
     assert maintainer._index.read_manifest() is None
 
 
-def test_maintainer_skips_knowledge_base_app_experience(tmp_path):
+def test_maintainer_does_not_index_app_experience(tmp_path):
     provider = FakeEmbeddingProvider(default_vector=[1.0, 0.0, 0.0])
-    config = PhoneConfig.from_mapping(
-        {
-            "recall": {"enabled": True},
-            "prompt": {"app_memory_backend": "knowledge_base"},
-        }
-    )
+    config = PhoneConfig.from_mapping({"recall": {"enabled": True}})
     maintainer = _maintainer(tmp_path, provider, config)
     (tmp_path / "app_memory.json").write_text(
         json.dumps(

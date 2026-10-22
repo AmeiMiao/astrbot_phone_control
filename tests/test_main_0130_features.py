@@ -425,8 +425,8 @@ def test_phone_learn_syncs_to_memory_companion(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
-def test_app_experience_plugin_destination_is_exclusive(tmp_path, monkeypatch):
-    """App 经验遵从独占存储选择，学习记录的全局记忆配置独立生效。"""
+def test_app_experience_is_local_only(tmp_path, monkeypatch):
+    """App 经验只写插件本地档案，学习记录的全局记忆配置独立生效。"""
 
     async def scenario() -> None:
         plugin, bridge = _make_plugin_with_memory_backend(tmp_path, monkeypatch)
@@ -440,7 +440,7 @@ def test_app_experience_plugin_destination_is_exclusive(tmp_path, monkeypatch):
                 note="底部导航五项",
                 steps=["打开B站"],
             )
-            assert "插件档案" in result
+            assert "保存在插件本地" in result
             assert bridge.calls == []
             assert plugin.app_memory.lookup("B站", limit=5)
         finally:

@@ -111,8 +111,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "prompt.diary_limit",
         "prompt.app_memory_enabled",
         "prompt.app_memory_limit",
-        "prompt.app_memory_backend",
-        "prompt.app_memory_kb_name",
+        "prompt.app_memory_embedding_provider_id",
         "control.scrcpy.idle_stop_seconds",
         "debug.log_actions",
         "memory.local_enabled",
@@ -150,7 +149,6 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "recall.refresh_minutes",
         "recall.include_diary",
         "recall.include_learning",
-        "recall.include_app_experience",
     }
 )
 

@@ -487,7 +487,9 @@ class PhoneAppRememberTool(_PhoneToolBase):
             )
         except Exception as exc:  # noqa: BLE001 - 参数/存储异常转可读错误
             return _error(exc)
-        location = "插件档案" if self.service.config.prompt.app_memory_backend == "plugin" else "AstrBot 知识库"
-        text = (f"已记住「{entry.label}」{('（' + entry.page + '）') if entry.page else ''}经验"
-                f"（第 {entry.version} 版，存储于{location}）；下次操作该 App 前可 phone_app_memory 查询复用。")
+        text = (
+            f"已记住「{entry.label}」{('（' + entry.page + '）') if entry.page else ''}经验"
+            f"（第 {entry.version} 版，保存在插件本地）；"
+            "下次操作该 App 前可 phone_app_memory 查询复用。"
+        )
         return _ok(text)

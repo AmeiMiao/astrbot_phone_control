@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.1.4.8] - 2026-10-22
+
+### Changed
+
+- App 使用经验去掉 AstrBot 知识库后端：删除 `prompt.app_memory_backend` / `prompt.app_memory_kb_name` 配置与知识库读写路径，经验只保存在插件本地 `app_memory.json`；`phone_app_remember` 返回文案不再显示存储位置选择。
+- App 经验新增独立向量模型配置 `prompt.app_memory_embedding_provider_id`（开启 App 经验后显示，留空使用默认 Embedding Provider），并建立独立索引目录 `semantic_app/`（独立存量、独立 Provider，不与聊天找回共用）。
+- 聊天语义找回索引不再包含 App 使用经验：移除 `recall.include_app_experience` 配置项，索引来源只保留学习档案与浏览日志；普通聊天只读聊天找回索引。
+- App 经验索引在插件启动后后台构建、经验写入后防抖刷新、配置变更时排队重建，失败按退避重试且保留旧索引；未配置向量模型时操作前召回回退到本地档案按页面关键词查找。
+
 ## [0.1.4.7] - 2026-10-22
 
 ### Added

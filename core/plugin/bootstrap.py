@@ -182,6 +182,7 @@ from ..semantic_recall import (
     SemanticMaintainer,
     SemanticReader,
 )
+from ..app_recall import AppRecallMaintainer, AppRecallReader, app_index_root
 from ..verification_controller import PhoneVerification
 from .compat import plugin_main_module
 
@@ -444,6 +445,30 @@ class BootstrapMixin:
         )
         self.service.semantic_refresh_hook = self.semantic_maintainer.request_refresh
         self._semantic_task: asyncio.Task | None = None
+        # App 使用经验召回：独立索引目录与独立向量模型配置，普通聊天不读取。
+        self.app_recall_index = SemanticIndex(app_index_root(self.data_dir))
+        self.app_recall_resolver = SemanticEmbeddingResolver(
+            self.context,
+            label="App 经验召回",
+            config_key="prompt.app_memory_embedding_provider_id",
+        )
+        self.app_recall_reader = AppRecallReader(
+            index=self.app_recall_index,
+            resolver=self.app_recall_resolver,
+            config_getter=lambda: self.service.config.prompt,
+            entry_provider=self.app_memory.entries,
+        )
+        self.app_recall_maintainer = AppRecallMaintainer(
+            index=self.app_recall_index,
+            resolver=self.app_recall_resolver,
+            config_getter=lambda: self.service.config,
+            data_dir=self.data_dir,
+        )
+        self.service.app_recall_refresh_hook = (
+            self.app_recall_maintainer.request_refresh
+        )
+        self.service.app_recall_reader = self.app_recall_reader
+        self._app_recall_task: asyncio.Task | None = None
         # 插件加载时立即按配置清理一次残留截图（可能已占 GB 级磁盘）。
         try:
             self.service.cleanup_screenshots(force=True)
@@ -555,6 +580,7 @@ class BootstrapMixin:
         # 语义索引维护放在设备相关初始化之前：假开启（未配置 ADB）时也按配置
         # 后台建索引；任务本身只读本地档案，不阻塞 initialize。
         self._start_semantic_maintenance()
+        self._start_app_recall_maintenance()
         # 浏览日志上限清理不访问设备：假开启与启用状态都要在启动时执行一次。
         await self._cleanup_diary_limits()
         if not self.service.configured:
@@ -627,6 +653,20 @@ class BootstrapMixin:
             return
         self._semantic_task = maintainer.start()
 
+    def _start_app_recall_maintenance(self) -> None:
+        """启动 App 经验索引后台维护（与聊天找回独立；未启用时循环空转等待）。
+
+        不依赖 ADB 配置；只在后台读取 app_memory.json 与调用 Embedding Provider，
+        失败按退避重试，不影响手机工具与聊天。
+        """
+        maintainer = getattr(self, "app_recall_maintainer", None)
+        if maintainer is None:
+            return
+        task = getattr(self, "_app_recall_task", None)
+        if task is not None and not task.done():
+            return
+        self._app_recall_task = maintainer.start()
+
     async def terminate(self) -> None:
         """插件停用/重载：停止后台任务并释放 adb 子进程资源（幂等）。"""
         if getattr(self, "_terminated", False):
@@ -649,6 +689,13 @@ class BootstrapMixin:
                 await maintainer.stop()
             except Exception as exc:  # noqa: BLE001 - 停用收尾失败只记录
                 logger.warning("停止语义索引维护失败：%s", exc)
+        app_maintainer = getattr(self, "app_recall_maintainer", None)
+        self._app_recall_task = None
+        if app_maintainer is not None:
+            try:
+                await app_maintainer.stop()
+            except Exception as exc:  # noqa: BLE001 - 停用收尾失败只记录
+                logger.warning("停止 App 经验索引维护失败：%s", exc)
         resources = [getattr(self, "_traffic", None), getattr(self, "_wireguard", None),
                      getattr(self, "_media_capture", None)]
         manager = getattr(self, "backends", None)
@@ -986,6 +1033,19 @@ class BootstrapMixin:
             return
         plan = build_apply_plan(previous, current)
         notes.extend(plan.notes)
+        # App 经验语义索引随开关/向量模型变化重新构建（旧索引保留可继续兜底）。
+        if (
+            previous.prompt.app_memory_enabled,
+            previous.prompt.app_memory_embedding_provider_id,
+        ) != (
+            current.prompt.app_memory_enabled,
+            current.prompt.app_memory_embedding_provider_id,
+        ):
+            self._start_app_recall_maintenance()
+            maintainer = getattr(self, "app_recall_maintainer", None)
+            if maintainer is not None:
+                maintainer.request_refresh()
+            notes.append("App 经验召回索引已按新配置排队刷新")
         # 浏览日志上限/保护轮次是实时读取配置，保存后立即按新上限清理一次。
         await self._cleanup_diary_limits()
 
