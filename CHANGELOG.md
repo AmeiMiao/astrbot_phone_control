@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.1.4.2] - 2026-10-22
+
+### Added
+
+- 随包二进制支持更多宿主平台：Linux ARM64（`bin/linux-aarch64/`，Debian android-platform-tools 34.0.5
+  自包含重建 + 依赖库）与 Windows x86_64（`bin/windows-x86_64/`，官方 platform-tools 37.0.1 + DLL、
+  `phone-wg.exe`）；插件按宿主系统与架构自动选择对应 `bin/<平台>/adb|phone-wg`，并为 zip/市场安装
+  自动补可执行位。
+- 非 Linux 平台降级：不再依赖 `/proc`、`fcntl`、`killpg` 的进程监护；Windows 下核心 ADB 控制可用，
+  Linux 专属的进程监护、scrcpy 视频解码、抓包与 WireGuard helper 降级或不可用并给出原因。
+
+### Changed
+
+- 其他平台/架构（如 macOS）不随包分发二进制，回退到 `adb.path` 或 PATH 中的系统 adb，缺失时提示平台信息。
+
 ## [0.1.4.1] - 2026-10-22
 
 ### Changed

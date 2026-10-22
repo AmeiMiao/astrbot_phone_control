@@ -86,3 +86,23 @@ def test_common_repository_layout_has_bundled_adb_for_supported_platform():
     repository = Path(__file__).resolve().parents[1]
     path = bundled_adb(repository, platform_id=PLATFORM_LINUX_X86_64)
     assert path is not None and os.access(path, os.X_OK)
+
+
+def test_repository_ships_arm64_and_windows_platform_dirs():
+    """仓库随包 Linux ARM64 与 Windows 的 adb/phone-wg 及说明文件。"""
+    root = Path(__file__).resolve().parents[1]
+    arm = root / "bin" / PLATFORM_LINUX_AARCH64
+    wrapper = arm / "adb"
+    assert wrapper.is_file()
+    assert "lib/adb-bin" in wrapper.read_text(encoding="utf-8")
+    assert (arm / "lib" / "adb-bin").is_file()
+    assert (arm / "phone-wg").is_file()
+    assert (arm / "NOTICE.txt").is_file()
+    assert list((arm / "lib").glob("*.so*")), "ARM64 adb 依赖库缺失"
+
+    win = root / "bin" / PLATFORM_WINDOWS_X86_64
+    assert (win / "adb.exe").is_file()
+    assert (win / "AdbWinApi.dll").is_file()
+    assert (win / "AdbWinUsbApi.dll").is_file()
+    assert (win / "phone-wg.exe").is_file()
+    assert (win / "NOTICE.txt").is_file()

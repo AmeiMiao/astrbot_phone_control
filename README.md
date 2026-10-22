@@ -8,7 +8,7 @@
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.1.4.1` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat778/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.1.4.2` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat778/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -54,11 +54,17 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 
 - AstrBot `>= 4.27.1, < 5`（已在 4.29.1 验证）；
 - 一台开启 ADB 调试的安卓模拟器（或真机），AstrBot 容器可访问其 ADB 端口；
-- 插件自带 `bin/linux-x86_64/adb` 与 `bin/scrcpy-server-v5.0.1`，无需额外安装 adb/scrcpy；
+- 插件随包提供多宿主平台 adb 与平台无关的 `bin/scrcpy-server-v5.0.1`，无需额外安装 adb/scrcpy：
+  `bin/linux-x86_64/`（官方 platform-tools 37.0.1）、`bin/linux-aarch64/`（Debian android-platform-tools 34.0.5
+  自包含重建，宿主 glibc ≥ 2.36）、`bin/windows-x86_64/`（官方 platform-tools 37.0.1，32 位 `adb.exe`
+  在 x64 Windows 上经 WoW64 运行）；其他平台/架构在 `adb.path` 填写系统 adb 即可。
+- Windows：核心 ADB 控制（状态/UI 树/点击/输入/浏览/截图）可用；依赖 Linux 进程监护或 `sh`/ffmpeg
+  管道的实时屏幕视频解码、抓包与 WireGuard helper 在 Windows 上降级或不可用，状态与日志会给出原因。
 - 可选：`mitmproxy`（抓包识别，需独立 venv 安装，见使用手册）、PyAV 或宿主机 `ffmpeg`
   （scrcpy 视频镜像）、ADBKeyboard（中文输入）、minitouch（可选 touch 后端）。
-- 可选：WireGuard 组网使用插件自带 userspace helper `bin/linux-x86_64/phone-wg`
-  （无需 `NET_ADMIN`/`/dev/net/tun`；密钥与 helper 配置写入插件数据目录 `wireguard/`，文件 0600）。
+- 可选：WireGuard 组网使用插件自带 userspace helper `bin/<平台>/phone-wg`（Linux amd64/arm64、
+  Windows x64）。Linux 无需 `NET_ADMIN`/`/dev/net/tun`；Windows 需管理员权限并提供 WireGuard 官方
+  `wintun.dll`（不随插件分发）。密钥与 helper 配置写入插件数据目录 `wireguard/`，文件 0600。
   详见 [第三方引用说明](THIRD_PARTY_NOTICES.md)。
 
 ### 安装
@@ -217,7 +223,7 @@ pip install -r requirements.txt
 插件分发/依赖的第三方组件（scrcpy、Android platform-tools adb、minitouch、ADBKeyboard、
 mitmproxy、PyAV、ffmpeg、AstrBot、MemoryCompanion / LivingMemory 等）的版权、许可证与
 使用方式见 **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**。随插件分发的二进制
-NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt`。
+NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt`、`bin/linux-x86_64/NOTICE.txt`、`bin/linux-aarch64/NOTICE.txt` 与 `bin/windows-x86_64/NOTICE.txt`。
 
 ## 声明
 

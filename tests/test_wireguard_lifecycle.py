@@ -646,12 +646,16 @@ def test_runtime_config_apply_handles_actions() -> None:
 # 真实 helper 冒烟（插件包内置二进制时运行；缺失则 skip）
 # ----------------------------------------------------------------------
 
-BUNDLED_HELPER = PLUGIN_ROOT / "bin" / "linux-x86_64" / "phone-wg"
+from core.platform_bins import bundled_phone_wg
+
+BUNDLED_HELPER = bundled_phone_wg() or (
+    PLUGIN_ROOT / "bin" / "linux-x86_64" / "phone-wg"
+)
 
 
 @pytest.mark.skipif(
     not BUNDLED_HELPER.is_file(),
-    reason="插件包未包含 bin/linux-x86_64/phone-wg（helper 需先构建）",
+    reason="当前平台未随包 phone-wg（helper 需先构建）",
 )
 def test_bundled_helper_real_lifecycle(tmp_path: Path) -> None:
     """用真实 helper 验证配置 JSON/状态 JSON 契约与启停（不建立对端，无需特权）。"""

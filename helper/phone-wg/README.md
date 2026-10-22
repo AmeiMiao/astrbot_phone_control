@@ -30,22 +30,29 @@
 
 ```bash
 cd helper/phone-wg
-./build.sh
-# 产物：helper/phone-wg/bin/phone-wg
-cp bin/phone-wg ../../bin/linux-x86_64/phone-wg
-chmod 755 ../../bin/linux-x86_64/phone-wg
+./build.sh                 # 默认构建 linux/amd64、linux/arm64、windows/amd64
+TARGETS="linux/arm64" ./build.sh   # 只构建单个目标
 ```
 
-构建固定使用 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`，产物为静态链接 ELF，可直接在
-AstrBot 容器（linux/amd64）中运行：
+构建固定使用 `CGO_ENABLED=0`，产物为静态链接二进制，按目标平台直接写入插件的
+`bin/<平台>/`：
+
+| 目标 | 产物 |
+| --- | --- |
+| `linux/amd64` | `bin/linux-x86_64/phone-wg` |
+| `linux/arm64` | `bin/linux-aarch64/phone-wg` |
+| `windows/amd64` | `bin/windows-x86_64/phone-wg.exe` |
+
+构建后可核对：
 
 ```bash
-file bin/phone-wg
-# ELF 64-bit LSB executable, x86-64, statically linked
+file ../../bin/linux-aarch64/phone-wg
+# ELF 64-bit LSB executable, ARM aarch64, statically linked
 ```
 
-`build.sh` 会先后执行 `go mod tidy`、`go vet ./...`、`go test ./...` 再编译；`go mod tidy`
-会在本目录生成 `go.sum`（本地构建产物，不随仓库提交），`bin/` 同样是本地构建产物。
+`build.sh` 会先后执行 `go mod tidy`、`go vet ./...`、`go test ./...` 再按目标矩阵编译；
+`go mod tidy` 会在本目录生成 `go.sum`（本地构建产物，不随仓库提交），`bin/` 与 `out/`
+同样是本地构建产物。Windows 产物运行时需要 WireGuard 官方 `wintun.dll`（不随插件分发）。
 
 ## 命令行
 
