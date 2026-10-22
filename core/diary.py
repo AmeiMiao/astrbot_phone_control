@@ -1,13 +1,15 @@
-"""浏览日记：把每次信息流采集写入本地 JSONL，供聊天汇报与提示词召回。
+"""浏览日志：把每次信息流采集写入本地 JSONL，供聊天汇报与提示词召回。
 
 存储结构：``root/diary.jsonl``，每行一个条目（UTF-8 JSON）：:
 
     {"id": "...", "ts": 1760000000.0, "app": "抖音",
      "items": [{"title": "...", "author": "...", "text": "...",
                 "signature": "...", "screenshot": "..."}],
-     "note": "", "summary": "..."}
+     "note": "", "summary": "...",
+     "round_id": "轮次编号", "round_kind": "user|command|autonomous"}
 
-条目超过 ``max_entries`` 时整体重写，只保留最近条目。读写统一加 asyncio 锁，
+条目超过上限时整体重写，只保留最近条目；最近 ``keep_rounds`` 轮任务产生的
+日志受保护，即使这些轮次的日志总量超过上限也不清理。读写统一加 asyncio 锁，
 避免并发命令把文件写坏。除日志统一使用 ``from astrbot.api import logger``
 外只依赖标准库。
 """
@@ -44,8 +46,75 @@ def _item_text(item: FeedItem, *, max_chars: int = 0) -> str:
     return text
 
 
+def _round_id(record: dict[str, Any]) -> str:
+    """读取条目的轮次编号（旧条目没有该字段时为空串）。"""
+    value = record.get("round_id")
+    return str(value) if isinstance(value, str) else ""
+
+
+def protected_round_ids(
+    entries: list[dict[str, Any]], keep_rounds: int
+) -> list[str]:
+    """返回最近 ``keep_rounds`` 轮任务的编号（按条目时间顺序从新到旧）。
+
+    只统计带 ``round_id`` 的条目；旧数据/无轮次条目不受保护。
+    """
+    try:
+        count = max(0, int(keep_rounds))
+    except (TypeError, ValueError):
+        count = 0
+    if count <= 0:
+        return []
+    rounds: list[str] = []
+    for record in reversed(entries):
+        round_id = _round_id(record)
+        if round_id and round_id not in rounds:
+            rounds.append(round_id)
+            if len(rounds) >= count:
+                break
+    return rounds
+
+
+def trim_entries(
+    entries: list[dict[str, Any]],
+    max_entries: int,
+    keep_rounds: int = 0,
+) -> list[dict[str, Any]]:
+    """按上限清理旧日志，并保留最近 ``keep_rounds`` 轮任务的日志。
+
+    Args:
+        entries: 按写入顺序（旧→新）排列的条目。
+        max_entries: 最多保留条数；<=0 时回退默认值。
+        keep_rounds: 保护最近多少轮任务；0 表示不做轮次保护。
+
+    Returns:
+        清理后的条目列表（保持原顺序）。受保护的轮次日志不会被删除，因此
+        返回列表长度可能大于 ``max_entries``。
+    """
+    try:
+        limit = int(max_entries)
+    except (TypeError, ValueError):
+        limit = DEFAULT_MAX_ENTRIES
+    if limit <= 0:
+        limit = DEFAULT_MAX_ENTRIES
+    if len(entries) <= limit:
+        return list(entries)
+    protected = set(protected_round_ids(entries, keep_rounds))
+    if not protected:
+        return list(entries[-limit:])
+    kept: list[dict[str, Any]] = []
+    for index, record in enumerate(entries):
+        if len(entries) - index <= limit:
+            kept.append(record)
+            continue
+        # 超出上限的旧条目：受保护轮次保留，其余丢弃。
+        if _round_id(record) in protected:
+            kept.append(record)
+    return kept
+
+
 class PhoneDiary:
-    """基于 JSONL 的浏览日记。"""
+    """基于 JSONL 的浏览日志。"""
 
     def __init__(self, root: str | Path, *, max_entries: int = DEFAULT_MAX_ENTRIES) -> None:
         """初始化日记。
@@ -79,7 +148,7 @@ class PhoneDiary:
                     if isinstance(record, dict):
                         entries.append(record)
         except OSError as exc:
-            logger.warning("读取浏览日记失败：%s", exc)
+            logger.warning("读取浏览日志失败：%s", exc)
             return []
         return entries
 
@@ -93,12 +162,25 @@ class PhoneDiary:
 
     # ---- 对外接口 -----------------------------------------------------
 
-    def add_browse(self, result: BrowseResult, *, note: str = "") -> str:
-        """追加一条浏览记录。
+    def add_browse(
+        self,
+        result: BrowseResult,
+        *,
+        note: str = "",
+        round_id: str = "",
+        round_kind: str = "",
+        max_entries: int | None = None,
+        keep_rounds: int = 0,
+    ) -> str:
+        """追加一条浏览日志并在超过上限时清理旧日志。
 
         Args:
             result: 一次浏览的结果。
             note: 附加备注（可为空）。
+            round_id: 任务轮次编号；用于清理保护。
+            round_kind: 轮次来源（user/command/autonomous 等）。
+            max_entries: 本次生效的日志上限；为空时用实例默认值。
+            keep_rounds: 保护最近多少轮任务的日志。
 
         Returns:
             新条目的 id。
@@ -123,17 +205,37 @@ class PhoneDiary:
             "note": str(note or "").strip(),
             "summary": result.summary_text(),
         }
+        if str(round_id or "").strip():
+            record["round_id"] = str(round_id).strip()
+            record["round_kind"] = str(round_kind or "").strip()
         entries = self._read_entries_unlocked()
         entries.append(record)
-        if len(entries) > self.max_entries:
-            entries = entries[-self.max_entries :]
+        limit = self.max_entries if max_entries is None else max_entries
+        entries = trim_entries(entries, limit, keep_rounds)
         self._write_entries_unlocked(entries)
         return entry_id
 
-    async def add_browse_async(self, result: BrowseResult, *, note: str = "") -> str:
+    async def add_browse_async(
+        self,
+        result: BrowseResult,
+        *,
+        note: str = "",
+        round_id: str = "",
+        round_kind: str = "",
+        max_entries: int | None = None,
+        keep_rounds: int = 0,
+    ) -> str:
         """``add_browse`` 的加锁版本（运行在事件循环中）。"""
         async with self._lock:
-            return await asyncio.to_thread(self.add_browse, result, note=note)
+            return await asyncio.to_thread(
+                self.add_browse,
+                result,
+                note=note,
+                round_id=round_id,
+                round_kind=round_kind,
+                max_entries=max_entries,
+                keep_rounds=keep_rounds,
+            )
 
     def recent(self, limit: int = 5) -> list[dict[str, Any]]:
         """返回最近的条目（新在前）。"""
@@ -209,8 +311,114 @@ class PhoneDiary:
             text = text[: max(0, max_chars - 1)] + "…"
         return text
 
+    def apply_limits(self, *, max_entries: int, keep_rounds: int = 0) -> dict[str, Any]:
+        """按配置清理一次日志（插件启动/配置变更时调用）。
+
+        Returns:
+            ``{"before": 旧条数, "after": 新条数, "removed": 删除条数,
+            "protected_rounds": [...]}``。
+        """
+        entries = self._read_entries_unlocked()
+        before = len(entries)
+        trimmed = trim_entries(entries, max_entries, keep_rounds)
+        if trimmed != entries:
+            self._write_entries_unlocked(trimmed)
+        return {
+            "before": before,
+            "after": len(trimmed),
+            "removed": max(0, before - len(trimmed)),
+            "protected_rounds": protected_round_ids(entries, keep_rounds),
+        }
+
+    async def apply_limits_async(
+        self, *, max_entries: int, keep_rounds: int = 0
+    ) -> dict[str, Any]:
+        """``apply_limits`` 的加锁版本。"""
+        async with self._lock:
+            return await asyncio.to_thread(
+                self.apply_limits,
+                max_entries=max_entries,
+                keep_rounds=keep_rounds,
+            )
+
+    def page(
+        self,
+        query: str = "",
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """分页读取浏览日志（最新在前），供 Dashboard「浏览日志」页使用。
+
+        Args:
+            query: 关键词（标题/作者/正文/备注/摘要，大小写不敏感）；空串返回全部。
+            limit: 每页条数（上限 100）。
+            offset: 偏移量。
+
+        Returns:
+            ``{"query","limit","offset","total","entries"}``；条目保持原始结构
+            但去除截图绝对路径等与页面无关的字段。
+        """
+        needle = str(query or "").strip().lower()
+        try:
+            count = max(1, min(int(limit), 100))
+        except (TypeError, ValueError):
+            count = 20
+        try:
+            start = max(0, int(offset))
+        except (TypeError, ValueError):
+            start = 0
+        entries = self._read_entries_unlocked()
+        if needle:
+            matched = [
+                record
+                for record in reversed(entries)
+                if needle in self._search_text(record)
+            ]
+        else:
+            matched = list(reversed(entries))
+        page_entries = matched[start : start + count]
+        items: list[dict[str, Any]] = []
+        for record in page_entries:
+            items.append(
+                {
+                    "id": record.get("id") or "",
+                    "ts": record.get("ts") or 0,
+                    "app": record.get("app") or "",
+                    "note": record.get("note") or "",
+                    "summary": record.get("summary") or "",
+                    "round_id": record.get("round_id") or "",
+                    "round_kind": record.get("round_kind") or "",
+                    "items": [
+                        {
+                            "title": item.get("title") or "",
+                            "author": item.get("author") or "",
+                            "text": item.get("text") or "",
+                        }
+                        for item in (record.get("items") or [])
+                        if isinstance(item, dict)
+                    ],
+                }
+            )
+        return {
+            "query": str(query or "").strip(),
+            "limit": count,
+            "offset": start,
+            "total": len(matched),
+            "entries": items,
+        }
+
+    async def page_async(
+        self, query: str = "", *, limit: int = 20, offset: int = 0
+    ) -> dict[str, Any]:
+        """``page`` 的加锁版本（运行在事件循环中）。"""
+        async with self._lock:
+            return await asyncio.to_thread(
+                self.page, query, limit=limit, offset=offset
+            )
+
     def stats(self) -> dict[str, Any]:
-        """返回日记统计信息。"""
+        """返回日志统计信息。"""
         entries = self._read_entries_unlocked()
         apps: dict[str, int] = {}
         item_count = 0

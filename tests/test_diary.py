@@ -142,3 +142,85 @@ def test_async_wrappers_keep_entries_consistent(tmp_path):
 
     asyncio.run(run())
     assert diary.stats()["entries"] == 3
+
+
+def test_round_id_is_recorded_and_legacy_entries_have_no_round(tmp_path):
+    diary = PhoneDiary(tmp_path)
+    diary.add_browse(_result("抖音", ["一"]), round_id="round-a", round_kind="user")
+    diary.add_browse(_result("抖音", ["二"]))
+    entries = list(diary.all_entries())
+    assert entries[0]["round_id"] == "round-a"
+    assert entries[0]["round_kind"] == "user"
+    assert "round_id" not in entries[1]
+
+
+def test_trim_entries_protects_recent_rounds(tmp_path):
+    from core.diary import protected_round_ids, trim_entries
+
+    entries = []
+    for index in range(12):
+        round_id = f"r{index // 3}"  # 每 3 条一轮，共 4 轮
+        entries.append({"id": str(index), "round_id": round_id, "items": []})
+    assert protected_round_ids(entries, 2) == ["r3", "r2"]
+    trimmed = trim_entries(entries, max_entries=6, keep_rounds=2)
+    # 最近两轮共 6 条全部保留；更早的 r1/r0 被删除。
+    assert [record["id"] for record in trimmed] == ["6", "7", "8", "9", "10", "11"]
+    # 保护轮次总量超过上限时也不清理（示例：上限 2、保护 2 轮=6 条）。
+    kept = trim_entries(entries, max_entries=2, keep_rounds=2)
+    assert [record["id"] for record in kept] == ["6", "7", "8", "9", "10", "11"]
+    # keep_rounds=0 时按普通上限截断。
+    assert len(trim_entries(entries, max_entries=4, keep_rounds=0)) == 4
+
+
+def test_apply_limits_writes_and_reports(tmp_path):
+    diary = PhoneDiary(tmp_path)
+    for index in range(10):
+        diary.add_browse(
+            _result("抖音", [f"第{index}条"]),
+            round_id=f"r{index // 5}",
+            round_kind="autonomous",
+        )
+    report = diary.apply_limits(max_entries=4, keep_rounds=1)
+    assert report["before"] == 10
+    assert report["after"] == 5  # 最近一轮 5 条全部受保护
+    assert report["removed"] == 5
+    assert report["protected_rounds"] == ["r1"]
+    assert len(diary.all_entries()) == 5
+
+
+def test_page_paginates_and_searches_newest_first(tmp_path):
+    diary = PhoneDiary(tmp_path)
+    for index in range(7):
+        diary.add_browse(_result("抖音", [f"标题{index}"]), note=f"备注{index}")
+    page1 = diary.page("", limit=3, offset=0)
+    assert page1["total"] == 7 and page1["limit"] == 3 and page1["offset"] == 0
+    assert [entry["items"][0]["title"] for entry in page1["entries"]] == [
+        "标题6",
+        "标题5",
+        "标题4",
+    ]
+    page2 = diary.page("", limit=3, offset=3)
+    assert [entry["items"][0]["title"] for entry in page2["entries"]] == [
+        "标题3",
+        "标题2",
+        "标题1",
+    ]
+    searched = diary.page("标题2", limit=20, offset=0)
+    assert searched["total"] == 1
+    assert searched["entries"][0]["items"][0]["title"] == "标题2"
+    assert "screenshot" not in searched["entries"][0]["items"][0]
+
+
+def test_async_apply_limits_and_page(tmp_path):
+    async def scenario() -> None:
+        diary = PhoneDiary(tmp_path)
+        for index in range(6):
+            await diary.add_browse_async(
+                _result("抖音", [f"第{index}条"]), round_id=f"r{index // 3}"
+            )
+        report = await diary.apply_limits_async(max_entries=3, keep_rounds=1)
+        assert report["after"] == 3
+        page = await diary.page_async("", limit=2, offset=0)
+        assert page["total"] == 3
+
+    asyncio.run(scenario())

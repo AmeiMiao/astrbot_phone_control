@@ -1,7 +1,7 @@
 """astrbot_phone_control 插件入口。
 
 通过远程 ADB 控制安卓模拟器，让主 Agent 以自身人格浏览抖音 / B 站 / 小黑盒，
-采集信息流、截图取证、写入浏览日记，并支持聊天指令与定时自主浏览。
+采集信息流、截图取证、写入浏览日志，并支持聊天指令与定时自主浏览。
 
 模块分工：
 
@@ -158,6 +158,14 @@ from .core.agent_usage_patch import (
     uninstall_agent_usage_capture,
 )
 from astrbot.core.platform.message_type import MessageType
+from .core.task_round import (
+    ORIGIN_AUTONOMOUS,
+    ORIGIN_COMMAND,
+    ORIGIN_USER,
+    new_round_id,
+    reset_round,
+    set_round,
+)
 from .core.task_priority import (
     UserTaskPriority,
     should_resume_continuous,
@@ -248,6 +256,8 @@ class PhoneControlPlugin(
         self._remember_event_session(event)
         # 鉴权通过后才允许登记用户任务并中止自主任务（任何调度副作用都在鉴权之后）。
         await self._enter_user_priority(event)
+        # 命令内产生的浏览日志标记为本轮命令，供清理保护按轮次保留。
+        round_token = set_round(new_round_id(), ORIGIN_COMMAND)
         entered = False
         try:
             if sub in self._CONTROL_SUBS:
@@ -268,6 +278,7 @@ class PhoneControlPlugin(
             logger.exception("处理 /phone 指令失败：%r", raw)
             await self._say(event, "error: 指令执行失败，请查看 AstrBot 日志")
         finally:
+            reset_round(round_token)
             if entered:
                 self.device_gate.release_event(event)
             self._exit_user_priority(event)
@@ -431,6 +442,11 @@ class PhoneControlPlugin(
             with suppress(Exception):
                 event.set_extra("phone_agent_run_active", True)
             origin = self.service.task_origin(event)
+            # 以一次 Agent run 作为一轮任务，浏览日志清理保护按该编号分组。
+            set_round(
+                new_round_id(),
+                ORIGIN_AUTONOMOUS if origin else ORIGIN_USER,
+            )
             if not origin:
                 return
             task = asyncio.current_task()
@@ -459,6 +475,8 @@ class PhoneControlPlugin(
         try:
             from .core.interactions import RUN_EXTRA
 
+            # 当前 Agent run 结束：清空轮次标记，避免后续无关调用误归入本轮。
+            set_round("", "")
             try:
                 self.interactions.finish_run(str(event.get_extra(RUN_EXTRA) or ""))
             except Exception as exc:
@@ -550,7 +568,7 @@ class PhoneControlPlugin(
             if not authorized:
                 return
             sections = [_build_guidance(config)]
-            # 浏览日记/学习档案/App 经验/新鲜感/验证状态属于手机活动记忆，
+            # 浏览日志/学习档案/App 经验/新鲜感/验证状态属于手机活动记忆，
             # 只在手机任务或明确的手机请求里注入，普通对话不扩大上下文。
             if is_task or looks_like_phone:
                 if config.browse.auto_remember and config.prompt.diary_limit > 0:

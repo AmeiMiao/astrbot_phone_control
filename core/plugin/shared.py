@@ -179,7 +179,7 @@ _HELP_TEXT = """手机操控插件指令：
 /phone screenshot     截图并发送到当前会话
 /phone open <app>     打开任意已安装 App（中文名/别名/包名）
 /phone browse [app] [条数]  浏览任意已安装 App 的信息流并记入记忆
-/phone diary [条数|关键词]  查看/检索浏览日记
+/phone diary [条数|关键词]  查看/检索浏览日志
 /phone auto on <app[,app]> [cron]  创建定时自主浏览任务（cron 默认取配置）
 /phone auto off [job_id]           取消自主浏览任务
 /phone auto list                   列出自主浏览任务

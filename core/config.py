@@ -82,6 +82,8 @@ DEFAULT_APP = "douyin"
 DEFAULT_ITEMS = 5
 DEFAULT_MAX_ITEMS = 20
 DEFAULT_SETTLE_SECONDS = 2.5
+DEFAULT_DIARY_LIMIT = 500
+DEFAULT_DIARY_KEEP_ROUNDS = 3
 DEFAULT_RANDOM_INTERVAL_MIN = 45
 DEFAULT_RANDOM_INTERVAL_MAX = 120
 DEFAULT_RANDOM_PROBABILITY = 0.5
@@ -408,6 +410,10 @@ class BrowseSettings:
     auto_save_images: bool = False
     image_storage_location: str = "server"
     save_images_both: bool = False
+    diary_max_entries: int = DEFAULT_DIARY_LIMIT
+    """浏览日志最多保留条数；达到上限自动清理旧日志。"""
+    diary_protect_rounds: int = DEFAULT_DIARY_KEEP_ROUNDS
+    """清理时保护最近 N 轮任务的日志（0=不保护）。"""
 
 
 @dataclass(frozen=True)
@@ -1086,6 +1092,22 @@ class PhoneConfig:
             auto_save_images=_as_bool(_pick(browse_card, source, "auto_save_images"), False, "browse.auto_save_images", warn_fn),
             image_storage_location=_as_choice(_pick(browse_card, source, "image_storage_location"), "server", "browse.image_storage_location", warn_fn, ("server", "phone")),
             save_images_both=_as_bool(_pick(browse_card, source, "save_images_both"), False, "browse.save_images_both", warn_fn),
+            diary_max_entries=_as_int(
+                _pick(browse_card, source, "diary_max_entries"),
+                DEFAULT_DIARY_LIMIT,
+                "browse.diary_max_entries",
+                warn_fn,
+                minimum=10,
+                maximum=100000,
+            ),
+            diary_protect_rounds=_as_int(
+                _pick(browse_card, source, "diary_protect_rounds"),
+                DEFAULT_DIARY_KEEP_ROUNDS,
+                "browse.diary_protect_rounds",
+                warn_fn,
+                minimum=0,
+                maximum=100,
+            ),
         )
 
         auto_card = card("auto")

@@ -17,6 +17,7 @@
         </div>
         <nav class="nav">
           <button class="nav-item active" data-view="dashboard" type="button">监控面板</button>
+          <button class="nav-item" data-view="diary" type="button">浏览日志</button>
           <button class="nav-item" data-view="learning" type="button">学习记录</button>
           <button class="nav-item" data-view="images" type="button">保存的图片</button>
           <button class="nav-item" data-view="migration" type="button">配置与数据迁移</button>
@@ -132,6 +133,44 @@
             也可用 /phone learn [关键词|条数] 在聊天里查看。
           </p>
         </section>
+        <section id="view-diary" class="view" hidden>
+          <header class="page-head">
+            <div>
+              <h1>浏览日志</h1>
+              <p class="subtitle" id="diary-subtitle">加载中…</p>
+            </div>
+            <div class="head-actions">
+              <button id="btn-diary-refresh" class="btn ghost" type="button">刷新</button>
+            </div>
+          </header>
+
+          <div class="card learning-toolbar">
+            <input
+              id="diary-query"
+              type="text"
+              maxlength="100"
+              placeholder="按内容/App/备注搜索；留空显示最近日志"
+            />
+            <select id="diary-limit">
+              <option value="20" selected>20 条</option>
+              <option value="50">50 条</option>
+              <option value="100">100 条</option>
+            </select>
+            <button id="btn-diary-search" class="btn primary" type="button">搜索</button>
+          </div>
+
+          <div class="learning-stats" id="diary-stats"></div>
+          <div class="learning-list" id="diary-list"></div>
+          <div class="head-actions">
+            <button id="diary-prev" class="btn ghost" type="button">上一页</button>
+            <span id="diary-page"></span>
+            <button id="diary-next" class="btn ghost" type="button">下一页</button>
+          </div>
+          <p class="hint">
+            浏览日志由浏览与自主任务自动写入；超过上限自动清理最旧日志，最近若干轮任务的日志受保护。
+            也可用 /phone diary 在聊天里查看，或让 AI 调用 phone_recall_diary 检索。
+          </p>
+        </section>
         <section id="view-images" class="view" hidden>
           <header class="page-head"><div><h1>保存的图片</h1><p id="images-subtitle" class="subtitle">加载中…</p></div>
             <button id="btn-images-refresh" class="btn ghost" type="button">刷新</button></header>
@@ -155,7 +194,7 @@
           </div>
           <div class="card">
             <h2>持久化数据迁移</h2>
-            <p>合并日记、聊天记忆、学习档案、App 经验、兴趣状态、互动/用量/指标及内容任务历史，并复制截图和保存的图片。相同记录去重，冲突时保留本插件当前记录；截图重名时单独保存原图。图片路径自动指向本插件目录。</p>
+            <p>合并浏览日志、聊天记忆、学习档案、App 经验、兴趣状态、互动/用量/指标及内容任务历史，并复制截图和保存的图片。相同记录去重，冲突时保留本插件当前记录；截图重名时单独保存原图。图片路径自动指向本插件目录。</p>
             <p>导入前停用原插件，关闭本插件自主任务、WireGuard 与抓包，等待手机任务结束。导入前自动备份目标资料，成功后刷新内存；原文件保持完整。运行状态、任务预约、媒体缓存与外部知识库由各自模块管理。</p>
             <label><input id="data-migration-keys" type="checkbox">同时补充缺失的 ADB / WireGuard 设备密钥（已有密钥保持当前值）</label>
             <div class="toolbar">

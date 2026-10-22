@@ -1,4 +1,4 @@
-"""内容浏览与记忆工具：浏览信息流、记录学习档案、检索浏览日记、查看最近聊天、App 使用经验记忆。"""
+"""内容浏览与记忆工具：浏览信息流、记录学习档案、检索浏览日志、查看最近聊天、App 使用经验记忆。"""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class PhoneBrowseTool(_PhoneToolBase):
     name: str = "phone_browse"
     description: str = (
         "便捷快速采样：自动浏览任意已安装 App 的信息流/内容列表，抽取若干条内容并记入"
-        "浏览日记。app 可传中文标签（如 微信、小红书）或 Android 包名；没有预置画像的 App "
+        "浏览日志。app 可传中文标签（如 微信、小红书）或 Android 包名；没有预置画像的 App "
         "走通用文本抽取兜底。它是省事的采样工具，不是必经流程——更自主的浏览请直接用 "
         "phone_screen 观察、再用 phone_swipe/phone_tap/phone_wait 自己决定看什么、停留多久、"
         "是否点开详情或评论。items 为采样条数；remember 为 true 时写入浏览记忆。"
@@ -56,7 +56,7 @@ class PhoneBrowseTool(_PhoneToolBase):
                 },
                 "remember": {
                     "type": "boolean",
-                    "description": "是否写入浏览日记（长期记忆）。",
+                    "description": "是否写入浏览日志（长期记忆）。",
                     "default": True,
                 },
             },
@@ -93,7 +93,7 @@ class PhoneBrowseTool(_PhoneToolBase):
                 + "）；下次优先换主题或换 App，降低同类内容的打开/停留概率。"
             )
         if remember:
-            text += "\n" + ("已写入浏览日记" if result.diary_recorded else "浏览日记未写入")
+            text += "\n" + ("已写入浏览日志" if result.diary_recorded else "浏览日志未写入")
         screenshot_path = next(
             (item.screenshot_path for item in result.items if item.screenshot_path),
             None,
@@ -203,11 +203,11 @@ class PhoneLearnTool(_PhoneToolBase):
 
 @dataclass
 class PhoneRecallDiaryTool(_PhoneToolBase):
-    """检索浏览日记。"""
+    """检索浏览日志。"""
 
     name: str = "phone_recall_diary"
     description: str = (
-        "检索手机浏览日记（浏览过什么内容、标题/作者/时间）。"
+        "检索手机浏览日志（浏览过什么内容、标题/作者/时间）。"
         "query 为空时返回最近若干条记录。用于回答“你最近看了什么”这类问题。"
     )
     parameters: dict = Field(

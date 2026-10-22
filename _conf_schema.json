@@ -227,8 +227,20 @@
       "auto_remember": {
         "type": "bool",
         "default": true,
-        "description": "浏览后自动写入浏览日记",
+        "description": "浏览后自动写入浏览日志",
         "hint": "长期记忆；默认开启。"
+      },
+      "diary_max_entries": {
+        "type": "int",
+        "default": 500,
+        "description": "浏览日志条数上限",
+        "hint": "达到上限自动清理最旧的浏览日志；范围 10-100000，默认 500。最近 N 轮任务的日志受保护（见 diary_protect_rounds）。"
+      },
+      "diary_protect_rounds": {
+        "type": "int",
+        "default": 3,
+        "description": "清理保护最近任务轮次",
+        "hint": "清理旧日志时保留最近多少轮任务的浏览日志（每轮 Agent 任务/一条 /phone browse 命令算一轮）；这些日志即使让总量超过上限也不会被清理；0=不保护，范围 0-100，默认 3。"
       },
       "auto_save_images": {
         "description": "保存图片开关",
@@ -579,13 +591,7 @@
         "type": "bool",
         "default": true,
         "description": "注入手机能力使用指南",
-        "hint": "注入到授权用户的 LLM 请求；以本轮临时用户内容块追加（不修改 system_prompt，避免破坏前缀缓存）；浏览日记、学习档案、App 经验、新鲜感与验证状态只对授权用户的手机任务/手机请求注入；非主人请求与普通对话不注入。"
-      },
-      "diary_limit": {
-        "type": "int",
-        "default": 5,
-        "description": "注入浏览日记条数",
-        "hint": "最近浏览日记；范围 0-50，默认 5；0 表示不注入。"
+        "hint": "注入到授权用户的 LLM 请求；以本轮临时用户内容块追加（不修改 system_prompt，避免破坏前缀缓存）；浏览日志、学习档案、App 经验、新鲜感与验证状态只对授权用户的手机任务/手机请求注入；非主人请求与普通对话不注入。"
       },
       "app_memory_enabled": {
         "type": "bool",
@@ -625,6 +631,12 @@
         },
         "description": "注入 App 经验条数上限",
         "hint": "提示词最多注入几个 App 的使用经验；默认 5；0=不注入。"
+      },
+      "diary_limit": {
+        "type": "int",
+        "default": 5,
+        "description": "注入浏览日志条数",
+        "hint": "最近浏览日志；范围 0-50，默认 5；0 表示不注入。"
       }
     }
   },

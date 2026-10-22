@@ -29,6 +29,7 @@ from .background import clean_background
 from .chat_memory import ChatMemory
 from .config import UNCONFIGURED_MESSAGE, PhoneConfig
 from .diary import PhoneDiary
+from .task_round import current_round
 from .errors import (
     ActionFailedError,
     AdbNotConfiguredError,
@@ -1737,7 +1738,7 @@ class PhoneService:
         collect_screenshots: bool = False,
         remember: bool = True,
     ) -> BrowseResult:
-        """浏览任意 App 的信息流；``remember`` 时写入浏览日记。"""
+        """浏览任意 App 的信息流；``remember`` 时写入浏览日志。"""
         self.guard_device("browse")
         self.ensure_configured()
         package, label = self.resolve_app_target(app)
@@ -1754,10 +1755,17 @@ class PhoneService:
             result.app = label
         if remember and config.browse.auto_remember:
             try:
-                await self.diary.add_browse_async(result)
+                round_info = current_round()
+                await self.diary.add_browse_async(
+                    result,
+                    round_id=round_info[0] if round_info else "",
+                    round_kind=round_info[1] if round_info else "",
+                    max_entries=config.browse.diary_max_entries,
+                    keep_rounds=config.browse.diary_protect_rounds,
+                )
                 result.diary_recorded = True
             except Exception as exc:  # noqa: BLE001 - 记忆写入失败不影响浏览结果
-                logger.warning("写入浏览日记失败：%s", exc)
+                logger.warning("写入浏览日志失败：%s", exc)
         # 新鲜感/厌倦感：浏览采样到的内容按主题累计疲劳度；占用不阻塞浏览结果。
         try:
             labels = self.record_novelty_items(label or result.app, result.items)
@@ -1768,6 +1776,14 @@ class PhoneService:
             result.novelty_labels = labels
         await self._auto_clean_after_browse(config.security.auto_clean_after_browse)
         return result
+
+    async def cleanup_diary(self) -> dict[str, Any]:
+        """按配置清理浏览日志（启动/配置变更时调用，不访问设备）。"""
+        settings = self.config.browse
+        return await self.diary.apply_limits_async(
+            max_entries=settings.diary_max_entries,
+            keep_rounds=settings.diary_protect_rounds,
+        )
 
     def record_novelty_items(self, app: str, items: Any) -> list[str]:
         """记录一组内容的曝光，返回本次达到「已看腻」阈值的内容主题标签。"""
@@ -1832,13 +1848,13 @@ class PhoneService:
         return await capture_post_top(self)
 
     async def recall(self, query: str = "", *, limit: int = 5) -> str:
-        """检索浏览日记并格式化成中文文本。"""
+        """检索浏览日志并格式化成中文文本。"""
         entries = await self.diary.search_async(query, limit=limit)
         if not entries:
             if query:
-                return f"浏览日记里没有找到与 {query!r} 相关的记录"
-            return "浏览日记还是空的，先让我浏览一些内容吧"
-        title = f"浏览日记（{'关键词 ' + query if query else '最近'}，{len(entries)} 条）"
+                return f"浏览日志里没有找到与 {query!r} 相关的记录"
+            return "浏览日志还是空的，先让我浏览一些内容吧"
+        title = f"浏览日志（{'关键词 ' + query if query else '最近'}，{len(entries)} 条）"
         lines = [title]
         for entry in entries:
             lines.append(

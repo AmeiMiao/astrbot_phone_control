@@ -14,6 +14,8 @@
     timers: [],
     imagesOffset: 0,
     imagesRequest: 0,
+    diaryOffset: 0,
+    diaryRequest: 0,
     migrationToken: null,
     dataMigrationToken: null,
   };
@@ -92,6 +94,7 @@
       btn.classList.toggle("active", btn.dataset.view === view);
     });
     $("view-dashboard").hidden = view !== "dashboard";
+    $("view-diary").hidden = view !== "diary";
     $("view-learning").hidden = view !== "learning";
     $("view-images").hidden = view !== "images";
     $("view-migration").hidden = view !== "migration";
@@ -101,6 +104,7 @@
       refreshSeries();
     } else {
       stopPolls();
+      if (view === "diary") loadDiary();
       if (view === "learning") loadLearning();
       if (view === "images") loadImages();
     }
@@ -418,6 +422,121 @@
 
   function redrawCharts() {
     if (state.view === "dashboard") renderCharts();
+  }
+
+  // ---------------- 浏览日志 ----------------
+  async function loadDiary() {
+    if (document.hidden) return;
+    const request = ++state.diaryRequest;
+    const query = ($("diary-query")?.value || "").trim();
+    const limit = Number($("diary-limit")?.value || 20);
+    try {
+      const data = await apiGet("dashboard/diary", {
+        query,
+        limit,
+        offset: state.diaryOffset,
+      });
+      if (request !== state.diaryRequest) return;
+      renderDiary(data || {});
+    } catch (err) {
+      if (request !== state.diaryRequest) return;
+      setText("diary-subtitle", `浏览日志加载失败：${err.message || err}`);
+    }
+  }
+
+  function renderDiary(data) {
+    const stats = data.stats || {};
+    const entries = data.entries || [];
+    const total = Number(data.total || 0);
+    const pageTotal = Number(stats.entries || 0);
+    const maxEntries = Number(stats.max_entries || 0);
+    const keepRounds = Number(stats.keep_rounds || 0);
+    const last = Number(stats.last_ts || 0);
+    const query = String(data.query || "").trim();
+    const offset = Number(data.offset || 0);
+    const limit = Number(data.limit || 20);
+    const apps = Object.entries(stats.apps || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, count]) => `${name} ${count}`)
+      .join(" · ");
+    setText(
+      "diary-subtitle",
+      pageTotal
+        ? `共 ${pageTotal} 条${maxEntries ? `（上限 ${maxEntries}）` : ""}${
+            keepRounds ? `；保护最近 ${keepRounds} 轮任务` : ""
+          }；最近记录 ${fmtDateTime(last)}${query ? `；搜索「${query}」` : ""}`
+        : "浏览日志还是空的：浏览或自主任务会自动记录。"
+    );
+    const statBox = $("diary-stats");
+    if (statBox) {
+      statBox.innerHTML = "";
+      const chips = [
+        `总数 ${pageTotal}`,
+        maxEntries ? `上限 ${maxEntries}` : "",
+        keepRounds ? `保护 ${keepRounds} 轮` : "",
+        last ? `最近 ${fmtDateTime(last)}` : "",
+        apps ? `App ${apps}` : "",
+      ].filter(Boolean);
+      chips.forEach((text) => {
+        const chip = document.createElement("span");
+        chip.className = "learning-chip";
+        chip.textContent = text;
+        statBox.appendChild(chip);
+      });
+    }
+    const list = $("diary-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!entries.length) {
+      const empty = document.createElement("p");
+      empty.className = "learning-empty";
+      empty.textContent = query
+        ? "没有匹配的浏览日志，换个关键词试试。"
+        : "还没有浏览日志。";
+      list.appendChild(empty);
+    } else {
+      entries.forEach((entry) => {
+        const item = document.createElement("article");
+        item.className = "learning-item";
+
+        const head = document.createElement("div");
+        head.className = "learning-item-head";
+        const time = document.createElement("span");
+        time.className = "learning-time";
+        time.textContent = fmtDateTime(entry.ts);
+        head.appendChild(time);
+        const app = document.createElement("span");
+        app.className = "learning-source";
+        app.textContent = entry.app || "未知 App";
+        head.appendChild(app);
+        item.appendChild(head);
+
+        const items = entry.items || [];
+        items.slice(0, 5).forEach((feedItem) => {
+          const line = document.createElement("p");
+          line.className = "learning-content";
+          const title = String(feedItem.title || feedItem.text || "（无文本）").trim();
+          const author = String(feedItem.author || "").trim();
+          line.textContent = author ? `${title} —— ${author}` : title;
+          item.appendChild(line);
+        });
+        if (entry.note) {
+          const note = document.createElement("p");
+          note.className = "learning-content";
+          note.textContent = `备注：${entry.note}`;
+          item.appendChild(note);
+        }
+        list.appendChild(item);
+      });
+    }
+    const pageNo = Math.floor(offset / Math.max(1, limit)) + 1;
+    const pageMax = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+    setText("diary-page", `第 ${pageNo} / ${pageMax} 页`);
+    const prev = $("diary-prev");
+    const next = $("diary-next");
+    if (prev) prev.disabled = offset <= 0;
+    if (next) next.disabled = offset + limit >= total;
   }
 
   // ---------------- 学习记录 ----------------
@@ -765,6 +884,29 @@
       refreshOverview();
       refreshSeries();
     });
+    $("btn-diary-refresh").addEventListener("click", loadDiary);
+    $("btn-diary-search").addEventListener("click", () => {
+      state.diaryOffset = 0;
+      loadDiary();
+    });
+    $("diary-query").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        state.diaryOffset = 0;
+        loadDiary();
+      }
+    });
+    $("diary-limit").addEventListener("change", () => {
+      state.diaryOffset = 0;
+      loadDiary();
+    });
+    $("diary-prev").addEventListener("click", () => {
+      state.diaryOffset = Math.max(0, state.diaryOffset - Number($("diary-limit")?.value || 20));
+      loadDiary();
+    });
+    $("diary-next").addEventListener("click", () => {
+      state.diaryOffset += Number($("diary-limit")?.value || 20);
+      loadDiary();
+    });
     $("btn-learning-refresh").addEventListener("click", loadLearning);
     $("btn-learning-search").addEventListener("click", loadLearning);
     $("learning-query").addEventListener("keydown", (event) => {
@@ -782,6 +924,8 @@
       if (state.view === "dashboard") {
         refreshOverview();
         refreshSeries();
+      } else if (state.view === "diary") {
+        loadDiary();
       } else if (state.view === "learning") {
         loadLearning();
       } else if (state.view === "images") {

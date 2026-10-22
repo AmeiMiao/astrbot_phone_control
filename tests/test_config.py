@@ -31,6 +31,9 @@ def test_empty_mapping_returns_defaults():
     assert config.browse.default_app == "douyin"
     assert config.browse.default_items == 5
     assert config.browse.max_items == 20
+    # 浏览日志默认上限 500，清理时保护最近 3 轮任务。
+    assert config.browse.diary_max_entries == 500
+    assert config.browse.diary_protect_rounds == 3
     assert config.auto.enabled is False
     assert config.auto.cron == DEFAULT_AUTO_CRON
     assert config.prompt.inject_guidance is True
@@ -297,6 +300,19 @@ def test_unconfigured_config_is_valid_and_invalid_port_is_unconfigured():
     )
     assert configured.adb.configured is True
     assert configured.adb.target == "10.0.0.2:5555"
+
+
+def test_diary_max_entries_config_is_clamped():
+    config = PhoneConfig.from_mapping(
+        {"browse": {"diary_max_entries": 5, "diary_protect_rounds": 200}}
+    )
+    assert config.browse.diary_max_entries == 10
+    assert config.browse.diary_protect_rounds == 100
+    custom = PhoneConfig.from_mapping(
+        {"browse": {"diary_max_entries": 120, "diary_protect_rounds": 0}}
+    )
+    assert custom.browse.diary_max_entries == 120
+    assert custom.browse.diary_protect_rounds == 0
 
 
 def test_new_config_keys_defaults():

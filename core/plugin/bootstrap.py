@@ -480,6 +480,22 @@ class BootstrapMixin:
                 self.data_dir,
             )
 
+    async def _cleanup_diary_limits(self) -> None:
+        """按配置清理浏览日志上限（不访问设备，失败只记录）。"""
+        try:
+            report = await self.service.cleanup_diary()
+        except Exception as exc:  # noqa: BLE001 - 日志清理失败不影响插件运行
+            logger.warning("浏览日志上限清理失败：%s", exc)
+            return
+        if report.get("removed"):
+            logger.info(
+                "浏览日志：按上限清理 %s 条（%s → %s 条，保护 %s 轮任务）",
+                report.get("removed"),
+                report.get("before"),
+                report.get("after"),
+                len(report.get("protected_rounds") or []),
+            )
+
     async def initialize(self) -> None:
         """插件激活：先停用残留旧实例，再异步同步自主浏览任务。
 
@@ -498,6 +514,8 @@ class BootstrapMixin:
             ])
             LIVE_PLUGIN_INSTANCES.add(self)
             self._live_instance_registered = True
+        # 浏览日志上限清理不访问设备：假开启与启用状态都要在启动时执行一次。
+        await self._cleanup_diary_limits()
         if not self.service.configured:
             logger.warning(
                 "未配置 ADB 地址/端口，插件保持未启用状态："
@@ -899,6 +917,8 @@ class BootstrapMixin:
             return
         plan = build_apply_plan(previous, current)
         notes.extend(plan.notes)
+        # 浏览日志上限/保护轮次是实时读取配置，保存后立即按新上限清理一次。
+        await self._cleanup_diary_limits()
 
         # 0) ADB 未配置（假开启）：只允许实时读取类配置生效，设备相关组件保持停止。
         if not current.adb.configured:

@@ -297,6 +297,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
             (f"{base}/overview", self.dashboard_overview, ["GET"], "手机监控概览"),
             (f"{base}/series", self.dashboard_series, ["GET"], "手机监控指标时间序列"),
             (f"{base}/learning", self.dashboard_learning, ["GET"], "手机学习记录"),
+            (f"{base}/diary", self.dashboard_diary, ["GET"], "浏览日志"),
         )
         routes += self._library_dashboard_routes(base)
         routes += self._config_migration_routes(base)
@@ -384,6 +385,42 @@ class ObservabilityMixin(LibraryDashboardMixin):
         except Exception as exc:  # noqa: BLE001 - 学习档案读取失败给可读错误
             logger.warning("读取学习记录失败：%s", exc)
             return error_response(f"读取学习记录失败：{exc}", status_code=500)
+
+    async def dashboard_diary(self):
+        """GET dashboard/diary?query=&limit=&offset=：浏览日志分页（最新在前）。"""
+        try:
+            query_obj = plugin_main_module().request.query
+            query = str(query_obj.get("query", "") or "").strip()[:100]
+            raw_limit = query_obj.get("limit", 20, type=int)
+            raw_offset = query_obj.get("offset", 0, type=int)
+            try:
+                limit = int(raw_limit) if raw_limit is not None else 20
+            except (TypeError, ValueError):
+                limit = 20
+            try:
+                offset = int(raw_offset) if raw_offset is not None else 0
+            except (TypeError, ValueError):
+                offset = 0
+            data = await self.service.diary.page_async(
+                query, limit=limit, offset=offset
+            )
+            stats = self.service.diary.stats()
+            config = self.service.config
+            data["stats"] = {
+                "entries": int(stats.get("entries") or 0),
+                "items": int(stats.get("items") or 0),
+                "apps": {
+                    str(key): int(value)
+                    for key, value in (stats.get("apps") or {}).items()
+                },
+                "last_ts": float(stats.get("last_ts") or 0.0),
+                "max_entries": int(config.browse.diary_max_entries),
+                "keep_rounds": int(config.browse.diary_protect_rounds),
+            }
+            return json_response(data)
+        except Exception as exc:  # noqa: BLE001 - 浏览日志读取失败给可读错误
+            logger.warning("读取浏览日志失败：%s", exc)
+            return error_response(f"读取浏览日志失败：{exc}", status_code=500)
 
     def _get_memory_companion_bridge(self) -> Any:
         """从已加载的 astrbot_plugin_memory_companion 模块取公开桥接对象。"""

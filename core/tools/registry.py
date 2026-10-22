@@ -128,7 +128,7 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
         "记录你真正理解到的内容（观点/知识点/梗/事件/规则，≤500 字）；"
         "持续刷每轮至少记一次，别只滑不看或刷完凭印象编。"
     ),
-    "phone_recall_diary": "检索浏览日记；query 空返回最近记录。",
+    "phone_recall_diary": "检索浏览日志；query 空返回最近记录。",
     "phone_recent_chat": "查看会话最近聊天与可分享会话列表（umo），用于按喜好分享。",
     "phone_interaction_gate": (
         "互动前申请名额：like=点赞/favorite=收藏（共用单轮额度）；comment=主动评论；passive_reply=被动回复"

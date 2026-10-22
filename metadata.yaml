@@ -1,8 +1,8 @@
 name: astrbot_phone_control_mirror
 display_name: 手机操控
-short_desc: 把安卓模拟器变成 AstrBot 的“手机”：远程 ADB/scrcpy 控制，AI 可自主浏览/玩手机、打开任意 App，理解内容并记录浏览日记、学习档案与 App 经验；支持持续刷、随机玩、定时任务与用户任务优先，命令/工具/定时任务共用统一设备执行入口（授权、占用、暂停、取消代次、期限一致）。人机验证/做题自动处理，按答题进度与挑战解除做结构化判定，失败有限次后暂停并通知人工接管；评论/被动回复/发帖可开关并限额冷却，分享强制带链接或截图；提供实时屏幕、OCR 与流媒体内容识别；token 按 provider_stats 对账、自主任务模型可选；内置监控与资料管理面板；支持 WireGuard userspace 组网（client/server，手机装 WG App 接入）。主动互动默认关闭，短信/邮箱验证码与人脸实名交用户处理。
+short_desc: 把安卓模拟器变成 AstrBot 的“手机”：远程 ADB/scrcpy 控制，AI 可自主浏览/玩手机、打开任意 App，理解内容并记录浏览日志、学习档案与 App 经验；支持持续刷、随机玩、定时任务与用户任务优先，命令/工具/定时任务共用统一设备执行入口（授权、占用、暂停、取消代次、期限一致）。人机验证/做题自动处理，按答题进度与挑战解除做结构化判定，失败有限次后暂停并通知人工接管；评论/被动回复/发帖可开关并限额冷却，分享强制带链接或截图；提供实时屏幕、OCR 与流媒体内容识别；token 按 provider_stats 对账、自主任务模型可选；内置监控与资料管理面板；支持 WireGuard userspace 组网（client/server，手机装 WG App 接入）。主动互动默认关闭，短信/邮箱验证码与人脸实名交用户处理。
 desc: |
-  把一台安卓模拟器（配置 ADB 地址与端口后启用）变成 AstrBot 的“手机”：主 Agent 可查看设备状态与 UI 树、点击/滑动/输入、打开任意已安装 App，按自身人格自主浏览、理解内容，并写入浏览日记、学习档案与 App 使用经验。
+  把一台安卓模拟器（配置 ADB 地址与端口后启用）变成 AstrBot 的“手机”：主 Agent 可查看设备状态与 UI 树、点击/滑动/输入、打开任意已安装 App，按自身人格自主浏览、理解内容，并写入浏览日志、学习档案与 App 使用经验。
 
   支持持续刷手机、随机玩手机、定时任务与用户任务优先；命令、LLM 工具与定时任务共用统一设备执行入口（授权、设备占用、暂停、取消代次与执行期限一致）。人机验证/做题自动识别并执行，按答题进度与挑战是否解除做结构化判定，失败有限次后暂停手机、保留验证页面并通知用户人工接管；等待超时仍保持暂停，需显式取消。
 
@@ -10,7 +10,7 @@ desc: |
 
 
 help: /phone help 查看全部指令。常用：/phone status、/phone browse 微信 5、/phone task 去B站看视频总结（后台执行）、/phone tasks、/phone quota [audit [小时]]、/phone play [tokens]、/phone interactions、/phone continuous on|off|status、/phone learn [关键词|条数]、/phone novelty [status|reset]、/phone watch [秒数]、/phone stop [job_id|all]、/phone wg [status|start|stop|restart|config]。
-version: 0.1.4.2
+version: 0.1.4.3
 author: ACAT
 repo: https://github.com/acat778/astrbot_phone_control
 astrbot_version: ">=4.27.1,<5"
