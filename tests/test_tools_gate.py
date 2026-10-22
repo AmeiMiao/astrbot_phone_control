@@ -188,6 +188,21 @@ from core.actions import DeviceActions  # noqa: E402
 from core.config import PhoneConfig  # noqa: E402
 from core.device_gate import ExecutionCancelled, GateError  # noqa: E402
 
+# 工具子类在真实 AstrBot 下必须是 pydantic dataclass；本地桩路径已移除 pydantic 桩，
+# 用标准库 dataclass 等价物，保证两套依赖下用例都能构造工具实例。
+try:  # pragma: no cover - 分支取决于是否安装真实 AstrBot
+    from pydantic import Field as _PydanticField
+    from pydantic.dataclasses import dataclass as _pydantic_dataclass
+except ModuleNotFoundError:  # pragma: no cover - 本地无 AstrBot 依赖
+    import dataclasses as _stdlib_dataclasses
+
+    def _pydantic_dataclass(cls):  # type: ignore[misc]
+        return _stdlib_dataclasses.dataclass(cls)
+
+    def _PydanticField(*, default_factory=None, **_kwargs):  # type: ignore[misc]
+        return _stdlib_dataclasses.field(default_factory=default_factory)
+
+
 for _stub_name in _STUB_MODULES:
     sys.modules.pop(_stub_name, None)
 
@@ -942,10 +957,13 @@ def test_tool_wrapper_appends_app_experience_recall_for_open_app():
     service.experiences = StubExperiences()
     service._cached_ui_snapshot = lambda: None
 
+    @_pydantic_dataclass
     class OpenAppTool(_PhoneToolBase):
         name: str = "phone_open_app"
         description: str = "打开 App"
-        parameters: dict = {}
+        parameters: dict = _PydanticField(
+            default_factory=lambda: {"type": "object", "properties": {}}
+        )
 
         @_wrap_call
         async def call(self, context: Any, **kwargs: Any) -> str:
@@ -995,10 +1013,13 @@ def test_tool_wrapper_recall_prefers_target_app_over_transient_foreground():
     service._cached_ui_snapshot = lambda: None
     service.resolve_app_target = lambda app: ("com.example.app", "示例")
 
+    @_pydantic_dataclass
     class OpenAppTool(_PhoneToolBase):
         name: str = "phone_open_app"
         description: str = "打开 App"
-        parameters: dict = {}
+        parameters: dict = _PydanticField(
+            default_factory=lambda: {"type": "object", "properties": {}}
+        )
 
         @_wrap_call
         async def call(self, context: Any, **kwargs: Any) -> str:
@@ -1044,10 +1065,13 @@ def test_tool_wrapper_recall_falls_back_to_local_archive_on_semantic_failure():
     service.experiences = StubExperiences()
     service._cached_ui_snapshot = lambda: None
 
+    @_pydantic_dataclass
     class ScreenTool(_PhoneToolBase):
         name: str = "phone_screen"
         description: str = "看屏幕"
-        parameters: dict = {}
+        parameters: dict = _PydanticField(
+            default_factory=lambda: {"type": "object", "properties": {}}
+        )
 
         @_wrap_call
         async def call(self, context: Any, **kwargs: Any) -> str:
