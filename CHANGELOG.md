@@ -4,58 +4,30 @@
 
 ## [Unreleased]
 
-## [0.1.4.11] - 2026-10-22
+## [0.1.5] - 2026-10-22
+
+### Added
+
+- 记忆存储新增「保存到插件本地」开关 `memory.local_enabled`（默认开启）：关闭后学习档案、浏览日志与聊天记忆不再写入插件本地，依赖本地记忆的聊天语义找回同时停用并按条件隐藏配置。
+- App 使用经验新增独立向量模型配置 `prompt.app_memory_embedding_provider_id`（开启 App 经验后显示，留空使用默认 Embedding Provider）与独立索引目录 `semantic_app/`；打开 App、读取屏幕或查看实时画面后，自动按当前 App、当前页面召回相关经验，`phone_app_memory` 改为语义优先、档案兜底。
+- App 经验失效更新：操作报错时累计失败，连续 2 次标记「可能已失效」并提示重新探索，重新 `phone_app_remember` 覆盖成功后清除失效标记。
+- 新增 `auto.share_cooldown_minutes`（同一目标会话主动分享冷却，默认 30 分钟，0=不限制），避免自刷任务反复向同一群/人分享刷屏；用户直接任务不受限制。
+- 新增独立「图片保存」配置卡片：保存图片开关 `image.auto_save_images`、主要存储位置 `image.image_storage_location`、两地都存 `image.save_images_both`。
 
 ### Changed
 
-- 信息流浏览默认 App `browse.default_app` 默认留空：`/phone browse` 未指定 App 时从已安装第三方 App 中随机选一个，并在结果中显示选中项；`phone_browse` 工具 `app` 留空同样随机。
-- 图片保存配置从「信息流浏览」卡片移到独立的「图片保存」卡片（`image.auto_save_images` / `image.image_storage_location` / `image.save_images_both`）；旧版 `browse.*` 非默认值在插件加载时自动迁移并清理旧键，配置页不再显式选择。
+- App 使用经验移除 AstrBot 知识库后端与 `prompt.app_memory_backend` / `app_memory_kb_name` 配置，经验只保存在插件本地 `app_memory.json`，不再需要选择存储位置。
+- 聊天语义找回索引只包含学习档案与浏览日志，不再索引 App 使用经验；移除 `recall.include_app_experience` 配置项。
+- 自主玩手机流程改为由 AI 自己的兴趣驱动：先按自身兴趣决定打开/继续，中途不感兴趣直接退出；分享与评论/点赞等互动放到内容看完或玩完后独立判断，可都做、无先后；最近聊天仅用于结束后判断分享/互动对象，不再作为开始刷手机的动机。
+- 信息流浏览默认 App `browse.default_app` 默认留空：`/phone browse` 未指定 App 时从已安装第三方 App 中随机选择，`phone_browse` 工具 `app` 留空同样随机。
+- 图片保存配置从「信息流浏览」卡片迁移到独立卡片；旧版 `browse.*` 同名配置在插件加载时自动迁移并清理旧键。
+- 使用指南、随机玩/持续刷提示词、分享工具描述、`phone_recent_chat` 返回说明与内置 `phone-autonomy` 行为手册同步更新。
 
 ### Fixed
 
 - 修复 `/phone browse` 未指定 App 时随机选择逻辑缺少导入导致的指令失败。
-- 补全工具层/浏览快照错误类型的缺失导入与验证控制器类型注解，避免异常分支运行时 `NameError`。
-- App 经验操作前召回更可靠：打开/进入指定 App 时用工具参数解析出的目标包名（避免刚启动时前台仍是桌面导致漏召回）；截屏/OCR/实时屏幕类工具无 UI 快照时直接查询前台包名；语义召回超时或异常时回退本地档案，召回时间上限放宽到 8 秒。
-
-## [0.1.4.10] - 2026-10-22
-
-### Changed
-
-- 自主玩手机行为流程修订：行动由 AI 自己的兴趣驱动（先按人格/心情决定是否打开、是否继续），中途不感兴趣直接退出，不再按「会话感兴趣 → 去刷 → 分享 → 退出」的固定链路；分享与评论/点赞等互动放在内容看完/玩完之后独立判断，可都做、无先后。
-- 新增 `auto.share_cooldown_minutes`（同一目标会话主动分享冷却，默认 30 分钟，0=不限制）：自刷/随机/持续刷任务向同一群/人再次分享会被 `phone_share_to_user` 拒绝并提示剩余时间，避免反复刷屏；用户直接任务不受限。
-- 指南、随机玩/持续刷提示词、分享工具描述、`phone_recent_chat` 返回说明与内置 `phone-autonomy` 行为手册同步改写；最近聊天只用于结束后判断分享/互动对象，不再作为开始刷手机的动机。
-
-## [0.1.4.9] - 2026-10-22
-
-### Added
-
-- App 经验操作前召回：`phone_open_app`、`phone_screen`、`phone_read_screen`、`phone_check_inbox`、`phone_content` 返回结果后自动按「当前包名 + 前台 Activity + 屏幕文本」召回相关经验（同一轮同一页面只召回一次）；`phone_app_memory` 也改为语义优先、档案兜底查询。
-- App 经验失效更新：经验条目新增 `failures` / `last_failure_at` / `stale_at` 字段；本轮召回经验在相关操作报错时累计失败，连续 2 次标记「可能已失效」并提示重新探索覆盖；重新 `phone_app_remember` 同 App/页面后版本 +1 并清除失效标记。
-
-### Changed
-
-- App 经验渲染与提示词注入对「可能已失效」的经验加标注，引导模型以当前屏幕为准。
-- 打开 App 后的经验提示改由统一的操作前召回路径提供，减少重复注入。
-
-## [0.1.4.8] - 2026-10-22
-
-### Changed
-
-- App 使用经验去掉 AstrBot 知识库后端：删除 `prompt.app_memory_backend` / `prompt.app_memory_kb_name` 配置与知识库读写路径，经验只保存在插件本地 `app_memory.json`；`phone_app_remember` 返回文案不再显示存储位置选择。
-- App 经验新增独立向量模型配置 `prompt.app_memory_embedding_provider_id`（开启 App 经验后显示，留空使用默认 Embedding Provider），并建立独立索引目录 `semantic_app/`（独立存量、独立 Provider，不与聊天找回共用）。
-- 聊天语义找回索引不再包含 App 使用经验：移除 `recall.include_app_experience` 配置项，索引来源只保留学习档案与浏览日志；普通聊天只读聊天找回索引。
-- App 经验索引在插件启动后后台构建、经验写入后防抖刷新、配置变更时排队重建，失败按退避重试且保留旧索引；未配置向量模型时操作前召回回退到本地档案按页面关键词查找。
-
-## [0.1.4.7] - 2026-10-22
-
-### Added
-
-- 记忆存储新增「保存到插件本地」总开关 `memory.local_enabled`（默认开启）：关闭后学习档案、浏览日志与聊天记忆不再写入插件本地，已有本地文件保留但不读写；MemoryCompanion / LivingMemory 同步不受影响。
-- 关闭本地保存时，依赖本地记忆的「聊天语义找回」整卡按条件隐藏，索引维护与聊天注入同时停用。
-
-### Changed
-
-- 记忆存储卡片补齐本地保存说明；「提示词注入」的手机任务记忆（浏览日志/学习档案）只在本地保存开启时注入。
+- 补全工具层与浏览快照错误类型的缺失导入、验证控制器类型注解，避免异常分支运行时 `NameError`。
+- App 经验召回更可靠：打开/进入 App 时使用工具参数解析出的目标包名，截屏类工具无 UI 快照时查询前台包名，语义召回超时或异常时回退本地档案。
 
 ## [0.1.4.6] - 2026-10-22
 
