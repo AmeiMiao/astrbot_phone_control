@@ -47,7 +47,6 @@ from ..chat_memory import ChatMemory
 from ..config import (
     UNCONFIGURED_MESSAGE,
     PhoneConfig,
-    require_configured,
 )
 from ..config_apply import ACTION_START, ACTION_STOP, build_apply_plan
 from ..diary import PhoneDiary
@@ -167,7 +166,6 @@ from .shared import (
     _companion_plugin_available,
     _read_plugin_version,
     PLUGIN_NAME,
-    BUNDLED_ADB,
     PHONE_KEYWORDS,
     plugin_root_dir,
     _GUIDANCE,
@@ -631,7 +629,10 @@ class CommandsMixin:
                 await manager.stop()
             except Exception as exc:
                 resource_errors.append(str(exc))
-        report = await self._cleanup_phone_home()
+        if self.service.configured:
+            report = await self._cleanup_phone_home()
+        else:
+            report = {"stopped": 0, "errors": []}
         verification_note = ""
         try:
             verification_note = await self._verification.cancel_for_stop()
@@ -641,8 +642,14 @@ class CommandsMixin:
         report.setdefault("errors", []).extend(resource_errors)
         lines = [
             f"已停止 {len(deleted)} 个插件任务（中止 Agent {stopped_runs} 个）。",
-            f"手机已回桌面，强停应用 {report.get('stopped', 0)} 个；抓包、持续刷与随机任务已关闭。",
         ]
+        if self.service.configured:
+            lines.append(
+                f"手机已回桌面，强停应用 {report.get('stopped', 0)} 个；"
+                "抓包、持续刷与随机任务已关闭。"
+            )
+        else:
+            lines.append("ADB 未配置（插件未启用）：已停止插件任务与后台循环，未操作设备。")
         if report.get("errors"):
             lines.append("后台清理未完成：" + "；".join(report["errors"]))
         if verification_note:

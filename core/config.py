@@ -9,9 +9,9 @@ AstrBot 下发的是可变配置 dict（WebUI 的 object 卡片会嵌套成子 d
 * 扁平结构：分组字段直接放在顶层，如 ``{"host": ...}``。
 
 所有数值做范围收敛、所有布尔做宽松解析；非法值回退默认值并记录 warning。
-ADB 缺省使用 127.0.0.1:5555；显式非法端口由 :func:`require_configured`
-在启动时报告配置错误。日志统一使用 ``from astrbot.api import logger``；
-其余仅依赖标准库，便于本地单测。
+ADB 主机/端口默认为空，表示「未配置」：插件仍可正常加载与使用面板/配置/迁移，
+但不连接设备、不启动手机后台任务（假开启）。日志统一使用
+``from astrbot.api import logger``；其余仅依赖标准库，便于本地单测。
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from typing import Any
 
 from astrbot.api import logger
 
-from .errors import AdbNotConfiguredError
 from .background import DEFAULT_KEEP_PACKAGES
 from .verification import (
     DEFAULT_ATTEMPT_TIMEOUT_SECONDS,
@@ -70,11 +69,13 @@ from .wireguard import (
     WireGuardSettings,
 )
 
-DEFAULT_ADB_HOST = "127.0.0.1"
-DEFAULT_ADB_PORT = 5555
+# ADB 主机/端口默认留空：空值表示未配置，插件以“假开启”状态加载。
+DEFAULT_ADB_HOST = ""
+DEFAULT_ADB_PORT = 0
 # 未配置主机/端口时所有设备能力的统一错误文案（命令/工具/提示词共用）。
 UNCONFIGURED_MESSAGE = (
-    "未配置 ADB 地址/端口，请在插件配置 adb.host 与 adb.port 中填写后再试"
+    "未配置 ADB 地址/端口，插件当前为未启用状态；"
+    "请在插件配置 adb.host 与 adb.port 中填写后重新加载插件"
 )
 DEFAULT_AUTO_CRON = "0 */2 * * *"
 DEFAULT_APP = "douyin"
@@ -271,9 +272,9 @@ def _as_str_list(raw: Any, label: str, warn: WarnFn) -> tuple[str, ...]:
 
 
 def _as_port(raw: Any, label: str, warn: WarnFn) -> int:
-    """空值与初始占位 0 使用默认端口；显式非法值返回 0。"""
+    """解析 ADB 端口；空值与 0 表示未配置（返回 0），显式非法值同样视为未配置。"""
     if raw is None or raw == "" or raw == 0 or raw == "0":
-        return DEFAULT_ADB_PORT
+        return 0
     try:
         value = int(str(raw).strip()) if isinstance(raw, str) else int(raw)
     except (TypeError, ValueError):
@@ -296,7 +297,7 @@ def _as_cron(raw: Any, default: str, label: str, warn: WarnFn) -> str:
 
 @dataclass(frozen=True)
 class AdbSettings:
-    """ADB 连接参数，默认使用本机 Android 调试端口。"""
+    """ADB 连接参数；主机/端口留空（0）表示未配置，插件处于假开启状态。"""
 
     host: str = DEFAULT_ADB_HOST
     port: int = DEFAULT_ADB_PORT
@@ -307,7 +308,9 @@ class AdbSettings:
 
     @property
     def configured(self) -> bool:
-        """是否已填写可用的 ADB 主机与端口。"""
+        """是否已填写可用的 ADB 目标（显式 serial，或主机 + 端口）。"""
+        if str(self.serial or "").strip():
+            return True
         return bool(str(self.host or "").strip()) and 1 <= int(self.port) <= 65535
 
     @property
@@ -315,7 +318,7 @@ class AdbSettings:
         """adb 连接目标：显式 serial 优先，否则 host:port；未配置时为空串。"""
         if self.serial:
             return self.serial
-        if not str(self.host or "").strip():
+        if not self.configured:
             return ""
         return f"{self.host}:{self.port}"
 
@@ -1589,40 +1592,3 @@ class PhoneConfig:
             novelty=novelty,
             debug=debug,
         )
-
-
-def fill_adb_defaults(raw: dict) -> bool:
-    """把空白初始 ADB 字段补齐为可在面板中继续编辑的本机默认地址。"""
-    if "adb" in raw:
-        card = raw["adb"]
-        if not isinstance(card, dict):
-            return False
-    elif "host" in raw or "port" in raw:
-        card = raw
-    else:
-        card = raw.setdefault("adb", {})
-    changed = False
-    if card.get("host") is None or (isinstance(card.get("host"), str) and not card["host"].strip()):
-        card["host"] = DEFAULT_ADB_HOST
-        changed = True
-    if card.get("port") in (None, "", 0, "0"):
-        card["port"] = DEFAULT_ADB_PORT
-        changed = True
-    return changed
-
-
-def require_configured(config: PhoneConfig) -> None:
-    """启动时校验 ADB 地址与端口。
-
-    Args:
-        config: 已解析的配置快照。
-
-    Raises:
-        PhoneControlError: ``adb.host`` 为空或 ``adb.port`` 非法（视为未配置）。
-    """
-    if config.adb.configured:
-        return
-    raise AdbNotConfiguredError(
-        "adb.host / adb.port 配置无效，插件无法启动；"
-        "请在插件配置『ADB 连接』填写后重载插件"
-    )

@@ -46,7 +46,6 @@ from ..chat_memory import ChatMemory
 from ..config import (
     UNCONFIGURED_MESSAGE,
     PhoneConfig,
-    require_configured,
 )
 from ..config_apply import ACTION_START, ACTION_STOP, build_apply_plan
 from ..diary import PhoneDiary
@@ -166,7 +165,6 @@ from .shared import (
     _companion_plugin_available,
     _read_plugin_version,
     PLUGIN_NAME,
-    BUNDLED_ADB,
     PHONE_KEYWORDS,
     plugin_root_dir,
     _GUIDANCE,
@@ -530,6 +528,11 @@ class TasksMixin:
     async def _random_play_loop(self) -> None:
         """随机间隔 + 概率掷骰；命中后创建静默的主动任务。"""
         while not self._random_stop.is_set():
+            if not self.service.configured:
+                # 假开启：不排任何自主任务，等配置地址并重载插件后恢复。
+                if await self._sleep_or_stop(60):
+                    return
+                continue
             if self.service.user_priority.active:
                 # 用户任务优先：用户任务期间不排随机玩手机，结束后自动恢复。
                 if await self._sleep_or_stop(30):

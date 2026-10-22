@@ -46,7 +46,6 @@ from ..chat_memory import ChatMemory
 from ..config import (
     UNCONFIGURED_MESSAGE,
     PhoneConfig,
-    require_configured,
 )
 from ..config_apply import ACTION_START, ACTION_STOP, build_apply_plan
 from ..diary import PhoneDiary
@@ -166,7 +165,6 @@ from .shared import (
     _companion_plugin_available,
     _read_plugin_version,
     PLUGIN_NAME,
-    BUNDLED_ADB,
     PHONE_KEYWORDS,
     plugin_root_dir,
     _GUIDANCE,

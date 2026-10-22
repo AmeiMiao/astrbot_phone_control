@@ -45,12 +45,7 @@ from ..apps import (
 from ..backends import BackendManager
 from ..browse import BrowseSession
 from ..chat_memory import ChatMemory
-from ..config import (
-    fill_adb_defaults,
-    UNCONFIGURED_MESSAGE,
-    PhoneConfig,
-    require_configured,
-)
+from ..config import UNCONFIGURED_MESSAGE, PhoneConfig
 from ..config_apply import ACTION_START, ACTION_STOP, build_apply_plan
 from ..diary import PhoneDiary
 from ..interactions import (
@@ -108,7 +103,6 @@ from ..page_content import (
 )
 from ..traffic import extract_share_links, infer_flow_hints, mask_url, render_traffic
 from ..traffic_capture import TrafficCapture
-from ..wireguard import BUNDLED_HELPER as BUNDLED_WIREGUARD_HELPER
 from ..wireguard import WireGuardManager
 from ..share_policy import (
     classify_session_umo,
@@ -161,6 +155,7 @@ from ..media import (
     plan_frame_times,
     safe_unlink as safe_unlink_media,
 )
+from ..platform_bins import bundled_adb, ensure_bundled_executables, host_platform
 from ..telemetry import MetricsStore
 from ..ui import dump_ui, render_ui
 from .shared import (
@@ -171,8 +166,6 @@ from .shared import (
     _companion_plugin_available,
     _read_plugin_version,
     PLUGIN_NAME,
-    BUNDLED_ADB,
-    ensure_executable,
     PHONE_KEYWORDS,
     plugin_root_dir,
     _GUIDANCE,
@@ -289,15 +282,13 @@ class BootstrapMixin:
         self._terminated = False
         self._live_instance_registered = False
         self.raw_config: Any = config if config is not None else {}
-        defaults_filled = fill_adb_defaults(self.raw_config)
         initial = PhoneConfig.from_mapping(
             self.raw_config,
             warn=lambda message: logger.warning(message),
         )
-        # 显式非法配置在构造设备对象之前报告。
-        require_configured(initial)
-        if defaults_filled and callable(getattr(self.raw_config, "save_config", None)):
-            self.raw_config.save_config()
+        # ADB 地址/端口留空表示未配置：插件以「假开启」状态加载，不连接设备、
+        # 不启动任何手机后台任务；面板、配置与资料迁移保持可用。
+        self._phone_enabled = initial.adb.configured
         security = self.raw_config.get("security", self.raw_config)
         saved_keep = (
             security.get("background_keep_packages") if isinstance(security, dict) else None
@@ -317,7 +308,7 @@ class BootstrapMixin:
         adb_home.mkdir(parents=True, exist_ok=True)
 
         self._ensure_bundled_executables()
-        adb_path = self._resolve_adb_path(initial)
+        adb_path = self._resolve_adb_path(initial) if initial.adb.configured else None
         self.adb = AdbClient(
             adb_path,
             initial.adb.host,
@@ -327,6 +318,7 @@ class BootstrapMixin:
             connect_timeout=initial.adb.connect_timeout,
             command_timeout=initial.adb.command_timeout,
             logger=self._device_log,
+            allow_unconfigured=True,
         )
         self.actions = DeviceActions(self.adb, logger=self._device_log)
         self.diary = PhoneDiary(self.data_dir / "diary")
@@ -435,7 +427,11 @@ class BootstrapMixin:
             actions=self.actions,
             adb=self.adb,
             data_dir=self.data_dir,
-            adb_path=self._resolve_adb_path(initial),
+            adb_path=(
+                self._resolve_adb_path(initial)
+                if initial.adb.configured
+                else bundled_adb() or Path("adb")
+            ),
             scrcpy_factory=self._create_scrcpy_client,
             minitouch_factory=self._create_minitouch_client,
             log=lambda message: logger.info("%s", message),
@@ -469,12 +465,20 @@ class BootstrapMixin:
         self._active_agent_tasks: dict[str, tuple[asyncio.Task, str, str]] = {}
         self._register_tools()
         self._register_dashboard_apis()
-        logger.info(
-            "%s 已加载：ADB %s，数据目录 %s",
-            PLUGIN_NAME,
-            initial.adb.target,
-            self.data_dir,
-        )
+        if initial.adb.configured:
+            logger.info(
+                "%s 已加载：ADB %s，数据目录 %s",
+                PLUGIN_NAME,
+                initial.adb.target,
+                self.data_dir,
+            )
+        else:
+            logger.info(
+                "%s 已加载但未启用手机能力（adb.host/adb.port 未配置，假开启）："
+                "面板、配置与资料迁移可用；填写 ADB 地址后重新加载插件即可启用。数据目录 %s",
+                PLUGIN_NAME,
+                self.data_dir,
+            )
 
     async def initialize(self) -> None:
         """插件激活：先停用残留旧实例，再异步同步自主浏览任务。
@@ -495,7 +499,10 @@ class BootstrapMixin:
             LIVE_PLUGIN_INSTANCES.add(self)
             self._live_instance_registered = True
         if not self.service.configured:
-            logger.warning("未配置 ADB 地址/端口，跳过自主浏览任务同步")
+            logger.warning(
+                "未配置 ADB 地址/端口，插件保持未启用状态："
+                "跳过自主浏览、随机/持续刷、抓包、WireGuard 与后台循环"
+            )
             return
         old_task = getattr(self, "_auto_config_task", None)
         if old_task is not None and not old_task.done():
@@ -690,25 +697,26 @@ class BootstrapMixin:
 
     def _ensure_bundled_executables(self) -> None:
         """修复市场/zip 安装丢失的可执行位（adb / phone-wg 需要 +x 才能启动）。"""
-        bundled = plugin_root_dir() / BUNDLED_ADB
-        if bundled.is_file() and not ensure_executable(bundled):
-            logger.warning("无法设置插件自带 adb 的可执行权限：%s", bundled)
-        helper = plugin_root_dir() / BUNDLED_WIREGUARD_HELPER
-        if helper.is_file() and not ensure_executable(helper):
-            logger.warning("无法设置 WireGuard helper 的可执行权限：%s", helper)
+        for relative, ok in ensure_bundled_executables().items():
+            if not ok:
+                logger.warning("无法设置插件自带二进制的可执行权限：%s", relative)
 
     def _resolve_adb_path(self, config: PhoneConfig) -> Path:
-        """解析 adb 可执行文件：配置优先，其次插件自带二进制。"""
+        """解析 adb 可执行文件：配置优先，其次当前平台随包二进制。"""
         configured = str(config.adb.path or "").strip()
         if configured:
             candidate = Path(configured).expanduser()
             if candidate.is_file():
                 return candidate
             logger.warning("配置的 adb.path 不存在：%s，回退到插件自带 adb", candidate)
-        bundled = plugin_root_dir() / BUNDLED_ADB
-        if bundled.is_file():
+        bundled = bundled_adb()
+        if bundled is not None:
             return bundled
-        logger.warning("插件自带 adb 不存在：%s，尝试从 PATH 查找 adb", bundled)
+        logger.warning(
+            "当前平台（%s）没有随包 adb，尝试使用 PATH 中的 adb；"
+            "可在 adb.path 指定系统 adb 绝对路径",
+            host_platform() or "未知",
+        )
         return Path("adb")
 
     def _device_log(self, message: str) -> None:
@@ -812,6 +820,66 @@ class BootstrapMixin:
         tmp.replace(path)
         self.service._raw_config = self.raw_config
 
+    async def _pause_device_runtime(self) -> None:
+        """ADB 配置被清空时停止设备相关后台循环（尽力而为，失败只记录）。"""
+        self._continuous_enabled = False
+        self._phone_enabled = False
+        for attr in (
+            "_backend_idle_task",
+            "_scrcpy_warmup_task",
+            "_traffic_keepalive_task",
+            "_wireguard_keepalive_task",
+        ):
+            task = getattr(self, attr, None)
+            setattr(self, attr, None)
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+        try:
+            await self.adb.clear_target()
+        except Exception as exc:  # noqa: BLE001 - 清空失败只记录
+            logger.warning("清空 ADB 目标失败：%s", exc)
+        task = getattr(self, "_auto_config_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        for stop in (
+            getattr(self, "_stop_live_screen", None),
+        ):
+            if callable(stop):
+                try:
+                    await stop("ADB 配置已清空")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("停止实时屏幕失败：%s", exc)
+        try:
+            await self.scheduler.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("停止自主浏览调度失败：%s", exc)
+        try:
+            await self._traffic.stop()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("停止抓包失败：%s", exc)
+        try:
+            await self._wireguard.stop()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("停止 WireGuard 失败：%s", exc)
+        self._random_stop.set()
+        random_task = getattr(self, "_random_task", None)
+        self._random_task = None
+        if random_task is not None and not random_task.done():
+            random_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await random_task
+        self._continuous_stop.set()
+        continuous_task = getattr(self, "_continuous_task", None)
+        self._continuous_task = None
+        if continuous_task is not None and not continuous_task.done():
+            continuous_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await continuous_task
+
     async def _apply_runtime_config(
         self, previous: PhoneConfig, notes: list[str]
     ) -> None:
@@ -832,6 +900,16 @@ class BootstrapMixin:
         plan = build_apply_plan(previous, current)
         notes.extend(plan.notes)
 
+        # 0) ADB 未配置（假开启）：只允许实时读取类配置生效，设备相关组件保持停止。
+        if not current.adb.configured:
+            if previous.adb.configured:
+                await self._reset_backends(notes)
+                await self._pause_device_runtime()
+                notes.append(
+                    "ADB 地址/端口已清空：手机后台任务已停止，重新加载插件后保持未启用状态"
+                )
+            return
+
         # 1) ADB 连接参数：断开旧目标并按新参数重配，后端一并重置。
         if plan.adb_changed:
             await self._reset_backends(notes)
@@ -846,11 +924,17 @@ class BootstrapMixin:
                         command_timeout=current.adb.command_timeout,
                     )
                     logger.info("配置热应用：ADB 目标已切换为 %s", current.adb.target)
+                    if not previous.adb.configured:
+                        notes.append(
+                            "ADB 地址已填写：重新加载插件后启用手机能力与后台任务"
+                        )
                 except Exception as exc:  # noqa: BLE001 - 重配失败如实报告
                     logger.warning("配置热应用：重配 ADB 失败：%s", exc)
                     notes.append(f"ADB 连接参数已保存，但重配失败：{exc}（可重载插件）")
             else:
-                logger.warning("配置热应用：ADB 地址/端口未配置完整，手机能力已停用")
+                logger.warning("配置热应用：ADB 地址/端口未配置，手机能力进入未启用状态")
+                await self._pause_device_runtime()
+                notes.append("ADB 地址/端口已清空：手机后台任务已停止，重新加载插件后保持未启用状态")
 
         # 2) 控制/感知后端参数变化：重置当前会话，下次操作按新配置重建。
         elif plan.backends_changed:

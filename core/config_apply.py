@@ -321,7 +321,7 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
         if current.adb.configured:
             notes.append(f"ADB 连接参数已更新（{current.adb.target}）")
         else:
-            notes.append("ADB 地址/端口未配置完整：手机能力已停用，补全保存后即时生效")
+            notes.append("ADB 地址/端口未配置：手机能力未启用，补全并重新加载插件后启用")
     if backends_changed:
         notes.append("控制/感知后端已按新配置重置，下次手机操作重新连接")
     if continuous_action == ACTION_START:

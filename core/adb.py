@@ -411,7 +411,7 @@ class AdbClient:
 
     def __init__(
         self,
-        adb_path: str | Path,
+        adb_path: str | Path | None,
         host: str,
         port: int,
         home_dir: str | Path,
@@ -420,19 +420,28 @@ class AdbClient:
         connect_timeout: float = 20.0,
         command_timeout: float = 30.0,
         logger: LogFn | None = None,
+        allow_unconfigured: bool = False,
     ) -> None:
-        self._adb_path = self._resolve_adb_path(adb_path)
         self._host = str(host or "").strip()
         self._port = int(port)
         resolved_serial = (serial or "").strip()
         # 记录序列号是否为显式配置：显式序列号优先于 host:port，重配时按同一规则解析目标
         self._serial_explicit = bool(resolved_serial)
-        if not resolved_serial:
-            if not self._host:
+        unconfigured = not resolved_serial and not self._host
+        if unconfigured:
+            if not allow_unconfigured:
                 raise AdbNotConfiguredError(
                     "未配置 ADB 设备地址",
                     detail="请在插件配置中填写 adb.host / adb.port 或 adb.serial",
                 )
+            # 未配置时仍允许构造客户端（插件假开启）：保留占位路径，任何真实
+            # 设备操作都会在 _ensure_configured 中报未配置，不会启动 adb。
+            self._adb_path = Path(str(adb_path)) if adb_path else Path()
+            self._unconfigured = True
+        else:
+            self._adb_path = self._resolve_adb_path(adb_path)
+            self._unconfigured = False
+        if not resolved_serial and self._host:
             resolved_serial = f"{self._host}:{self._port}"
         self._serial = resolved_serial
         self._home_dir = Path(home_dir).expanduser()
@@ -446,6 +455,20 @@ class AdbClient:
         self._png_slow_threshold_ms = PNG_SLOW_THRESHOLD_MS
         self._ffmpeg_path: Path | None = None
         self._ffmpeg_checked = False
+
+    @property
+    def configured(self) -> bool:
+        """是否已配置可用的设备目标（主机或显式序列号）。"""
+        return bool(self._serial) and not self._unconfigured
+
+    def _ensure_configured(self) -> None:
+        """执行设备命令前的未配置检查（假开启状态下禁止启动 adb）。"""
+        if self.configured:
+            return
+        raise AdbNotConfiguredError(
+            "未配置 ADB 地址/端口，插件当前为未启用状态",
+            detail="请在插件配置 adb.host 与 adb.port 中填写后重新加载插件",
+        )
 
     # ------------------------------------------------------------------
     # 基础工具
@@ -500,6 +523,7 @@ class AdbClient:
 
     def _base_command(self) -> list[str]:
         """返回带设备序列号的 adb 命令前缀。"""
+        self._ensure_configured()
         return [str(self._adb_path), "-s", self._serial]
 
     def _ensure_home(self) -> None:
@@ -531,6 +555,7 @@ class AdbClient:
         """
         if not argv:
             raise AdbCommandError("ADB 命令为空")
+        self._ensure_configured()
         self._ensure_home()
         effective_timeout = self._command_timeout if timeout is None else max(0.05, float(timeout))
         env = self._build_env()
@@ -771,11 +796,13 @@ class AdbClient:
 
     async def connect(self, force: bool = False) -> DeviceInfo:
         """建立连接并返回设备信息；``force=True`` 时先断开旧连接再重连。"""
+        self._ensure_configured()
         async with self._lock():
             return await self._do_connect(force=force)
 
     async def ensure_ready(self) -> None:
         """幂等就绪检查：尚未连接时自动调用 ``connect``。"""
+        self._ensure_configured()
         if self._connected:
             return
         await self.connect()
@@ -899,6 +926,7 @@ class AdbClient:
             self._port = new_port
             self._serial = new_target
             self._serial_explicit = new_serial_explicit
+            self._unconfigured = False
             if new_adb_path is not None:
                 self._adb_path = new_adb_path
             self._connect_timeout = new_connect_timeout
@@ -910,6 +938,18 @@ class AdbClient:
         else:
             self._log("ADB 运行参数已更新（连接目标未变）")
         return result
+
+    async def clear_target(self) -> None:
+        """清空连接目标进入未配置状态（ADB 配置被清空时释放旧设备句柄）。"""
+        await self._quiet_disconnect()
+        async with self._lock():
+            self._host = ""
+            self._port = 0
+            self._serial = ""
+            self._serial_explicit = False
+            self._unconfigured = True
+            self._connected = False
+        self._log("ADB 目标已清空，客户端进入未配置状态")
 
     async def disconnect(self) -> None:
         """断开当前设备连接（忽略错误）。"""

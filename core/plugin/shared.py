@@ -13,7 +13,6 @@ from ..plugin_shared import (
     _INBOX_KEYWORDS,
     _format_time,
     _llm_response_text,
-    ensure_executable,
 )
 from ..config import PhoneConfig
 from ..identity import PLUGIN_NAME
@@ -26,9 +25,6 @@ def plugin_root_dir() -> Path:
 
 
 
-
-
-BUNDLED_ADB = Path("bin") / "linux-x86_64" / "adb"
 
 
 PHONE_KEYWORDS = (
@@ -200,7 +196,7 @@ _HELP_TEXT = """手机操控插件指令：
 /phone novelty [status|reset]     查看内容新鲜感/厌倦感状态（阈值、疲劳主题）或清空状态
 /phone task <instruction>         把多步任务转入后台静默执行（完成后主动汇报）
 /phone tasks                      列出本插件创建的后台任务
-adb.host / adb.port 为必填项：未填写时插件无法启动，请先在插件配置「ADB 连接」填写后重载。
+adb.host / adb.port 留空时插件以未启用状态运行（面板/配置/迁移可用）；在插件配置「ADB 连接」填写地址与端口后重新加载插件即可启用手机能力。
 可在对话中直接让我使用 phone_* 工具操作手机。"""
 
 

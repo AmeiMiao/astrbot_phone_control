@@ -1370,24 +1370,26 @@ class ScrcpyClient:
         process = self._decoder_process
         self._decoder_process = None
         if process is not None:
-            try:
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            except (OSError, ProcessLookupError):
-                try:
-                    process.terminate()
-                except OSError:
-                    pass
+            self._terminate_process(process, signal.SIGTERM)
             await asyncio.to_thread(self._wait_process, process, 2.0)
             if process.poll() is None:
-                try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                except (OSError, ProcessLookupError):
-                    try:
-                        process.kill()
-                    except OSError:
-                        pass
+                self._terminate_process(process, signal.SIGKILL)
         self._join_thread(self._decoder_thread, "_decoder_thread")
         self._join_thread(self._drain_thread, "_drain_thread")
+
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen, sig: int) -> None:
+        """结束解码器进程组；Windows 没有 killpg/getpgid，退化为单进程结束。"""
+        try:
+            if hasattr(os, "killpg") and hasattr(os, "getpgid"):
+                os.killpg(os.getpgid(process.pid), sig)
+            else:
+                process.terminate() if sig == signal.SIGTERM else process.kill()
+        except (OSError, ProcessLookupError, AttributeError):
+            try:
+                process.terminate()
+            except OSError:
+                pass
 
     @staticmethod
     def _wait_process(process: subprocess.Popen, timeout: float) -> None:

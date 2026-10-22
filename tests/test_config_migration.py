@@ -13,7 +13,7 @@ from core.config_migration import (
     apply_migration,
     prepare_migration,
 )
-from core.config import fill_adb_defaults
+from core.config import PhoneConfig
 from core.identity import PLUGIN_NAME, plugin_name
 
 SCHEMA = {
@@ -198,12 +198,12 @@ def test_metadata_name_controls_namespace(tmp_path):
     assert PLUGIN_NAME == TARGET
 
 
-def test_adb_initial_placeholders_are_persistable_without_touching_custom_config():
+def test_empty_adb_config_parses_as_unconfigured():
     raw = {"adb": {"host": "", "port": 0}, "security": {"owner_ids": ["private"]}}
-    assert fill_adb_defaults(raw)
-    assert raw["adb"] == {"host": "127.0.0.1", "port": 5555}
-    assert raw["security"]["owner_ids"] == ["private"]
-    assert not fill_adb_defaults(raw)
-    custom = {"adb": {"host": "192.0.2.10", "port": 16512}}
-    original = copy.deepcopy(custom)
-    assert not fill_adb_defaults(custom) and custom == original
+    config = PhoneConfig.from_mapping(raw)
+    assert config.adb.configured is False
+    assert config.adb.target == ""
+    assert config.security.owner_ids == ("private",)
+    custom = PhoneConfig.from_mapping({"adb": {"host": "192.0.2.10", "port": 16512}})
+    assert custom.adb.configured is True
+    assert custom.adb.target == "192.0.2.10:16512"

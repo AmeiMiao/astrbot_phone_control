@@ -8,6 +8,8 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
+from ..config import UNCONFIGURED_MESSAGE
+from ..errors import AdbNotConfiguredError
 from ..scheduler import (
     BackgroundTaskError,
     create_background_task,
@@ -61,6 +63,8 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
         denied = check_admin_permission(event, config)
         if denied:
             raise _PermissionDenied(denied)
+        if not config.adb.configured:
+            raise AdbNotConfiguredError(UNCONFIGURED_MESSAGE)
         try:
             instruction = validate_background_instruction(
                 kwargs.get("instruction")

@@ -203,6 +203,8 @@ class PhoneInteractionRecordTool(_PhoneToolBase):
         denied = check_admin_permission(event, config)
         if denied:
             raise _PermissionDenied(denied)
+        if not config.adb.configured:
+            raise AdbNotConfiguredError(UNCONFIGURED_MESSAGE)
         try:
             kind = normalize_kind(kwargs.get("kind"))
             summary = normalize_summary(kwargs.get("summary"))

@@ -1096,3 +1096,30 @@ def test_shell_result_executes_once_and_keeps_nonzero_exit_code(tmp_path, monkey
     assert result == {"exit_code": 4, "stdout": "partial", "stderr": "device offline"}
     assert len(calls) == 1 and calls[0][0][-2:] == ["shell", "echo partial; exit 4"]
     assert calls[0][2] == 8192
+
+
+def test_unconfigured_client_never_starts_adb(tmp_path):
+    """空白 ADB 地址可构造未启用客户端；任何设备操作都明确报未配置。"""
+    from core.errors import AdbNotConfiguredError
+
+    client = AdbClient(
+        None,
+        "",
+        0,
+        tmp_path / "home",
+        allow_unconfigured=True,
+    )
+    assert client.configured is False
+    assert client.serial == ""
+    with pytest.raises(AdbNotConfiguredError):
+        asyncio.run(client.connect())  # type: ignore[arg-type]
+    with pytest.raises(AdbNotConfiguredError):
+        asyncio.run(client.ensure_ready())
+    with pytest.raises(AdbNotConfiguredError):
+        asyncio.run(client.shell("echo hi"))
+
+
+def test_configured_client_reports_configured(tmp_path):
+    client = AdbClient(sys.executable, "10.0.0.2", 5555, tmp_path / "home")
+    assert client.configured is True
+    assert client.serial == "10.0.0.2:5555"

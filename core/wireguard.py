@@ -27,8 +27,8 @@ from astrbot.api import logger
 from .process_lease import guarded_command, start_heartbeat, stop_heartbeat
 
 from .plugin_shared import ensure_executable
+from .platform_bins import bundled_phone_wg
 
-BUNDLED_HELPER = Path("bin") / "linux-x86_64" / "phone-wg"
 WIREGUARD_DIR_NAME = "wireguard"
 KEYS_FILE_NAME = "keys.json"
 HELPER_CONFIG_FILE_NAME = "phone-wg.json"
@@ -769,7 +769,10 @@ class WireGuardManager:
         self.helper_path = (
             Path(helper_path)
             if helper_path is not None
-            else Path(__file__).resolve().parents[1] / BUNDLED_HELPER
+            else (
+                bundled_phone_wg()
+                or Path(__file__).resolve().parents[1] / "bin" / "phone-wg"
+            )
         )
         self._settings_provider = settings_provider or (lambda: WireGuardSettings())
         self._adb = adb
@@ -1038,8 +1041,9 @@ class WireGuardManager:
         helper = Path(self.helper_path)
         if not helper.is_file():
             raise WireGuardConfigError(
-                f"未找到 WireGuard helper：{helper}（0.1.0 插件应随包提供 "
-                "bin/linux-x86_64/phone-wg）"
+                f"未找到 WireGuard helper：{helper}"
+                "（当前平台需要随包提供 bin/<平台>/phone-wg；"
+                "也可用 /phone wg status 查看平台信息）"
             )
         if not ensure_executable(helper):
             raise WireGuardConfigError(
@@ -1432,7 +1436,7 @@ class WireGuardManager:
             lines.append(f"- 重试：约 {int(status['retry_in'])} 秒后重试")
         lines.append(f"- helper：{status['helper']}")
         if not status["helper_exists"]:
-            lines.append("  （helper 不存在：0.1.0 插件包应包含 bin/linux-x86_64/phone-wg）")
+            lines.append("  （helper 不存在：当前平台没有随包 phone-wg，WireGuard 组网不可用）")
         version = status.get("version") or ""
         if version:
             lines.append(f"  helper 版本：{version}")

@@ -686,7 +686,11 @@ class PhoneService:
         config = self.config
         if not config.adb.configured or self.adb is None:
             suffix = "；配置已更新，请重载插件后生效" if config.adb.configured else ""
-            return f"error: {UNCONFIGURED_MESSAGE}{suffix}"
+            return (
+                "手机能力未启用：未配置 ADB 地址/端口（假开启）。\n"
+                "插件面板、配置与资料迁移可正常使用；"
+                f"请在插件配置『ADB 连接』填写 adb.host 与 adb.port 后重新加载插件。{suffix}"
+            )
         try:
             await self.adb.ensure_ready()
             info = await self.adb.device_info()

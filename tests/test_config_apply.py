@@ -119,7 +119,7 @@ def test_adb_unconfigured_note_is_actionable():
     current = _config(adb={"host": "10.0.0.1", "port": 70000})
     plan = build_apply_plan(previous, current)
     assert plan.adb_changed is True
-    assert any("未配置完整" in note for note in plan.notes)
+    assert any("未配置" in note and "重新加载插件" in note for note in plan.notes)
 
 
 # ----------------------------------------------------------------------

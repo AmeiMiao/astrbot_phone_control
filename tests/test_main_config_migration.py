@@ -37,6 +37,8 @@ def setup_plugin(tmp_path, monkeypatch):
     config_dir.mkdir()
     path = config_dir / f"{plugin_main.PLUGIN_NAME}_config.json"
     raw = copy.deepcopy(dict(p.raw_config))
+    # 新生效的默认 ADB 为空；迁移目标以新安装默认值参与「当前值是否自定义」判定。
+    raw["adb"] = {**dict(raw.get("adb") or {}), "host": "", "port": 0}
     raw["security"]["owner_ids"] = ["CURRENT_OWNER_SECRET"]
     config = DiskConfig(raw, path)
     config.save_config()
@@ -186,9 +188,8 @@ def test_missing_or_invalid_source_is_actionable(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
-def test_real_astrbot_config_fresh_and_failed_initial_install_defaults(
-    tmp_path, monkeypatch
-):
+def test_real_astrbot_config_empty_adb_loads_fake_enabled(tmp_path, monkeypatch):
+    """ADB 为空时插件照常加载（假开启），不回填 127.0.0.1；不影响配置路径。"""
     from astrbot.api import AstrBotConfig
 
     schema = json.loads((Path(__file__).parents[1] / "_conf_schema.json").read_text())
@@ -203,10 +204,11 @@ def test_real_astrbot_config_fresh_and_failed_initial_install_defaults(
         config = AstrBotConfig(str(path), schema=schema)
         p = plugin_main.PhoneControlPlugin(FakeContext(), config)
         try:
-            assert p._config().adb.target == "127.0.0.1:5555"
+            assert p._config().adb.configured is False
+            assert p._config().adb.target == ""
             assert p.data_dir == tmp_path / "mirror-data"
-            assert json.loads(path.read_text(encoding="utf-8-sig"))["adb"]["host"] == "127.0.0.1"
-            assert json.loads(path.read_text(encoding="utf-8-sig"))["adb"]["port"] == 5555
+            saved = json.loads(path.read_text(encoding="utf-8-sig"))
+            assert (saved.get("adb") or {}).get("host", "") == ""
             assert p._config_file_path() == path
         finally:
             asyncio.run(p.terminate())

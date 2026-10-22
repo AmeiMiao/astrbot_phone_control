@@ -47,7 +47,6 @@ from ..chat_memory import ChatMemory
 from ..config import (
     UNCONFIGURED_MESSAGE,
     PhoneConfig,
-    require_configured,
 )
 from ..config_apply import ACTION_RESTART, ACTION_START, ACTION_STOP, build_apply_plan
 from ..diary import PhoneDiary
@@ -167,7 +166,6 @@ from .shared import (
     _companion_plugin_available,
     _read_plugin_version,
     PLUGIN_NAME,
-    BUNDLED_ADB,
     PHONE_KEYWORDS,
     plugin_root_dir,
     _GUIDANCE,
@@ -441,6 +439,11 @@ class RuntimeMixin:
         """
         if getattr(self, "_terminated", False) or getattr(self, "_phone_stopped", False):
             return
+        # 假开启（未配置 ADB）：不启动任何设备侧抓包/代理。
+        if not self.service.configured:
+            if self._traffic.running:
+                await self._traffic.stop()
+            return
         config = self.service.config
         traffic_config = getattr(config, "traffic", None)
         if traffic_config is None or not traffic_config.enabled:
@@ -575,6 +578,11 @@ class RuntimeMixin:
         manager = getattr(self, "_wireguard", None)
         if manager is None:
             return False
+        # 假开启（未配置 ADB）：不启动 WireGuard helper。
+        if not self.service.configured:
+            if manager.running or manager.adb_over_wg:
+                await manager.stop()
+            return False
         try:
             settings = self.service.config.wireguard
         except Exception as exc:  # noqa: BLE001 - 配置解析失败时不启动
@@ -675,6 +683,9 @@ class RuntimeMixin:
             manager = getattr(self.service, "backends", None)
             if manager is None or manager.scrcpy_running:
                 return
+            # 假开启（未配置 ADB）时面板只读，不预热任何设备后端。
+            if not self.service.configured:
+                return
             config = self.service.config
             if (
                 config.control.backend == "adb"
@@ -712,6 +723,9 @@ class RuntimeMixin:
                 return
             manager = getattr(self.service, "backends", None)
             if manager is None or manager.scrcpy_running:
+                return
+            # 假开启（未配置 ADB）时面板只读，不预热任何设备后端。
+            if not self.service.configured:
                 return
             config = self.service.config
             need_control = config.control.backend in {"auto", "scrcpy"}

@@ -63,7 +63,6 @@ from .core.chat_memory import ChatMemory
 from .core.config import (
     UNCONFIGURED_MESSAGE,
     PhoneConfig,
-    require_configured,
 )
 from .core.config_apply import ACTION_START, ACTION_STOP, build_apply_plan
 from .core.diary import PhoneDiary

@@ -15,8 +15,7 @@ from ..data_migration import (
 from ..config_migration import SOURCE_PLUGIN
 from ..saved_images import image_library
 
-from ..config import PhoneConfig, require_configured
-from ..errors import PhoneControlError
+from ..config import PhoneConfig
 from ..config_migration import ConfigMigrationError, apply_migration, prepare_migration
 from ..identity import PLUGIN_NAME, PLUGIN_ROOT
 from .compat import error_response, json_response, plugin_main_module
@@ -63,12 +62,10 @@ class ConfigMigrationMixin:
     @staticmethod
     def _validate_migration(value):
         warnings = []
-        config = PhoneConfig.from_mapping(value, warn=warnings.append)
-        try:
-            require_configured(config)
-        except PhoneControlError as exc:
-            raise ConfigMigrationError("配置的 ADB 地址或端口无效") from exc
+        PhoneConfig.from_mapping(value, warn=warnings.append)
         if warnings:
+            if any("adb." in message for message in warnings):
+                raise ConfigMigrationError("原配置的 ADB 地址或端口无效，请先修正")
             raise ConfigMigrationError("配置中存在无效类型、枚举或数值，请先修正原配置")
 
     async def dashboard_config_migration_preview(self):
@@ -157,16 +154,32 @@ class ConfigMigrationMixin:
         if source is not None and getattr(source, "activated", True):
             raise DataMigrationError("请先在插件管理中停用原插件，再导入资料")
         config = self.service.config
-        if any(
-            (
-                config.auto.enabled,
-                config.auto.random_enabled,
-                config.auto.continuous_enabled,
-                config.wireguard.enabled,
-                config.traffic.enabled,
+        random_task = getattr(self, "_random_task", None)
+        continuous_task = getattr(self, "_continuous_task", None)
+        traffic = getattr(self, "_traffic", None)
+        wireguard = getattr(self, "_wireguard", None)
+        # 假开启（ADB 未配置）时默认开启的 traffic/random 等配置不会实际运行，
+        # 只按真实运行态判断；已启用插件保持原有「先关闭后台任务再迁移」约束。
+        running = (
+            bool(
+                self.service.configured
+                and (
+                    config.auto.enabled
+                    or config.auto.continuous_enabled
+                    or config.traffic.enabled
+                    or config.wireguard.enabled
+                )
             )
-        ):
-            raise DataMigrationError("请先关闭自主任务、WireGuard 和抓包，再导入资料")
+            or bool(continuous_task is not None and not continuous_task.done())
+            or bool(random_task is not None and not random_task.done())
+            or bool(getattr(traffic, "running", False))
+            or bool(getattr(wireguard, "running", False)
+                    or getattr(wireguard, "adb_over_wg", False))
+        )
+        if running:
+            raise DataMigrationError(
+                "请先关闭自主任务、随机/持续刷、WireGuard 和抓包，再导入资料"
+            )
         active = getattr(self, "_active_agent_tasks", {})
         contents = getattr(self.service, "_contents", None)
         if (

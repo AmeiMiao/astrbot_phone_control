@@ -17,11 +17,11 @@ from core.config import (
 def test_empty_mapping_returns_defaults():
     config = PhoneConfig.from_mapping(None)
     assert config == PhoneConfig()
-    # 新安装使用本机标准 ADB 地址。
-    assert config.adb.host == "127.0.0.1"
-    assert config.adb.port == 5555
-    assert config.adb.target == "127.0.0.1:5555"
-    assert config.adb.configured is True
+    # 新安装不预填 ADB：空地址/端口表示未配置，插件以假开启状态加载。
+    assert config.adb.host == ""
+    assert config.adb.port == 0
+    assert config.adb.target == ""
+    assert config.adb.configured is False
     assert config.security.require_admin is True
     assert config.security.allowed_user_ids == ()
     assert config.security.allow_interactions is False
@@ -214,12 +214,18 @@ def test_auto_app_list_falls_back_and_dedupes():
     assert config.auto.app_list() == ("douyin", "抖音")
 
 
-def test_adb_defaults_fill_missing_host_or_port():
-    assert PhoneConfig.from_mapping({}).adb.target == "127.0.0.1:5555"
-    assert PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2"}}).adb.target == "10.0.0.2:5555"
-    assert PhoneConfig.from_mapping({"adb": {"port": 6000}}).adb.target == "127.0.0.1:6000"
-    assert PhoneConfig.from_mapping({"adb": {"serial": "emulator-5554"}}).adb.target == "emulator-5554"
-    assert PhoneConfig.from_mapping({"adb": {"host": "", "port": 0}}).adb.target == "127.0.0.1:5555"
+def test_adb_empty_or_partial_config_stays_unconfigured():
+    assert PhoneConfig.from_mapping({}).adb.target == ""
+    assert PhoneConfig.from_mapping({}).adb.configured is False
+    # 只填主机或只填端口都不足以启用：地址与端口必须同时有效。
+    assert PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2"}}).adb.target == ""
+    assert PhoneConfig.from_mapping({"adb": {"port": 6000}}).adb.target == ""
+    assert PhoneConfig.from_mapping({"adb": {"host": "", "port": 6000}}).adb.configured is False
+    # 显式 serial 可直接作为连接目标并视为已配置（无需主机/端口）。
+    serial_only = PhoneConfig.from_mapping({"adb": {"serial": "emulator-5554"}})
+    assert serial_only.adb.target == "emulator-5554"
+    assert serial_only.adb.configured is True
+    assert PhoneConfig.from_mapping({"adb": {"host": "", "port": 0}}).adb.target == ""
 
 
 def test_adb_port_out_of_range_is_unconfigured():
@@ -260,34 +266,37 @@ def test_unconfigured_message_is_actionable():
     assert "未配置" in UNCONFIGURED_MESSAGE
 
 
-def test_conf_schema_uses_local_adb_defaults():
-    """新安装使用本机默认值，远程验收设备地址只留在环境配置。"""
+def test_conf_schema_uses_empty_adb_defaults():
+    """新安装不预填 ADB 地址：空值表示未配置，避免默认连不上的本机端口。"""
     import json
     from pathlib import Path
 
     schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     adb_items = schema["adb"]["items"]
-    assert adb_items["host"]["default"] == "127.0.0.1"
-    assert adb_items["port"]["default"] == 5555
-    assert "默认" in adb_items["host"]["hint"]
-    assert "默认" in adb_items["port"]["hint"]
+    assert adb_items["host"]["default"] == ""
+    assert adb_items["port"]["default"] == 0
+    assert "留空" in adb_items["host"]["hint"]
+    assert "留空" in adb_items["port"]["hint"]
     dumped = json.dumps(schema, ensure_ascii=False)
     assert "16448" not in dumped
     assert "192.168.250.10" not in dumped
 
 
-def test_require_configured_defaults_valid_custom_and_invalid_port():
-    """本机默认和自定义地址可通过，显式非法端口仍报配置错误。"""
-    from core.config import require_configured
-    from core.errors import PhoneControlError
-
-    assert require_configured(PhoneConfig()) is None
-    assert require_configured(PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2"}})) is None
-    with pytest.raises(PhoneControlError) as excinfo:
-        require_configured(PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2", "port": 70000}}))
-    assert "adb.host" in str(excinfo.value) and "adb.port" in str(excinfo.value)
-    assert require_configured(PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2", "port": 5555}})) is None
+def test_unconfigured_config_is_valid_and_invalid_port_is_unconfigured():
+    """空地址/端口是合法的未启用配置；显式非法端口按未配置处理并告警。"""
+    assert PhoneConfig().adb.configured is False
+    warnings: list[str] = []
+    config = PhoneConfig.from_mapping(
+        {"adb": {"host": "10.0.0.2", "port": 70000}}, warn=warnings.append
+    )
+    assert config.adb.configured is False
+    assert warnings
+    configured = PhoneConfig.from_mapping(
+        {"adb": {"host": "10.0.0.2", "port": 5555}}
+    )
+    assert configured.adb.configured is True
+    assert configured.adb.target == "10.0.0.2:5555"
 
 
 def test_new_config_keys_defaults():

@@ -7,8 +7,13 @@
 *.png binary
 *.jpg binary
 *.apk binary
-bin/linux-x86_64/adb binary
-bin/linux-x86_64/phone-wg binary
+bin/*/adb binary
+bin/*/phone-wg binary
+bin/*/lib/adb-bin binary
+*.exe binary
+*.dll binary
+*.so binary
+*.so.* binary
 
 bin/linux-x86_64/NOTICE.txt -diff -text
 

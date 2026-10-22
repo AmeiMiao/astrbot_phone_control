@@ -38,7 +38,15 @@ def revision() -> str:
     return digest.hexdigest()
 
 
+def guard_supported() -> bool:
+    """本机进程监护器依赖 Linux 的 /proc、fcntl 与 prctl；其他平台直接启动。"""
+    return sys.platform.startswith("linux")
+
+
 def guarded_command(command, resource: Path) -> list[str]:
+    """构造带心跳监护的命令；非 Linux 平台退化为直接命令。"""
+    if not guard_supported():
+        return list(map(str, command))
     return [
         sys.executable,
         str(ROOT / "bin/phone_process_guard.py"),
@@ -57,6 +65,8 @@ def start_heartbeat(process) -> asyncio.Task:
     """任务取消/插件退出时关闭心跳管道，监护器自行结束子进程组。"""
 
     async def beat():
+        if not guard_supported():
+            return
         try:
             while process.returncode is None:
                 process.stdin.write(b".\n")
@@ -80,9 +90,17 @@ async def stop_heartbeat(task) -> None:
 
 
 async def reclaim_legacy_processes(markers) -> int:
-    """回收属于当前数据目录且未受监护器管理的常驻进程。"""
+    """回收属于当前数据目录且未受监护器管理的常驻进程（仅 Linux）。"""
+    if not guard_supported():
+        logger.info("当前平台不支持进程监护与遗留进程回收：跳过")
+        return 0
     processes = {}
-    for entry in Path("/proc").iterdir():
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError as exc:
+        logger.info("读取 /proc 失败，跳过遗留进程回收：%s", exc)
+        return 0
+    for entry in entries:
         if not entry.name.isdigit():
             continue
         try:
