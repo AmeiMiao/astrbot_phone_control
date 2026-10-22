@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 from contextlib import suppress
 from typing import Any
@@ -509,7 +511,7 @@ class PhoneVerification:
         try:
             self._notify_task = asyncio.create_task(
                 self._notify_loop(),
-                name="astrbot_phone_control_verify_notify",
+                name=f"{PLUGIN_NAME}_verify_notify",
             )
         except RuntimeError:
             self._notify_task = None
@@ -796,7 +798,7 @@ class PhoneVerification:
         try:
             self._watchdog_task = asyncio.create_task(
                 self._watchdog_loop(),
-                name="astrbot_phone_control_verify_watchdog",
+                name=f"{PLUGIN_NAME}_verify_watchdog",
             )
         except RuntimeError:
             self._watchdog_task = None

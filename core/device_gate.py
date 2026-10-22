@@ -19,6 +19,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import contextlib
 import contextvars
 import math
@@ -89,7 +91,7 @@ class _Lease:
 
 
 _CURRENT_SCOPE: contextvars.ContextVar[GateScope | None] = contextvars.ContextVar(
-    "astrbot_phone_control_device_scope", default=None
+    f"{PLUGIN_NAME}_device_scope", default=None
 )
 
 

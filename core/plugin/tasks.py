@@ -513,7 +513,7 @@ class TasksMixin:
         self._random_stop = asyncio.Event()
         self._random_task = asyncio.create_task(
             self._random_play_loop(),
-            name="astrbot_phone_control_random_play",
+            name=f"{PLUGIN_NAME}_random_play",
         )
         logger.info("随机玩手机：后台循环已启动")
 
@@ -653,7 +653,7 @@ class TasksMixin:
         self._continuous_stop = asyncio.Event()
         self._continuous_task = asyncio.create_task(
             self._continuous_loop(),
-            name="astrbot_phone_control_continuous",
+            name=f"{PLUGIN_NAME}_continuous",
         )
         logger.info(
             "持续刷手机：后台循环已启动（间隔 %s 秒，每轮预算 %s）",

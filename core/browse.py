@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 import hashlib
 import re
@@ -115,7 +117,7 @@ class BrowseSession:
         self.screenshot_dir = (
             Path(screenshot_dir)
             if screenshot_dir is not None
-            else Path(tempfile.gettempdir()) / "astrbot_phone_control" / "screenshots"
+            else Path(tempfile.gettempdir()) / PLUGIN_NAME / "screenshots"
         )
 
     # ---- 对外入口 -----------------------------------------------------

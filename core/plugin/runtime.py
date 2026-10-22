@@ -291,7 +291,7 @@ class RuntimeMixin:
                 return
             self._backend_idle_task = asyncio.create_task(
                 self._backend_idle_loop(),
-                name="astrbot_phone_control_backend_idle",
+                name=f"{PLUGIN_NAME}_backend_idle",
             )
         except RuntimeError:  # 没有运行中的事件循环（例如单测直接调用）
             self._backend_idle_task = None
@@ -380,7 +380,7 @@ class RuntimeMixin:
         if task is not None and not task.done():
             return
         self._live_idle_task = asyncio.create_task(
-            self._live_idle_loop(), name="astrbot_phone_control_live_idle"
+            self._live_idle_loop(), name=f"{PLUGIN_NAME}_live_idle"
         )
 
     async def _live_idle_loop(self) -> None:
@@ -484,7 +484,7 @@ class RuntimeMixin:
         try:
             self._traffic_keepalive_task = asyncio.create_task(
                 self._traffic_keepalive_loop(),
-                name="astrbot_phone_control_traffic_keepalive",
+                name=f"{PLUGIN_NAME}_traffic_keepalive",
             )
         except RuntimeError:
             self._traffic_keepalive_task = None
@@ -602,7 +602,7 @@ class RuntimeMixin:
         try:
             self._wireguard_keepalive_task = asyncio.create_task(
                 self._wireguard_keepalive_loop(),
-                name="astrbot_phone_control_wireguard_keepalive",
+                name=f"{PLUGIN_NAME}_wireguard_keepalive",
             )
         except RuntimeError:  # 没有运行中的事件循环（单测直接调用）
             self._wireguard_keepalive_task = None
@@ -696,7 +696,7 @@ class RuntimeMixin:
                 manager.ensure(
                     need_control=need_control, need_perception=need_perception
                 ),
-                name="astrbot_phone_control_scrcpy_warmup",
+                name=f"{PLUGIN_NAME}_scrcpy_warmup",
             )
         except Exception as exc:  # noqa: BLE001 - 预热失败不影响对话
             logger.debug("scrcpy 预热任务创建失败：%s", exc)
@@ -729,7 +729,7 @@ class RuntimeMixin:
                 manager.ensure(
                     need_control=need_control, need_perception=need_perception
                 ),
-                name="astrbot_phone_control_dashboard_warmup",
+                name=f"{PLUGIN_NAME}_dashboard_warmup",
             )
         except Exception as exc:  # noqa: BLE001 - 预热失败不影响页面
             logger.debug("Dashboard scrcpy 预热失败：%s", exc)

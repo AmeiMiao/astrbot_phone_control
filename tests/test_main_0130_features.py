@@ -416,7 +416,7 @@ def test_phone_learn_syncs_to_memory_companion(tmp_path, monkeypatch):
             assert call["user_id"] == "1"  # 用户会话用发送者 ID
             assert call["memory_type"] == "phone_learning"
             assert "【手机学习】" in call["content"]
-            assert call["source_plugin"] == "astrbot_phone_control"
+            assert call["source_plugin"] == plugin_main.PLUGIN_NAME
             # 本地也写入（both）
             assert plugin.service.learning.recent(1)
         finally:
@@ -531,7 +531,7 @@ def test_phone_learn_syncs_to_livingmemory(tmp_path, monkeypatch):
             assert len(lm.engine.calls) == 1
             call = lm.engine.calls[0]
             assert "LivingMemory 同步测试" in call["content"]
-            assert call["metadata"]["source_plugin"] == "astrbot_phone_control"
+            assert call["metadata"]["source_plugin"] == plugin_main.PLUGIN_NAME
             assert call["metadata"]["memory_type"] == "GENERAL"
             assert call["metadata"]["phone_memory_type"] == "phone_learning"
         finally:

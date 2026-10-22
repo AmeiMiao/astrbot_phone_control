@@ -214,18 +214,27 @@ def test_close_stale_instances_terminates_old_instance() -> None:
 
 @pytest.mark.skipif(_IS_LOCAL_STUB, reason="需要真实 AstrBot 运行环境")
 def test_cancel_stale_background_tasks_stops_old_loops() -> None:
-    from core.plugin.bootstrap import cancel_stale_background_tasks
+    from core.plugin.bootstrap import cancel_stale_background_tasks, PLUGIN_TASK_PREFIX
 
     async def _run() -> None:
         async def _loop() -> None:
             await asyncio.sleep(3600)
 
         task = asyncio.create_task(
-            _loop(), name="astrbot_phone_control_traffic_keepalive"
+            _loop(), name=f"{PLUGIN_TASK_PREFIX}traffic_keepalive"
         )
+        foreign = asyncio.create_task(_loop(), name="another_phone_plugin_keepalive")
+        original = asyncio.create_task(_loop(), name="astrbot_phone_control_traffic_keepalive")
         await asyncio.sleep(0)
-        stopped = await cancel_stale_background_tasks(timeout=5)
-        assert stopped >= 1
-        assert task.cancelled()
+        try:
+            stopped = await cancel_stale_background_tasks(timeout=5)
+            assert stopped == 1
+            assert task.cancelled()
+            assert not foreign.done()
+            assert not original.done()
+        finally:
+            foreign.cancel()
+            original.cancel()
+            await asyncio.gather(foreign, original, return_exceptions=True)
 
     asyncio.run(_run())

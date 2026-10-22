@@ -1,4 +1,4 @@
-# astrbot_phone_control
+# astrbot_phone_control_mirror
 
 原 GitHub 账号因 IP 异常被停用，项目暂由 [acat778](https://github.com/acat778) 维护。
 
@@ -63,13 +63,21 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
 
 ### 安装
 
-1. 将本目录放到 AstrBot 的 `data/plugins/astrbot_phone_control/`（目录名需与
+1. 将本目录放到 AstrBot 的 `data/plugins/astrbot_phone_control_mirror/`（目录名需与
    `metadata.yaml` 的 `name` 一致），或在 AstrBot WebUI 上传插件包；
-2. 在插件配置「ADB 连接」中填写必填项 `adb.host` 与 `adb.port`（模拟器 ADB 地址）；
+2. 插件默认使用 `127.0.0.1:5555`；远程手机或容器环境在「ADB 连接」中填写实际可达的主机与端口；
 3. 保存配置/重载插件，日志出现「已加载：ADB <host>:<port>」表示连接成功；
 4. 对机器人发送 `/phone status` 验证，再试 `/phone browse douyin 3`。
 
-未填写 `adb.host` / `adb.port` 时插件会加载失败并提示缺失项，这是预期行为。
+新安装可直接加载并进入配置与迁移入口。默认地址上的设备未运行时，手机操作会如实报告连接失败；请改为实际可达地址。
+
+### 从原插件迁移配置
+
+插件标识为 `astrbot_phone_control_mirror`，配置、数据和面板 API 按该标识独立存储。先停用原插件，再启用本插件，在监控面板打开「配置迁移」，点击「预览原配置」，核对字段后「确认导入」。
+
+迁移读取配置目录中的 `astrbot_phone_control_config.json`，只补充本插件仍为默认值的字段，保留自定义值；确认时重新核对文件指纹，导入前备份本插件配置，成功后即时应用。预览仅显示字段名，原插件配置和数据保持完整。
+
+此功能只迁移配置，浏览档案、图片、记忆及设备密钥保留在各自的数据目录。迁移逻辑独立位于 `core/config_migration.py`，面板接口位于 `core/plugin/config_migration.py`。
 
 ### 示例
 
@@ -90,7 +98,7 @@ AI：返回设备连接、前台 App、电量与分辨率
 
 | 卡片 | 作用 |
 | --- | --- |
-| ADB 连接 | `host` / `port` 必填；`path` 留空用插件自带 adb；`serial`/超时可调 |
+| ADB 连接 | `host` / `port` 默认 `127.0.0.1:5555`；`path` 留空用插件自带 adb；`serial`/超时可调 |
 | 权限与安全 | 管理员/白名单/主人；浏览与任务结束清理；点赞收藏/评论/回复/发帖授权、设备 shell、后台保留策略 |
 | 信息流浏览 | 默认 App、条数、滑动节奏、截图与日记开关 |
 | 自主浏览 / 随机玩 / 持续刷 | 定时任务、随机间隔与概率、持续刷间隔/预算/偏好 App |
@@ -146,7 +154,7 @@ App 经验在「提示词注入」卡片开启后，`app_memory_backend=plugin` 
 - `security.allow_shell_tool` 默认关闭；开启后 `phone_shell` 在 Android 设备当前 ADB 权限下单次执行命令，受设备门禁与超时约束，每路输出最多 8 KiB。
 - 互动默认关闭；点赞/收藏共用 `max_likes_per_session` 单轮上限，评论/回复/发帖按各自每日限额与冷却执行。互动均先申请名额、操作后记录结果；低层点击与输入依赖模型遵守该流程。
 - 抓包仅在本机模拟器上通过 mitmproxy 进行，日志正文截断、URL 敏感参数打码、日志轮转；
-  截图、日记、学习档案等数据均写入插件数据目录 `data/plugin_data/astrbot_phone_control/`。
+  截图、日记、学习档案等数据均写入插件数据目录 `data/plugin_data/astrbot_phone_control_mirror/`。
 - 验证码、短信/邮箱验证码、人脸与实名认证等账号安全操作始终交由用户处理。
 - WireGuard 私钥与 helper 配置只写插件数据目录 `wireguard/`（keys.json / phone-wg.json，
   0600），不写入日志；server 模式需自行把 UDP `listen_port` 暴露到手机可达的网络，
@@ -186,7 +194,7 @@ pip install -r requirements.txt
 
 ## 常见问题
 
-- **插件加载失败并提示缺少 ADB 配置**：`adb.host`/`adb.port` 是必填项，请在插件配置页填写后重载。
+- **默认地址连接失败**：`127.0.0.1` 指 AstrBot 所在环境；容器或远程模拟器请填写实际可达地址与端口。
 - **中文输入无效**：需在模拟器安装并启用 ADBKeyboard（`com.android.adbkeyboard/.AdbIME`）。
 - **抓包没有内容**：确认模拟器可 `adb root`、容器已安装 mitmproxy；部分 App 证书固定/加密时只能回退截图识别。
 - **用量与 AstrBot 面板不一致**：`/phone quota` 只统计手机相关 run，面板统计全部请求；

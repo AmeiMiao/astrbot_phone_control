@@ -188,6 +188,7 @@ from .core.plugin.shared import (
     _build_guidance,
 )
 from .core.service import PhoneService
+from .core.plugin.config_migration import ConfigMigrationMixin
 from .core.verification_controller import PhoneVerification
 
 
@@ -207,6 +208,7 @@ class PhoneControlPlugin(
     TasksMixin,
     RuntimeMixin,
     ObservabilityMixin,
+    ConfigMigrationMixin,
     Star,
 ):
     """AstrBot 手机操控插件。"""

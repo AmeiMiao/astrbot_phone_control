@@ -203,9 +203,9 @@ def test_dashboard_registers_learning_readonly_route(tmp_path, monkeypatch):
     plugin = _make_plugin(tmp_path, monkeypatch)
     try:
         routes = dict(plugin.context.web_routes)
-        assert routes.get("/astrbot_phone_control/dashboard/overview") == ("GET",)
-        assert routes.get("/astrbot_phone_control/dashboard/series") == ("GET",)
-        assert routes.get("/astrbot_phone_control/dashboard/learning") == ("GET",)
+        assert routes.get(f"/{plugin_main.PLUGIN_NAME}/dashboard/overview") == ("GET",)
+        assert routes.get(f"/{plugin_main.PLUGIN_NAME}/dashboard/series") == ("GET",)
+        assert routes.get(f"/{plugin_main.PLUGIN_NAME}/dashboard/learning") == ("GET",)
     finally:
         asyncio.run(plugin.terminate())
 
@@ -221,8 +221,8 @@ def test_dashboard_library_routes_and_learning_delete(tmp_path, monkeypatch):
     monkeypatch.setattr(plugin_main, "request", Body())
     try:
         routes = dict(plugin.context.web_routes)
-        assert routes["/astrbot_phone_control/dashboard/learning/delete"] == ("POST",)
-        assert routes["/astrbot_phone_control/dashboard/images/update"] == ("POST",)
+        assert routes[f"/{plugin_main.PLUGIN_NAME}/dashboard/learning/delete"] == ("POST",)
+        assert routes[f"/{plugin_main.PLUGIN_NAME}/dashboard/images/update"] == ("POST",)
         assert asyncio.run(plugin.dashboard_learning_delete()) == {"deleted": entry["id"]}
         assert plugin.service.learning.entries() == []
         assert asyncio.run(plugin.dashboard_learning_delete())["status_code"] == 400

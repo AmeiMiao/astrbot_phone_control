@@ -5,21 +5,21 @@
     "items": {
       "host": {
         "type": "string",
-        "default": "",
-        "description": "必填：模拟器 ADB 主机地址",
-        "hint": "如 192.168.250.x；与 port 一起决定 adb 连接目标，两项都填写后插件才能启动。"
+        "default": "127.0.0.1",
+        "description": "模拟器 ADB 主机地址",
+        "hint": "默认 127.0.0.1；远程模拟器填写 AstrBot 所在环境可访问的主机地址。"
       },
       "port": {
         "type": "int",
-        "default": 0,
-        "description": "必填：模拟器 ADB 端口",
-        "hint": "范围 1-65535；与 host 同时填写后插件才能启动（默认未配置）。"
+        "default": 5555,
+        "description": "模拟器 ADB 端口",
+        "hint": "范围 1-65535，默认 5555；填写模拟器实际开放的 ADB 端口。"
       },
       "serial": {
         "type": "string",
         "default": "",
         "description": "设备序列号（留空用 host:port）",
-        "hint": "填写后优先使用该序列号；serial 不能替代 host/port 的必填校验。"
+        "hint": "填写后优先使用该序列号；留空使用 host:port。"
       },
       "path": {
         "type": "string",
@@ -40,7 +40,7 @@
         "hint": "范围 1-300，默认 30。"
       }
     },
-    "hint": "host 与 port 为必填项；先完成连接，再配置访问权限和浏览行为。"
+    "hint": "默认连接本机 ADB 127.0.0.1:5555；远程手机或容器环境请按实际可达地址修改。连接失败不影响配置与迁移入口。"
   },
   "security": {
     "type": "object",

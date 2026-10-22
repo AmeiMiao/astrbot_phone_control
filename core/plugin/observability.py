@@ -301,6 +301,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
             (f"{base}/learning", self.dashboard_learning, ["GET"], "手机学习记录"),
         )
         routes += self._library_dashboard_routes(base)
+        routes += self._config_migration_routes(base)
         for route, handler, methods, desc in routes:
             try:
                 register(route, handler, methods, desc)
@@ -492,7 +493,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
                     "phone_memory_type": payload.get("memory_type") or "",
                     "tags": list(payload.get("tags") or []),
                     "phone_payload": dict(payload.get("payload") or {}),
-                    "source": "astrbot_phone_control",
+                    "source": PLUGIN_NAME,
                 },
             )
         except Exception as exc:  # noqa: BLE001 - 写入异常如实报告
@@ -745,7 +746,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
             asyncio.get_running_loop()
             asyncio.create_task(
                 self._reconcile_phone_usage(event),
-                name="astrbot_phone_control_usage_reconcile",
+                name=f"{PLUGIN_NAME}_usage_reconcile",
             )
         except RuntimeError:  # 没有事件循环（单测/关闭阶段）
             return

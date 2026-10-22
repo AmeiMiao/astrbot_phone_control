@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 import time
 from collections import deque
@@ -161,7 +163,7 @@ class LiveScreenWatcher:
             return
         self._stop = asyncio.Event()
         self._task = asyncio.create_task(
-            self._loop(), name="astrbot_phone_control_live_screen"
+            self._loop(), name=f"{PLUGIN_NAME}_live_screen"
         )
 
     async def stop(self) -> None:

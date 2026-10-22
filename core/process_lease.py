@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 import hashlib
 import shlex
@@ -65,7 +67,7 @@ def start_heartbeat(process) -> asyncio.Task:
         finally:
             process.stdin.close()
 
-    task = asyncio.create_task(beat(), name="astrbot_phone_control_process_heartbeat")
+    task = asyncio.create_task(beat(), name=f"{PLUGIN_NAME}_process_heartbeat")
     task.add_done_callback(lambda _: process.stdin.close())
     return task
 
@@ -258,7 +260,7 @@ class DeviceLease:
                     await self.adb.shell(f"rm -f {self.path}", timeout=5)
 
         self.task = asyncio.create_task(
-            beat(), name="astrbot_phone_control_device_heartbeat"
+            beat(), name=f"{PLUGIN_NAME}_device_heartbeat"
         )
 
     async def close(self):

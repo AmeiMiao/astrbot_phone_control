@@ -116,7 +116,7 @@ def test_adb_path_or_timeout_change_requests_reconnect():
 
 def test_adb_unconfigured_note_is_actionable():
     previous = _config(adb={"host": "10.0.0.1", "port": 5555})
-    current = _config(adb={"host": "", "port": 0})
+    current = _config(adb={"host": "10.0.0.1", "port": 70000})
     plan = build_apply_plan(previous, current)
     assert plan.adb_changed is True
     assert any("未配置完整" in note for note in plan.notes)

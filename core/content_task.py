@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 from contextlib import suppress
 import json
@@ -131,7 +133,7 @@ class ContentTasks:
                         task["_start"] = time.monotonic()
                 self.arm_capture(task)
                 task["_sampler"] = asyncio.create_task(
-                    self.sample(task), name="astrbot_phone_control_content_sampler"
+                    self.sample(task), name=f"{PLUGIN_NAME}_content_sampler"
                 )
             except BaseException:
                 await self.finish_owner(task["owner"], abnormal=True)

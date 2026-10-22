@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 import re
 from collections.abc import Awaitable, Callable
@@ -22,7 +24,7 @@ from astrbot.api.event import MessageChain
 from .apps import all_app_keys, app_label, resolve_app
 from .config import PhoneConfig
 
-JOB_ORIGIN = "astrbot_phone_control"
+JOB_ORIGIN = PLUGIN_NAME
 BACKGROUND_JOB_NAME = "phone-background-task"
 BACKGROUND_JOB_ORIGIN = "phone_background_task"
 BACKGROUND_INSTRUCTION_MAX = 500
@@ -565,7 +567,7 @@ class AutoBrowseScheduler:
         ]
         self._last_fallback_minute.clear()
         self._fallback_task = asyncio.create_task(
-            self._fallback_loop(), name="astrbot_phone_control_fallback_scheduler")
+            self._fallback_loop(), name=f"{PLUGIN_NAME}_fallback_scheduler")
         return [
             {
                 "job_id": "",
@@ -600,7 +602,7 @@ class AutoBrowseScheduler:
                     continue
                 self._last_fallback_minute[app] = minute_key
                 task = asyncio.create_task(
-                    self._run_fallback_browse(item), name="astrbot_phone_control_fallback_browse")
+                    self._run_fallback_browse(item), name=f"{PLUGIN_NAME}_fallback_browse")
                 self._fallback_runs.add(task)
                 task.add_done_callback(self._fallback_runs.discard)
             try:

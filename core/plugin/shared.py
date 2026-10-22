@@ -16,6 +16,7 @@ from ..plugin_shared import (
     ensure_executable,
 )
 from ..config import PhoneConfig
+from ..identity import PLUGIN_NAME
 from ..share_policy import share_window_text
 
 
@@ -25,7 +26,6 @@ def plugin_root_dir() -> Path:
 
 
 
-PLUGIN_NAME = "astrbot_phone_control"
 
 
 BUNDLED_ADB = Path("bin") / "linux-x86_64" / "adb"

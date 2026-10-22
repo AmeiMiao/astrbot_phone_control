@@ -15,6 +15,8 @@ AstrBot 的 MemoryCompanion / LivingMemory 记忆插件（``astrbot_plugin_memor
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 from typing import Any
 
 # 存储去向：local=仅插件本地；companion=同步 MemoryCompanion；
@@ -25,7 +27,7 @@ LEGACY_MEMORY_BACKENDS = {"both": "companion+livingmemory", "all": "companion+li
 DEFAULT_MEMORY_BACKEND = "local"
 LIVINGMEMORY_PLUGIN_NAME = "astrbot_plugin_livingmemory"
 COMPANION_PLUGIN_NAME = "astrbot_plugin_memory_companion"
-COMPANION_SOURCE_PLUGIN = "astrbot_phone_control"
+COMPANION_SOURCE_PLUGIN = PLUGIN_NAME
 LEARNING_MEMORY_TYPE = "phone_learning"
 
 

@@ -24,6 +24,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 import math
 import random
@@ -660,7 +662,7 @@ class AudioStream:
         async def run():
             async with self.capture._capture_lock():
                 return await self.capture._capture_locked(0, self.source, stream=self)
-        self.task = asyncio.create_task(run(), name="astrbot_phone_control_content_audio")
+        self.task = asyncio.create_task(run(), name=f"{PLUGIN_NAME}_content_audio")
         deadline = time.monotonic() + 40
         try:
             while not self.started:

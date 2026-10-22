@@ -28,6 +28,8 @@
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 from contextlib import suppress
 import os
@@ -1040,7 +1042,7 @@ class ScrcpyClient:
                 if process is not None:
                     process.stdin.close()
         self._decoder_heartbeat = asyncio.create_task(
-            heartbeat(), name="astrbot_phone_control_decoder_heartbeat")
+            heartbeat(), name=f"{PLUGIN_NAME}_decoder_heartbeat")
         self._decoder_thread = threading.Thread(
             target=self._decoder_tail_loop,
             args=(self._decoder_process, self._decoder_file, self._decoder_log),
@@ -1257,7 +1259,7 @@ class ScrcpyClient:
             def schedule():
                 if not self._stop_requested:
                     self._reconnect_task = asyncio.create_task(
-                        self._reconnect_once(), name="astrbot_phone_control_scrcpy_reconnect")
+                        self._reconnect_once(), name=f"{PLUGIN_NAME}_scrcpy_reconnect")
             loop.call_soon_threadsafe(schedule)
         except RuntimeError:
             pass

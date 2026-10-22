@@ -17,11 +17,11 @@ from core.config import (
 def test_empty_mapping_returns_defaults():
     config = PhoneConfig.from_mapping(None)
     assert config == PhoneConfig()
-    # ADB 地址/端口是必填项：默认未配置，不做任何 IP/端口兜底
-    assert config.adb.host == ""
-    assert config.adb.port == 0
-    assert config.adb.target == ""
-    assert config.adb.configured is False
+    # 新安装使用本机标准 ADB 地址。
+    assert config.adb.host == "127.0.0.1"
+    assert config.adb.port == 5555
+    assert config.adb.target == "127.0.0.1:5555"
+    assert config.adb.configured is True
     assert config.security.require_admin is True
     assert config.security.allowed_user_ids == ()
     assert config.security.allow_interactions is False
@@ -214,32 +214,16 @@ def test_auto_app_list_falls_back_and_dedupes():
     assert config.auto.app_list() == ("douyin", "抖音")
 
 
-def test_adb_configured_requires_host_and_port():
-    assert PhoneConfig.from_mapping({}).adb.configured is False
-    assert (
-        PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2"}}).adb.configured
-        is False
-    )
-    assert (
-        PhoneConfig.from_mapping({"adb": {"port": 5555}}).adb.configured is False
-    )
-    assert (
-        PhoneConfig.from_mapping(
-            {"adb": {"host": "10.0.0.2", "port": 5555}}
-        ).adb.configured
-        is True
-    )
-    # serial 不能替代 host/port 的必填校验（AdbClient 仍需要 host/port 语义）
-    assert (
-        PhoneConfig.from_mapping(
-            {"adb": {"serial": "10.0.0.2:5555"}}
-        ).adb.configured
-        is False
-    )
+def test_adb_defaults_fill_missing_host_or_port():
+    assert PhoneConfig.from_mapping({}).adb.target == "127.0.0.1:5555"
+    assert PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2"}}).adb.target == "10.0.0.2:5555"
+    assert PhoneConfig.from_mapping({"adb": {"port": 6000}}).adb.target == "127.0.0.1:6000"
+    assert PhoneConfig.from_mapping({"adb": {"serial": "emulator-5554"}}).adb.target == "emulator-5554"
+    assert PhoneConfig.from_mapping({"adb": {"host": "", "port": 0}}).adb.target == "127.0.0.1:5555"
 
 
 def test_adb_port_out_of_range_is_unconfigured():
-    for raw_port in (0, -1, 65536, "70000"):
+    for raw_port in (-1, 65536, "70000"):
         warnings: list[str] = []
         config = PhoneConfig.from_mapping(
             {"adb": {"host": "10.0.0.2", "port": raw_port}},
@@ -276,53 +260,34 @@ def test_unconfigured_message_is_actionable():
     assert "未配置" in UNCONFIGURED_MESSAGE
 
 
-def test_conf_schema_requires_adb_host_and_port():
-    """配置卡片默认值必须为“未配置”，不得把具体 IP/端口写成默认值。"""
+def test_conf_schema_uses_local_adb_defaults():
+    """新安装使用本机默认值，远程验收设备地址只留在环境配置。"""
     import json
     from pathlib import Path
 
     schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     adb_items = schema["adb"]["items"]
-    assert adb_items["host"]["default"] == ""
-    assert adb_items["port"]["default"] == 0
-    assert "必填" in adb_items["host"]["description"]
-    assert "必填" in adb_items["port"]["description"]
+    assert adb_items["host"]["default"] == "127.0.0.1"
+    assert adb_items["port"]["default"] == 5555
+    assert "默认" in adb_items["host"]["hint"]
+    assert "默认" in adb_items["port"]["hint"]
     dumped = json.dumps(schema, ensure_ascii=False)
     assert "16448" not in dumped
     assert "192.168.250.10" not in dumped
 
 
-def test_require_configured_three_states():
-    """启动必填校验：未配置/端口越界抛错，已配置通过。"""
+def test_require_configured_defaults_valid_custom_and_invalid_port():
+    """本机默认和自定义地址可通过，显式非法端口仍报配置错误。"""
     from core.config import require_configured
     from core.errors import PhoneControlError
 
+    assert require_configured(PhoneConfig()) is None
+    assert require_configured(PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2"}})) is None
     with pytest.raises(PhoneControlError) as excinfo:
-        require_configured(PhoneConfig())
-    message = str(excinfo.value)
-    assert "adb.host" in message
-    assert "adb.port" in message
-    assert "插件无法启动" in message
-    assert "重载插件" in message
-
-    with pytest.raises(PhoneControlError):
-        require_configured(
-            PhoneConfig.from_mapping(
-                {"adb": {"host": "10.0.0.2", "port": 70000}}
-            )
-        )
-    with pytest.raises(PhoneControlError):
-        require_configured(PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2"}}))
-
-    assert (
-        require_configured(
-            PhoneConfig.from_mapping(
-                {"adb": {"host": "10.0.0.2", "port": 5555}}
-            )
-        )
-        is None
-    )
+        require_configured(PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2", "port": 70000}}))
+    assert "adb.host" in str(excinfo.value) and "adb.port" in str(excinfo.value)
+    assert require_configured(PhoneConfig.from_mapping({"adb": {"host": "10.0.0.2", "port": 5555}})) is None
 
 
 def test_new_config_keys_defaults():

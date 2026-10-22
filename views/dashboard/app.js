@@ -14,6 +14,7 @@
     timers: [],
     imagesOffset: 0,
     imagesRequest: 0,
+    migrationToken: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -92,6 +93,7 @@
     $("view-dashboard").hidden = view !== "dashboard";
     $("view-learning").hidden = view !== "learning";
     $("view-images").hidden = view !== "images";
+    $("view-migration").hidden = view !== "migration";
     if (view === "dashboard") {
       schedulePolls();
       refreshOverview();
@@ -675,10 +677,42 @@
   }
 
   // ---------------- 初始化 ----------------
+  async function previewMigration() {
+    state.migrationToken = null;
+    $("btn-migration-apply").disabled = true;
+    setText("migration-fields", "");
+    try {
+      const plan = await apiGet("dashboard/config-migration");
+      state.migrationToken = plan.token;
+      $("btn-migration-apply").disabled = plan.count === 0;
+      setText("migration-status", `待导入 ${plan.count} 项，保留当前自定义设置 ${plan.preserved} 项。`);
+      setText("migration-fields", `待导入：\n${plan.changed.join("\n") || "无"}\n\n保留当前值：\n${plan.kept.join("\n") || "无"}`);
+    } catch (err) {
+      setText("migration-status", `预览失败：${err.message || err}`);
+    }
+  }
+
+  async function applyMigration() {
+    if (!state.migrationToken) return;
+    if (!await confirmAction("导入预览中的原插件配置？自定义设置保持当前值，原插件文件保持完整。导入后将按新配置连接设备并调整后台任务。")) return;
+    $("btn-migration-apply").disabled = true;
+    try {
+      const result = await state.bridge.apiPost("dashboard/config-migration", { token: state.migrationToken });
+      state.migrationToken = null;
+      setText("migration-status", result.message);
+      setText("migration-fields", `已导入 ${result.count} 项配置。`);
+    } catch (err) {
+      state.migrationToken = null;
+      setText("migration-status", `导入失败：${err.message || err}；请重新预览。`);
+    }
+  }
+
   async function init() {
     try {
       state.bridge = await getBridge();
-      await state.bridge.ready();
+      const context = await state.bridge.ready();
+      $("plugin-link").href = `#/extension/plugins/${encodeURIComponent(context.pluginName)}`;
+      $("plugin-refresh-link").href = `#/plugin-view/${encodeURIComponent(context.pluginName)}/dashboard`;
     } catch (err) {
       setText("page-subtitle", err.message || String(err));
       return;
@@ -687,6 +721,8 @@
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => switchView(btn.dataset.view));
     });
+    $("btn-migration-preview").addEventListener("click", previewMigration);
+    $("btn-migration-apply").addEventListener("click", applyMigration);
     $("btn-refresh").addEventListener("click", () => {
       refreshOverview();
       refreshSeries();

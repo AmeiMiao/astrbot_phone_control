@@ -7,6 +7,8 @@ Android 官方 WireGuard App 配合 Phone WG Relay，将隧道内 15555 端口�
 
 from __future__ import annotations
 
+from .identity import PLUGIN_NAME
+
 import asyncio
 import base64
 import binascii
@@ -1171,7 +1173,7 @@ class WireGuardManager:
             )
         self._stderr_task = asyncio.create_task(
             self._pump_stderr(self._proc),
-            name="astrbot_phone_control_wireguard_stderr",
+            name=f"{PLUGIN_NAME}_wireguard_stderr",
         )
         if not await self._wait_ready_locked():
             proc = self._proc

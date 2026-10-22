@@ -46,6 +46,7 @@ from ..backends import BackendManager
 from ..browse import BrowseSession
 from ..chat_memory import ChatMemory
 from ..config import (
+    fill_adb_defaults,
     UNCONFIGURED_MESSAGE,
     PhoneConfig,
     require_configured,
@@ -193,7 +194,7 @@ from .compat import plugin_main_module
 LIVE_PLUGIN_INSTANCES: "weakref.WeakSet[Any]" = weakref.WeakSet()
 PLUGIN_INSTANCE_CLOSE_TIMEOUT = 20.0
 # 插件后台任务统一命名前缀：初始化时取消其它（含历史版本）实例遗留的循环。
-PLUGIN_TASK_PREFIX = "astrbot_phone_control_"
+PLUGIN_TASK_PREFIX = f"{PLUGIN_NAME}_"
 
 
 async def close_stale_instances(
@@ -239,9 +240,8 @@ async def close_stale_instances(
 async def cancel_stale_background_tasks(*, timeout: float = 10.0) -> int:
     """取消其它插件实例遗留的后台循环（跨模块版本的兜底）。
 
-    历史版本的实例可能未登记到本模块的弱引用表，但后台任务名统一带
-    ``astrbot_phone_control_`` 前缀；初始化阶段取消所有这类任务即可停止
-    旧实例的 keepalive/随机/持续刷循环，防止升级后仍反复重试抓包。
+    后台任务按当前插件标识的前缀识别；初始化时回收该命名空间的
+    keepalive、随机与持续循环，保持每个插件实例的资源归属。
     """
     current = asyncio.current_task()
     stale: list[asyncio.Task] = []
@@ -289,12 +289,15 @@ class BootstrapMixin:
         self._terminated = False
         self._live_instance_registered = False
         self.raw_config: Any = config if config is not None else {}
+        defaults_filled = fill_adb_defaults(self.raw_config)
         initial = PhoneConfig.from_mapping(
             self.raw_config,
             warn=lambda message: logger.warning(message),
         )
-        # 必填配置缺失时直接抛异常：插件加载失败（不构造设备对象、不注册工具）。
+        # 显式非法配置在构造设备对象之前报告。
         require_configured(initial)
+        if defaults_filled and callable(getattr(self.raw_config, "save_config", None)):
+            self.raw_config.save_config()
         security = self.raw_config.get("security", self.raw_config)
         saved_keep = (
             security.get("background_keep_packages") if isinstance(security, dict) else None
@@ -467,7 +470,8 @@ class BootstrapMixin:
         self._register_tools()
         self._register_dashboard_apis()
         logger.info(
-            "astrbot_phone_control 已加载：ADB %s，数据目录 %s",
+            "%s 已加载：ADB %s，数据目录 %s",
+            PLUGIN_NAME,
             initial.adb.target,
             self.data_dir,
         )
@@ -498,7 +502,7 @@ class BootstrapMixin:
             old_task.cancel()
         self._auto_config_task = asyncio.create_task(
             self._apply_auto_config_when_ready(),
-            name="astrbot_phone_control_auto_config",
+            name=f"{PLUGIN_NAME}_auto_config",
         )
         # 验证状态必须先恢复：存在人工等待/待确认会话时，不启动任何手机调度器。
         try:
@@ -723,7 +727,7 @@ class BootstrapMixin:
         try:
             tools = build_phone_tools(self.service)
             self.context.add_llm_tools(*tools)
-            logger.info("astrbot_phone_control 已注册 %d 个 LLM 工具", len(tools))
+            logger.info("%s 已注册 %d 个 LLM 工具", PLUGIN_NAME, len(tools))
         except Exception:  # noqa: BLE001 - 工具注册失败时命令仍可用，必须留痕
             logger.exception("注册手机 LLM 工具失败")
 
@@ -747,7 +751,7 @@ class BootstrapMixin:
         try:
             self._screenshot_cleanup_task = asyncio.create_task(
                 self._screenshot_cleanup_loop(),
-                name="astrbot_phone_control_screenshot_cleanup",
+                name=f"{PLUGIN_NAME}_screenshot_cleanup",
             )
         except RuntimeError:  # 没有运行中的事件循环（单测直接调用）
             self._screenshot_cleanup_task = None
@@ -993,6 +997,9 @@ class BootstrapMixin:
         return self.service.config
 
     def _config_file_path(self) -> Path:
+        configured_path = getattr(self.raw_config, "config_path", None)
+        if configured_path:
+            return Path(configured_path)
         try:
             base = Path(get_astrbot_config_path())
         except Exception:  # noqa: BLE001 - 路径异常回退数据目录
