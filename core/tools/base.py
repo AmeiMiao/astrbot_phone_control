@@ -23,7 +23,14 @@ from ..apps import app_label_for_package
 
 # 操作前自动召回 App 经验的工具：这些工具会读取/切换页面，召回结果随结果返回。
 _APP_RECALL_TOOLS = frozenset(
-    {"phone_open_app", "phone_screen", "phone_read_screen", "phone_check_inbox", "phone_content"}
+    {
+        "phone_open_app",
+        "phone_screen",
+        "phone_read_screen",
+        "phone_live_screen",
+        "phone_check_inbox",
+        "phone_content",
+    }
 )
 # 失败会触发经验失效标记的工具（当前页面上的具体操作/导航）。
 _APP_RECALL_FAILURE_TOOLS = frozenset(
@@ -332,9 +339,7 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
         except Exception:  # noqa: BLE001 - 事件不支持 extra 时忽略
             pass
 
-    async def _current_app_page(
-        self, event: Any
-    ) -> tuple[str, str, str]:
+    async def _current_app_page(self, event: Any) -> tuple[str, str, str]:
         """返回当前前台 ``(package, activity, 屏幕文本摘要)``；取不到时为空串。"""
         service = self.service
         try:
@@ -348,15 +353,40 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
                 if text:
                     texts.append(str(text))
             return snapshot.package, snapshot.activity, " ".join(texts)[:400]
-        if self.name == "phone_open_app":
-            try:
-                package, activity = await service.actions.foreground()
-            except Exception:  # noqa: BLE001 - 前台查询失败时跳过召回
-                return "", "", ""
-            return str(package or ""), str(activity or ""), ""
-        return "", "", ""
+        # 截屏/OCR 类工具不会更新 UI 快照：直接查一次前台包名，保证可召回。
+        try:
+            package, activity = await service.actions.foreground()
+        except Exception:  # noqa: BLE001 - 前台查询失败时跳过召回
+            return "", "", ""
+        return str(package or ""), str(activity or ""), ""
 
-    async def _pre_operation_recall(self, event: Any) -> str:
+    def _target_app_package(self, kwargs: Any) -> str:
+        """从工具参数里解析目标 App 包名（打开/进入 App 时优先于当前前台）。"""
+        if not isinstance(kwargs, dict):
+            return ""
+        app = str(kwargs.get("app") or "").strip()
+        if not app:
+            return ""
+        try:
+            package, _label = self.service.resolve_app_target(app)
+            return str(package or "")
+        except Exception:  # noqa: BLE001 - 解析失败回退前台包名
+            return ""
+
+    def _local_recall_entries(self, package: str, limit: int) -> list[Any]:
+        """语义召回不可用时的本地档案兜底（按更新时间倒序）。"""
+        store = getattr(self.service, "app_memory", None)
+        if store is None:
+            return []
+        try:
+            entries = [
+                entry for entry in store.entries() if entry.app == package
+            ]
+        except Exception:  # noqa: BLE001 - 档案读取失败按无经验处理
+            return []
+        return entries[: max(1, int(limit))]
+
+    async def _pre_operation_recall(self, event: Any, kwargs: Any = None) -> str:
         """操作前按当前 App/页面召回经验；同一页面的重复工具调用只召回一次。"""
         if self.name not in _APP_RECALL_TOOLS or event is None:
             return ""
@@ -367,9 +397,14 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
         if not prompt.app_memory_enabled or prompt.app_memory_limit <= 0:
             return ""
         reader = getattr(self.service, "app_recall_reader", None)
-        if reader is None:
-            return ""
         package, activity, context = await self._current_app_page(event)
+        # 打开/进入指定 App：目标包名比「刚启动时的当前前台」更可靠。
+        if self.name in {"phone_open_app", "phone_check_inbox"}:
+            target = self._target_app_package(kwargs)
+            if target:
+                if package != target:
+                    activity, context = "", ""
+                package = target
         if not package:
             return ""
         state = self._app_recall_state(event)
@@ -377,22 +412,27 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
         if page_key in state["pages"]:
             return ""
         label = app_label_for_package(package) or package
-        try:
-            entries = await asyncio.wait_for(
-                reader.select(
-                    app_key=package,
-                    label=label,
-                    page_hint=activity,
-                    context=context,
-                    limit=min(3, max(1, int(prompt.app_memory_limit))),
-                ),
-                timeout=4.0,
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - 召回失败不影响工具结果
-            logger.debug("操作前 App 经验召回失败：%s", exc)
-            entries = []
+        limit = min(3, max(1, int(prompt.app_memory_limit)))
+        entries: list[Any] = []
+        if reader is not None:
+            try:
+                entries = await asyncio.wait_for(
+                    reader.select(
+                        app_key=package,
+                        label=label,
+                        page_hint=activity,
+                        context=context,
+                        limit=limit,
+                    ),
+                    timeout=8.0,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 召回失败回退本地档案
+                logger.debug("操作前 App 经验语义召回失败，回退档案：%s", exc)
+                entries = []
+        if not entries:
+            entries = self._local_recall_entries(package, limit)
         state["pages"] = (list(state["pages"]) + [page_key])[-20:]
         if not entries:
             self._save_app_recall_state(event, state)
@@ -525,7 +565,7 @@ def _wrap_call(handler):
                 ("error:", "已中止")
             ):
                 try:
-                    recall = await self._pre_operation_recall(event)
+                    recall = await self._pre_operation_recall(event, kwargs)
                 except Exception as exc:  # noqa: BLE001 - 召回失败不影响工具结果
                     logger.debug("操作前 App 经验召回失败：%s", exc)
                     recall = ""

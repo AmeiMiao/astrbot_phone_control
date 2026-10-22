@@ -903,3 +903,158 @@ def test_light_interaction_switch_and_content_decision(tmp_path):
     assert "decide favorite" in run(tool.call(ctx, kind="favorite"))
     service._contents.active["o"]["decisions"].append({"decision": "favorite"})
     assert "已预留" in run(tool.call(ctx, kind="favorite"))
+
+
+def test_tool_wrapper_appends_app_experience_recall_for_open_app():
+    """操作前召回接线：phone_open_app 结果后会追加当前 App 经验（真实 wrapper 路径）。"""
+    from core.app_memory import AppMemoryEntry
+    from core.tools.base import _PhoneToolBase, _wrap_call
+
+    entry = AppMemoryEntry(
+        app="com.example.app",
+        label="示例",
+        page="首页",
+        note="顶部是搜索入口",
+        updated_at=1_760_000_000.0,
+    )
+
+    class StubReader:
+        async def select(self, **_kwargs: Any) -> list[Any]:
+            return [entry]
+
+    class StubMemory:
+        def entries(self) -> list[Any]:
+            return [entry]
+
+    class StubActions:
+        async def foreground(self) -> tuple[str, str]:
+            return "com.example.app", "com.example.app.MainActivity"
+
+    class StubExperiences:
+        @staticmethod
+        def observe(*_args: Any, **_kwargs: Any) -> None:
+            pass
+
+    service = FakeService(config=PhoneConfig.from_mapping({}))
+    service.app_recall_reader = StubReader()
+    service.app_memory = StubMemory()
+    service.actions = StubActions()
+    service.experiences = StubExperiences()
+    service._cached_ui_snapshot = lambda: None
+
+    class OpenAppTool(_PhoneToolBase):
+        name: str = "phone_open_app"
+        description: str = "打开 App"
+        parameters: dict = {}
+
+        @_wrap_call
+        async def call(self, context: Any, **kwargs: Any) -> str:
+            return "已打开 示例（com.example.app）"
+
+    tool = OpenAppTool(service=service)
+    result = run(tool.call(FakeToolContext(FakeEvent()), app="示例"))
+    text = result if isinstance(result, str) else str(result)
+    assert "已打开 示例" in text
+    assert "【App 使用经验（按当前 App/页面召回）】" in text
+    assert "顶部是搜索入口" in text
+
+
+def test_tool_wrapper_recall_prefers_target_app_over_transient_foreground():
+    """phone_open_app 刚启动时前台可能还是桌面：召回用参数解析出的目标 App 包名。"""
+    from core.app_memory import AppMemoryEntry
+    from core.tools.base import _PhoneToolBase, _wrap_call
+
+    entry = AppMemoryEntry(
+        app="com.example.app", label="示例", page="首页", note="底部导航五项"
+    )
+    seen_keys: list[str] = []
+
+    class StubReader:
+        async def select(self, **kwargs: Any) -> list[Any]:
+            seen_keys.append(kwargs["app_key"])
+            return [entry]
+
+    class StubMemory:
+        def entries(self) -> list[Any]:
+            return [entry]
+
+    class StubActions:
+        async def foreground(self) -> tuple[str, str]:
+            return "com.android.launcher", "com.android.launcher.Home"
+
+    class StubExperiences:
+        @staticmethod
+        def observe(*_args: Any, **_kwargs: Any) -> None:
+            pass
+
+    service = FakeService(config=PhoneConfig.from_mapping({}))
+    service.app_recall_reader = StubReader()
+    service.app_memory = StubMemory()
+    service.actions = StubActions()
+    service.experiences = StubExperiences()
+    service._cached_ui_snapshot = lambda: None
+    service.resolve_app_target = lambda app: ("com.example.app", "示例")
+
+    class OpenAppTool(_PhoneToolBase):
+        name: str = "phone_open_app"
+        description: str = "打开 App"
+        parameters: dict = {}
+
+        @_wrap_call
+        async def call(self, context: Any, **kwargs: Any) -> str:
+            return "已打开 示例（com.example.app）"
+
+    tool = OpenAppTool(service=service)
+    result = run(tool.call(FakeToolContext(FakeEvent()), app="示例"))
+    text = result if isinstance(result, str) else str(result)
+    assert seen_keys == ["com.example.app"]
+    assert "底部导航五项" in text
+
+
+def test_tool_wrapper_recall_falls_back_to_local_archive_on_semantic_failure():
+    """语义召回异常/超时时回退本地档案，仍追加经验提示。"""
+    from core.app_memory import AppMemoryEntry
+    from core.tools.base import _PhoneToolBase, _wrap_call
+
+    entry = AppMemoryEntry(
+        app="com.example.app", label="示例", page="首页", note="顶部是搜索入口"
+    )
+
+    class BrokenReader:
+        async def select(self, **_kwargs: Any) -> list[Any]:
+            raise RuntimeError("embedding 超时")
+
+    class StubMemory:
+        def entries(self) -> list[Any]:
+            return [entry]
+
+    class StubActions:
+        async def foreground(self) -> tuple[str, str]:
+            return "com.example.app", "com.example.app.MainActivity"
+
+    class StubExperiences:
+        @staticmethod
+        def observe(*_args: Any, **_kwargs: Any) -> None:
+            pass
+
+    service = FakeService(config=PhoneConfig.from_mapping({}))
+    service.app_recall_reader = BrokenReader()
+    service.app_memory = StubMemory()
+    service.actions = StubActions()
+    service.experiences = StubExperiences()
+    service._cached_ui_snapshot = lambda: None
+
+    class ScreenTool(_PhoneToolBase):
+        name: str = "phone_screen"
+        description: str = "看屏幕"
+        parameters: dict = {}
+
+        @_wrap_call
+        async def call(self, context: Any, **kwargs: Any) -> str:
+            return "屏幕：首页/推荐/搜索"
+
+    tool = ScreenTool(service=service)
+    result = run(tool.call(FakeToolContext(FakeEvent())))
+    text = result if isinstance(result, str) else str(result)
+    assert "【App 使用经验（按当前 App/页面召回）】" in text
+    assert "顶部是搜索入口" in text
