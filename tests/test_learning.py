@@ -272,3 +272,32 @@ def test_threaded_records_keep_consistent(tmp_path):
     path = tmp_path / LEARNING_FILENAME
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
     assert len(lines) == 20
+
+
+def test_record_keeps_attribution_fields(tmp_path):
+    store = LearningStore(tmp_path)
+    record = store.record(
+        content="用户让我记住的内容",
+        source="B站",
+        tags=["测试"],
+        origin="phone_background_task",
+        origin_detail="job-1",
+        attribution="user",
+        initiator_user_id="42",
+        requested_by="42",
+    )
+    assert record["attribution"] == "user"
+    assert record["origin"] == "phone_background_task"
+    assert record["initiator_user_id"] == "42"
+    assert record["requested_by"] == "42"
+    # 重新加载后字段保留。
+    reloaded = LearningStore(tmp_path).recent(1)[0]
+    assert reloaded["attribution"] == "user"
+    assert reloaded["initiator_user_id"] == "42"
+
+
+def test_record_without_attribution_omits_fields(tmp_path):
+    store = LearningStore(tmp_path)
+    record = store.record(content="普通学习")
+    assert "attribution" not in record
+    assert "origin" not in record

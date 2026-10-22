@@ -77,8 +77,19 @@ def build_learning_payload(
     content: Any,
     source: Any = "",
     tags: Any = None,
+    attribution: Any = "",
+    initiator_user_id: Any = "",
+    requested_by: Any = "",
 ) -> dict[str, Any]:
     """把一条学习记录转成 MemoryCompanion 外部记忆载荷。
+
+    Args:
+        content: 学习内容。
+        source: 来源。
+        tags: 标签。
+        attribution: ``autonomous``（自行唤醒）/ ``user``（用户指定）。
+        initiator_user_id: 用户指定使用手机时的发起用户 ID。
+        requested_by: 后台任务创建者用户 ID。
 
     Returns:
         ``{"content": "...", "memory_type": "phone_learning", "idempotency_key": ...,
@@ -90,10 +101,17 @@ def build_learning_payload(
     src = _clean(source)
     tag_list = [str(tag).strip() for tag in (tags or []) if str(tag).strip()]
     summary = f"【手机学习】{src + '：' if src else ''}{text}"
+    payload: dict[str, Any] = {"kind": "learning", "source": src, "tags": tag_list}
+    if _clean(attribution):
+        payload["attribution"] = _clean(attribution)
+    if _clean(initiator_user_id):
+        payload["initiator_user_id"] = _clean(initiator_user_id)
+    if _clean(requested_by):
+        payload["requested_by"] = _clean(requested_by)
     return {
         "content": summary[:4000],
         "memory_type": LEARNING_MEMORY_TYPE,
         "idempotency_key": f"phone-learning:{src or '-'}:{text[:120]}",
         "tags": ["phone", "learning", *tag_list],
-        "payload": {"kind": "learning", "source": src, "tags": tag_list},
+        "payload": payload,
     }

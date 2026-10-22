@@ -91,3 +91,29 @@ def test_build_bot_action_payload():
     assert text.startswith("【自行刷手机】B站：")
     assert "首页布局" in text
     assert build_bot_action_payload(content="   ") == ""
+
+
+def test_build_learning_payload_carries_attribution():
+    user_payload = build_learning_payload(
+        content="用户让我记的内容",
+        source="B站",
+        tags=[],
+        attribution="user",
+        initiator_user_id="42",
+        requested_by="42",
+    )
+    assert user_payload["payload"]["attribution"] == "user"
+    assert user_payload["payload"]["initiator_user_id"] == "42"
+    assert user_payload["payload"]["requested_by"] == "42"
+
+    autonomous_payload = build_learning_payload(
+        content="自己刷到的内容",
+        source="抖音",
+        tags=["AI"],
+        attribution="autonomous",
+    )
+    assert autonomous_payload["payload"]["attribution"] == "autonomous"
+    assert "initiator_user_id" not in autonomous_payload["payload"]
+    # 未传归属时保持原有载荷形态（兼容 App 经验等调用）。
+    plain = build_learning_payload(content="普通内容", source="B站", tags=[])
+    assert "attribution" not in plain["payload"]

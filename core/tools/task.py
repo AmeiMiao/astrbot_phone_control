@@ -81,6 +81,7 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
                 cron_manager,
                 instruction=instruction,
                 share_target=share_target,
+                sender_id=str(getattr(event, "get_sender_id", lambda: "")() or ""),
             )
         except BackgroundTaskError as exc:
             return _error(exc)

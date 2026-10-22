@@ -2,7 +2,12 @@
 
 存储结构：``root/learning.jsonl``，每行一个条目（UTF-8 JSON）：:
 
-    {"id": "唯一编号", "ts": 1760000000.0, "content": "……", "source": "哔哩哔哩", "tags": ["AI"]}
+    {"id": "唯一编号", "ts": 1760000000.0, "content": "……", "source": "哔哩哔哩",
+     "tags": ["AI"], "origin": "phone_continuous", "attribution": "autonomous",
+     "initiator_user_id": ""}
+
+``attribution`` 为 ``autonomous``（自行唤醒，不计入用户记忆）或 ``user``
+（用户指定使用手机，计入用户信息）；旧数据没有该字段时按未标注处理。
 
 条目超过 ``max_entries``（默认 2000）时整体重写，只保留最近条目。查询/渲染
 结果按时间正序返回，单条内容渲染最多 120 字。本模块只依赖标准库；除内容校验
@@ -77,6 +82,14 @@ def _normalize_tags(tags: Any) -> list[str]:
     return result
 
 
+def _normalize_attr_text(value: Any, limit: int = 120) -> str:
+    """归一化归属相关短文本（去空白、截断、非字符串转空串）。"""
+    text = " ".join(str(value or "").split())
+    if not text:
+        return ""
+    return text[:limit]
+
+
 def _normalize_record(raw: Any) -> dict[str, Any] | None:
     """校验并归一化从 JSONL 读出的条目；不可用条目返回 None。"""
     if not isinstance(raw, dict):
@@ -89,13 +102,18 @@ def _normalize_record(raw: Any) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         ts = 0.0
     tags = _normalize_tags(raw.get("tags"))
-    return {
+    record = {
         **({"id": raw["id"]} if isinstance(raw.get("id"), str) and raw["id"] else {}),
         "ts": ts,
         "content": content,
         "source": str(raw.get("source") or "").strip(),
         "tags": tags,
     }
+    for key in ("origin", "origin_detail", "attribution", "initiator_user_id", "requested_by"):
+        value = _normalize_attr_text(raw.get(key))
+        if value:
+            record[key] = value
+    return record
 
 
 def _record_ts(record: dict[str, Any]) -> float:
@@ -203,6 +221,11 @@ class LearningStore:
         source: Any = "",
         tags: Any = None,
         ts: Any = None,
+        origin: Any = "",
+        origin_detail: Any = "",
+        attribution: Any = "",
+        initiator_user_id: Any = "",
+        requested_by: Any = "",
     ) -> dict[str, Any]:
         """追加一条学习记录并返回它。
 
@@ -211,6 +234,11 @@ class LearningStore:
             source: 来源（App 名、链接等，可为空）。
             tags: 标签（可传逗号分隔字符串或列表）。
             ts: 时间戳，缺省为当前时间；非法值回退当前时间。
+            origin: 任务 origin（如 phone_continuous）；用户会话为空。
+            origin_detail: 归属补充说明（任务 ID 等）。
+            attribution: ``autonomous`` / ``user``；用于记忆同步归属。
+            initiator_user_id: 用户指定使用手机时的发起用户 ID。
+            requested_by: 后台任务创建者用户 ID。
 
         Raises:
             LearningError: 内容为空或超过 500 字。
@@ -227,6 +255,16 @@ class LearningStore:
             "source": str(source or "").strip(),
             "tags": _normalize_tags(tags),
         }
+        for key, value in (
+            ("origin", origin),
+            ("origin_detail", origin_detail),
+            ("attribution", attribution),
+            ("initiator_user_id", initiator_user_id),
+            ("requested_by", requested_by),
+        ):
+            normalized = _normalize_attr_text(value)
+            if normalized:
+                entry[key] = normalized
         with self._lock:
             was_full = len(self._entries) >= self.max_entries
             self._entries.append(entry)

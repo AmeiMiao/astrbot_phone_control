@@ -622,6 +622,14 @@
       content.textContent = entry.content || "";
       item.appendChild(content);
 
+      if (entry.attribution_label) {
+        const attr = document.createElement("div");
+        attr.className = "learning-tags";
+        const attrTag = document.createElement("span");
+        attrTag.textContent = `归属：${entry.attribution_label}`;
+        attr.appendChild(attrTag);
+        item.appendChild(attr);
+      }
       const tags = entry.tags || [];
       if (tags.length) {
         const tagBox = document.createElement("div");

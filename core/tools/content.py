@@ -171,18 +171,41 @@ class PhoneLearnTool(_PhoneToolBase):
             else []
         )
         event = _event_of(context)
+        attribution = self.service.learning_attribution(event)
+        kind = str(attribution.get("kind") or "")
         backend = self.service.config.memory.backend
         remote_enabled = wants_companion(backend) or wants_livingmemory(backend)
         companion_payload = (
-            build_learning_payload(content=content, source=source, tags=tags)
+            build_learning_payload(
+                content=content,
+                source=source,
+                tags=tags,
+                attribution=kind,
+                initiator_user_id=attribution.get("initiator_user_id") or "",
+                requested_by=attribution.get("requested_by") or "",
+            )
             if remote_enabled
             else {}
         )
-        text = await self.service.learn(content, source=source, tags=tags)
+        text = await self.service.learn(
+            content,
+            source=source,
+            tags=tags,
+            attribution=kind,
+            origin=attribution.get("origin") or "",
+            origin_detail=attribution.get("origin_detail") or "",
+            initiator_user_id=attribution.get("initiator_user_id") or "",
+            requested_by=attribution.get("requested_by") or "",
+        )
         if companion_payload:
             ok, detail = await self.service.sync_memory(event, companion_payload)
             if ok:
-                text += f"；已同步到记忆插件（{detail}）"
+                if "个人记忆-行动" in detail:
+                    text += f"；已计入{detail}"
+                else:
+                    text += f"；已计入用户信息（{detail}）"
+            elif kind == "autonomous":
+                text += "；自行唤醒学习不计入用户记忆，已保存在插件本地"
             else:
                 text += f"；记忆插件同步失败（{detail or '未知原因'}），已保存在插件本地"
         # 标记本轮确实记录了学习内容，供插件判断持续刷是否「有看有记」；

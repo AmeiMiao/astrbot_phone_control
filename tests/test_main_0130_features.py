@@ -410,7 +410,7 @@ def test_phone_learn_syncs_to_memory_companion(tmp_path, monkeypatch):
                 source="哔哩哔哩",
                 tags=["B站"],
             )
-            assert "已同步到记忆插件（MemoryCompanion）" in result
+            assert "已计入用户信息（MemoryCompanion）" in result
             assert len(bridge.calls) == 1
             call = bridge.calls[0]
             assert call["user_id"] == "1"  # 用户会话用发送者 ID
@@ -527,7 +527,7 @@ def test_phone_learn_syncs_to_livingmemory(tmp_path, monkeypatch):
                 source="B站",
                 tags=["测试"],
             )
-            assert "已同步到记忆插件（LivingMemory）" in result
+            assert "已计入用户信息（LivingMemory）" in result
             assert len(lm.engine.calls) == 1
             call = lm.engine.calls[0]
             assert "LivingMemory 同步测试" in call["content"]
@@ -575,10 +575,12 @@ def test_bot_action_memory_optional_for_autonomous_play(tmp_path, monkeypatch):
                 source="B站",
                 tags=[],
             )
-            assert "已同步到记忆插件" in result
+            assert "已计入个人记忆-行动（MemoryCompanion）" in result
             assert bridge.bot_actions
             assert bridge.bot_actions[0].startswith("【自行刷手机】")
             assert "自行刷手机学到的内容" in bridge.bot_actions[0]
+            # 自行唤醒学习不计入用户记忆（不调用用户侧写入）。
+            assert bridge.calls == []
         finally:
             await _cleanup(plugin)
 
@@ -597,10 +599,105 @@ def test_bot_action_memory_disabled_by_default(tmp_path, monkeypatch):
                 platform="cron",
                 payload={"cron_payload": {"origin": "phone_continuous", "play_task": True}},
             )
-            await learn_tool.call(
+            result = await learn_tool.call(
                 FakeToolContext(cron_event), content="默认不计", source="B站", tags=[]
             )
             assert bridge.bot_actions == []
+            assert bridge.calls == []
+            assert "自行唤醒学习不计入用户记忆" in result
+        finally:
+            await _cleanup(plugin)
+
+    asyncio.run(scenario())
+
+
+def _learn_event(payload: dict | None = None, *, sender_id: str = "1", platform="cron"):
+    return FakeEvent(
+        platform=platform,
+        payload=payload or {},
+        sender_id=sender_id,
+    )
+
+
+def test_user_session_learning_counts_into_user_memory(tmp_path, monkeypatch):
+    """用户指定使用手机的学习计入用户信息（发送者 ID）。"""
+
+    async def scenario() -> None:
+        plugin, bridge = _make_plugin_with_memory_backend(tmp_path, monkeypatch)
+        try:
+            learn_tool = _tools_ns["PhoneLearnTool"](service=plugin.service)
+            event = _learn_event(platform="webchat")
+            result = await learn_tool.call(
+                FakeToolContext(event), content="用户让我刷到的内容", source="B站", tags=[]
+            )
+            assert "已计入用户信息（MemoryCompanion）" in result
+            assert bridge.calls and bridge.calls[0]["user_id"] == "1"
+            record = plugin.service.learning.recent(1)[0]
+            assert record.get("attribution") == "user"
+        finally:
+            await _cleanup(plugin)
+
+    asyncio.run(scenario())
+
+
+def test_user_background_task_learning_counts_for_requester(tmp_path, monkeypatch):
+    """用户发起的后台任务：计入创建者（requested_by）的用户信息。"""
+
+    async def scenario() -> None:
+        plugin, bridge = _make_plugin_with_memory_backend(tmp_path, monkeypatch)
+        try:
+            learn_tool = _tools_ns["PhoneLearnTool"](service=plugin.service)
+            event = FakeEvent(
+                platform="cron",
+                sender_id="",
+                payload={
+                    "cron_payload": {
+                        "origin": "phone_background_task",
+                        "requested_by": "75782383",
+                    }
+                },
+            )
+            result = await learn_tool.call(
+                FakeToolContext(event), content="给用户找的攻略", source="B站", tags=[]
+            )
+            assert "已计入用户信息（MemoryCompanion）" in result
+            assert bridge.calls and bridge.calls[0]["user_id"] == "75782383"
+            record = plugin.service.learning.recent(1)[0]
+            assert record.get("attribution") == "user"
+            assert record.get("requested_by") == "75782383"
+        finally:
+            await _cleanup(plugin)
+
+    asyncio.run(scenario())
+
+
+def test_autonomous_origins_never_write_user_memory(tmp_path, monkeypatch):
+    """随机玩/持续刷/定时自主浏览的学习都不计入用户记忆。"""
+
+    async def scenario() -> None:
+        plugin, bridge = _make_plugin_with_memory_backend(tmp_path, monkeypatch)
+        try:
+            learn_tool = _tools_ns["PhoneLearnTool"](service=plugin.service)
+            for origin in (
+                "phone_random_play",
+                "phone_continuous",
+                plugin_main.PLUGIN_NAME,  # 定时自主浏览
+            ):
+                event = FakeEvent(
+                    platform="cron",
+                    payload={"cron_payload": {"origin": origin, "play_task": True}},
+                )
+                result = await learn_tool.call(
+                    FakeToolContext(event),
+                    content=f"自行唤醒学习-{origin}",
+                    source="B站",
+                    tags=[],
+                )
+                assert "自行唤醒学习不计入用户记忆" in result
+            assert bridge.calls == []
+            assert bridge.bot_actions == []
+            records = plugin.service.learning.recent(3)
+            assert all(record.get("attribution") == "autonomous" for record in records)
         finally:
             await _cleanup(plugin)
 

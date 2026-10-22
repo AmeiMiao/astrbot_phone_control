@@ -441,6 +441,7 @@ class CommandsMixin:
                 cron_manager,
                 instruction=instruction,
                 share_target=share_target,
+                sender_id=str(event.get_sender_id() or ""),
             )
         except BackgroundTaskError as exc:
             await self._say(event, f"error: {exc}")

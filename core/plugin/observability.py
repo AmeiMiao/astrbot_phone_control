@@ -43,6 +43,7 @@ from ..apps import (
 from ..backends import BackendManager
 from ..browse import BrowseSession
 from ..chat_memory import ChatMemory
+from ..attribution import is_autonomous, kind_label, origin_kind
 from ..config import (
     UNCONFIGURED_MESSAGE,
     PhoneConfig,
@@ -262,6 +263,9 @@ class ObservabilityMixin(LibraryDashboardMixin):
             tags = [
                 str(tag) for tag in entry.get("tags") or [] if str(tag)
             ]
+            attribution = str(entry.get("attribution") or "")
+            if not attribution:
+                attribution = origin_kind(str(entry.get("origin") or ""))
             items.append(
                 {
                     "id": str(entry.get("id") or ""),
@@ -269,6 +273,9 @@ class ObservabilityMixin(LibraryDashboardMixin):
                     "content": str(entry.get("content") or ""),
                     "source": str(entry.get("source") or ""),
                     "tags": tags,
+                    "origin": str(entry.get("origin") or ""),
+                    "attribution": attribution,
+                    "attribution_label": kind_label(attribution),
                 }
             )
         payload["entries"] = items
@@ -448,7 +455,12 @@ class ObservabilityMixin(LibraryDashboardMixin):
         bridge = self._get_memory_companion_bridge()
         if bridge is None:
             return False, "未检测到 astrbot_plugin_memory_companion 记忆插件"
-        user_id = self.service.memory_user_id(event)
+        payload_meta = payload.get("payload") or {}
+        user_id = str(
+            payload_meta.get("initiator_user_id")
+            or payload_meta.get("requested_by")
+            or ""
+        ).strip() or self.service.memory_user_id(event)
         if not user_id:
             return False, "未配置记忆绑定用户（memory.companion_user_id 或 owner_ids）"
         try:
@@ -545,9 +557,42 @@ class ObservabilityMixin(LibraryDashboardMixin):
     async def _sync_memory(
         self, event: AstrMessageEvent, payload: dict[str, Any]
     ) -> tuple[bool, str]:
-        """按 memory.backend 同步到 MemoryCompanion / LivingMemory（可两者）。"""
+        """按归属与 memory.backend 同步用户记忆 / 个人记忆-行动。
+
+        - 用户指定使用手机产生的学习记录：写入 MemoryCompanion / LivingMemory
+          的用户记忆（user_id 优先取发起用户）。
+        - 自行唤醒（持续刷/随机/定时自主浏览）产生的学习记录：**不计入用户记忆**；
+          仅在 `memory.bot_action_enabled` 开启时按「个人记忆-行动」记一份。
+        """
         config = self.service.config
         backend = config.memory.backend
+        payload_meta = payload.get("payload") or {}
+        memory_type = str(payload.get("memory_type") or "")
+        attribution = str(payload_meta.get("attribution") or "")
+        if memory_type == LEARNING_MEMORY_TYPE and is_autonomous(attribution):
+            if not config.memory.bot_action_enabled:
+                return False, "自行唤醒学习不计入用户记忆"
+            if not wants_companion(backend):
+                return False, "自行唤醒学习不计入用户记忆（未选中 MemoryCompanion）"
+            action_text = build_bot_action_payload(
+                content=str(payload.get("content") or ""),
+                source=str(payload_meta.get("source") or ""),
+            )
+            if not action_text:
+                return False, "自行唤醒学习不计入用户记忆"
+            try:
+                bridge = self._get_memory_companion_bridge()
+                if bridge is None or not hasattr(bridge, "record_bot_action"):
+                    return False, "未检测到 astrbot_plugin_memory_companion 记忆插件"
+                await bridge.record_bot_action(
+                    content=action_text,
+                    source_plugin=COMPANION_SOURCE_PLUGIN,
+                )
+            except Exception as exc:  # noqa: BLE001 - 行动记录失败如实报告
+                logger.warning("写入个人记忆-行动失败：%s", exc)
+                return False, f"MemoryCompanion：{exc}"
+            logger.info("自行唤醒学习已计入 MemoryCompanion「个人记忆-行动」")
+            return True, "个人记忆-行动（MemoryCompanion）"
         targets: list[str] = []
         failures: list[str] = []
         if wants_companion(backend):
@@ -560,28 +605,6 @@ class ObservabilityMixin(LibraryDashboardMixin):
             ok, reason = await self._sync_memory_to_livingmemory(event, payload)
             if not ok:
                 failures.append(f"LivingMemory：{reason}")
-        # 自行刷手机（自主任务）的记忆：按开关额外记入 MemoryCompanion「个人记忆-行动」一份
-        if (
-            config.memory.bot_action_enabled
-            and wants_companion(backend)
-            and payload.get("memory_type") == LEARNING_MEMORY_TYPE
-            and self.service.play_payload(event)
-        ):
-            action_text = build_bot_action_payload(
-                content=str(payload.get("content") or ""),
-                source=str((payload.get("payload") or {}).get("source") or ""),
-            )
-            if action_text:
-                try:
-                    bridge = self._get_memory_companion_bridge()
-                    if bridge is not None and hasattr(bridge, "record_bot_action"):
-                        await bridge.record_bot_action(
-                            content=action_text,
-                            source_plugin=COMPANION_SOURCE_PLUGIN,
-                        )
-                        logger.info("自行刷手机记忆已计入 MemoryCompanion「个人记忆-行动」")
-                except Exception as exc:  # noqa: BLE001 - 行动记录失败不影响主同步
-                    logger.warning("写入个人记忆-行动失败：%s", exc)
         success = not failures and bool(targets)
         detail = "、".join(targets) if success else "；".join(failures)
         return success, detail

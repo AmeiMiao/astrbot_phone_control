@@ -30,6 +30,7 @@ from .chat_memory import ChatMemory
 from .config import UNCONFIGURED_MESSAGE, PhoneConfig
 from .diary import PhoneDiary
 from .task_round import current_round
+from .attribution import KIND_UNKNOWN, origin_kind
 from .errors import (
     ActionFailedError,
     AdbNotConfiguredError,
@@ -56,6 +57,7 @@ from .plugin_shared import (
     _llm_response_text,
 )
 from .scheduler import CONTINUOUS_JOB_ORIGIN
+from .scheduler import JOB_ORIGIN as AUTO_BROWSE_JOB_ORIGIN
 from .screenshot_cleanup import cleanup_directory
 from .share_policy import (
     classify_session_umo,
@@ -540,6 +542,7 @@ class PhoneService:
                 "phone_random_play",
                 "phone_background_task",
                 CONTINUOUS_JOB_ORIGIN,
+                AUTO_BROWSE_JOB_ORIGIN,
             }:
                 return origin
         return ""
@@ -1548,6 +1551,11 @@ class PhoneService:
         *,
         source: str = "",
         tags: Any = None,
+        attribution: str = "",
+        origin: str = "",
+        origin_detail: str = "",
+        initiator_user_id: str = "",
+        requested_by: str = "",
     ) -> str:
         """记录一条学习内容（供持续刷/自主学习使用）。"""
         try:
@@ -1555,12 +1563,59 @@ class PhoneService:
                 content=content,
                 source=source,
                 tags=tags if isinstance(tags, list) else [],
+                attribution=attribution,
+                origin=origin,
+                origin_detail=origin_detail,
+                initiator_user_id=initiator_user_id,
+                requested_by=requested_by,
             )
         except LearningError as exc:
             raise ActionFailedError(str(exc)) from exc
         total = len(self.learning.entries())
         snippet = str(record.get("content") or "")[:80]
         return f"已记录学习内容（累计 {total} 条）：{snippet}"
+
+    def learning_attribution(self, event: Any) -> dict[str, str]:
+        """判定当前学习记录的来源归属与发起用户。
+
+        Returns:
+            ``{"origin","origin_detail","kind","initiator_user_id","requested_by"}``；
+            自行唤醒（随机/持续/定时自主浏览）的 ``kind=autonomous``，用户指定使用
+            手机（会话工具、命令、用户发起的后台任务/玩手机）为 ``kind=user``。
+        """
+        origin = ""
+        try:
+            origin = self.task_origin(event)
+        except Exception:  # noqa: BLE001 - 鸭子类型事件
+            origin = ""
+        payload: dict[str, Any] = {}
+        try:
+            raw = event.get_extra("cron_payload")
+            if isinstance(raw, dict):
+                payload = raw
+        except Exception:  # noqa: BLE001 - 鸭子类型事件
+            payload = {}
+        requested_by = str(
+            payload.get("requested_by") or payload.get("sender_id") or ""
+        ).strip()
+        initiator = ""
+        try:
+            initiator = str(event.get_sender_id() or "").strip()
+        except Exception:  # noqa: BLE001 - 鸭子类型事件
+            initiator = ""
+        kind = origin_kind(origin)
+        if kind == KIND_UNKNOWN and payload.get("play_task"):
+            kind = origin_kind(str(payload.get("origin") or ""))
+        if not initiator and kind == "user":
+            initiator = requested_by
+        detail = str(payload.get("job_id") or payload.get("session") or "").strip()
+        return {
+            "origin": origin,
+            "origin_detail": detail,
+            "kind": kind,
+            "initiator_user_id": initiator,
+            "requested_by": requested_by,
+        }
 
     # ---- 会话记录 / 主动分享 -----------------------------------------
 

@@ -87,6 +87,7 @@ async def create_background_task(
         "note": note,
         "origin": BACKGROUND_JOB_ORIGIN,
         "share_target": target,
+        "requested_by": str(sender_id or "").strip(),
     }
     try:
         return await cron_manager.add_active_job(
