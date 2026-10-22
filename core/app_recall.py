@@ -68,9 +68,7 @@ REFRESH_MINUTES = 10
 FAILURE_BASE_BACKOFF_SECONDS = 60.0
 FAILURE_MAX_BACKOFF_SECONDS = 1800.0
 
-LogFn = Callable[[str], None]
 ConfigGetter = Callable[[], Any]
-StoreProvider = Callable[[], Any]
 EntryProvider = Callable[[], list[AppMemoryEntry]]
 
 

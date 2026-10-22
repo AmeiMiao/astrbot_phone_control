@@ -1626,7 +1626,9 @@ def test_image_config_is_independent_and_legacy_browse_values_migrate():
     assert "image_storage_location" not in raw["browse"]
     assert "save_images_both" not in raw["browse"]
 
-    # 已是新配置或旧值全为默认：不迁移
+    # 已是新配置或没有旧键：不迁移；旧键存在时清理残留（即使值为默认）
     assert migrate_image_config({"browse": {}, "image": {"auto_save_images": True}}) is False
-    assert migrate_image_config({"browse": {"auto_save_images": False}}) is False
+    residual = {"browse": {"auto_save_images": False}}
+    assert migrate_image_config(residual) is True
+    assert residual == {"browse": {}}
     assert migrate_image_config({}) is False

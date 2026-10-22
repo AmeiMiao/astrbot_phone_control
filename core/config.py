@@ -739,38 +739,32 @@ def migrate_image_config(raw: Any) -> bool:
     browse = raw.get("browse")
     if not isinstance(browse, dict):
         return False
-    legacy = {
-        "auto_save_images": browse.get("auto_save_images"),
-        "image_storage_location": browse.get("image_storage_location"),
-        "save_images_both": browse.get("save_images_both"),
-    }
-    default_legacy = {
+    legacy_keys = {
         "auto_save_images": False,
         "image_storage_location": "server",
         "save_images_both": False,
     }
-    if all(
-        legacy[key] is None or legacy[key] == default_legacy[key]
-        for key in legacy
-    ):
+    present = [key for key in legacy_keys if key in browse]
+    if not present:
         return False
     image = raw.get("image")
     if not isinstance(image, dict):
         image = {}
     changed = False
-    for key, legacy_value in legacy.items():
-        if legacy_value is None or legacy_value == default_legacy[key]:
+    for key in present:
+        legacy_value = browse.get(key)
+        if legacy_value in (None, legacy_keys[key]):
             continue
-        if image.get(key) not in (None, default_legacy[key]):
+        if image.get(key) not in (None, legacy_keys[key]):
             continue
         image[key] = legacy_value
         changed = True
     if changed:
         raw["image"] = image
-        for key in legacy:
-            browse.pop(key, None)
-        return True
-    return False
+    # 无论旧值是否为默认，都清理已下线的 browse.* 旧键，避免配置页残留未声明字段。
+    for key in present:
+        browse.pop(key, None)
+    return True
 
 
 @dataclass(frozen=True)
