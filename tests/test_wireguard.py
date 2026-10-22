@@ -675,10 +675,19 @@ def test_conf_schema_has_wireguard_card_between_control_and_verification() -> No
     assert "client" in items["server_endpoint"]["hint"]
     assert "server" in items["public_endpoint"]["hint"]
     # client/server 配置项按角色条件显隐（AstrBot schema condition 为同级 flat key 严格相等）
-    assert items["server_endpoint"]["condition"] == {"mode": "client"}
-    assert items["server_public_key"]["condition"] == {"mode": "client"}
-    assert items["listen_port"]["condition"] == {"mode": "server"}
-    assert items["public_endpoint"]["condition"] == {"mode": "server"}
+    assert items["server_endpoint"]["condition"] == {
+        "enabled": True,
+        "mode": "client",
+    }
+    assert items["server_public_key"]["condition"] == {
+        "enabled": True,
+        "mode": "client",
+    }
+    assert items["listen_port"]["condition"] == {"enabled": True, "mode": "server"}
+    assert items["public_endpoint"]["condition"] == {"enabled": True, "mode": "server"}
+    # 未开启 WireGuard 时其余字段全部隐藏。
+    for name in ("mode", "preshared_key", "interface_address", "phone_wg_ip"):
+        assert items[name]["condition"] == {"enabled": True}
     # 展示顺序：先角色，再按 client/server 分组，最后通用项
     names = list(items)
     assert names.index("mode") < names.index("server_endpoint") < names.index("listen_port")

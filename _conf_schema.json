@@ -97,6 +97,12 @@
           "allow_comments": true
         }
       },
+      "interaction_cooldown_seconds": {
+        "type": "int",
+        "default": 0,
+        "description": "主动互动冷却秒数",
+        "hint": "两次成功主动评论/发帖之间的最小间隔；与被动回复冷却相互独立；0=无冷却（默认）。"
+      },
       "allow_passive_replies": {
         "type": "bool",
         "default": false,
@@ -135,12 +141,6 @@
         "condition": {
           "allow_posts": true
         }
-      },
-      "interaction_cooldown_seconds": {
-        "type": "int",
-        "default": 0,
-        "description": "主动互动冷却秒数",
-        "hint": "两次成功主动评论/发帖之间的最小间隔；与被动回复冷却相互独立；0=无冷却（默认）。"
       },
       "allow_shell_tool": {
         "type": "bool",
@@ -248,15 +248,6 @@
         "default": false,
         "hint": "开启后 AI 可按兴趣保存图文原图与表情包，并记录描述、标签、来源与存储路径。"
       },
-      "save_images_both": {
-        "description": "两地都存",
-        "type": "bool",
-        "default": false,
-        "condition": {
-          "auto_save_images": true
-        },
-        "hint": "开启后同时保存到 AstrBot 服务端和手机，隐藏主要存储位置。"
-      },
       "image_storage_location": {
         "description": "主要存储位置",
         "type": "string",
@@ -270,6 +261,15 @@
           "save_images_both": false
         },
         "hint": "server=AstrBot 服务端（可查找并传到手机）；phone=手机相册。两地都存开启时此选择不参与保存。"
+      },
+      "save_images_both": {
+        "description": "两地都存",
+        "type": "bool",
+        "default": false,
+        "condition": {
+          "auto_save_images": true
+        },
+        "hint": "开启后同时保存到 AstrBot 服务端和手机，隐藏主要存储位置。"
       }
     },
     "hint": "浏览采样、日记与感兴趣图片的保存策略。"
@@ -554,12 +554,42 @@
   },
   "memory": {
     "description": "记忆存储",
-    "hint": "学习档案的存储去向：插件本地及可选 MemoryCompanion / LivingMemory 同步。App 使用经验在提示词注入卡片选择独立存储位置。",
+    "hint": "学习档案的存储去向：插件本地档案始终保留，可额外同步到 MemoryCompanion / LivingMemory。App 使用经验在提示词注入卡片选择独立存储位置。",
     "type": "object",
     "items": {
+      "companion_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "同步到 MemoryCompanion",
+        "hint": "开启后学习记录同步到 astrbot_plugin_memory_companion；插件本地档案始终保留。未开启时不显示绑定用户与「个人记忆-行动」配置。"
+      },
+      "livingmemory_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "同步到 LivingMemory",
+        "hint": "开启后学习记录写入 astrbot_plugin_livingmemory；插件本地档案始终保留。可与 MemoryCompanion 同时开启。"
+      },
+      "companion_user_id": {
+        "description": "记忆绑定用户 ID",
+        "hint": "同步到 MemoryCompanion 时绑定哪个用户；留空时用户会话用发送者 ID、自刷任务用 owner_ids[0]",
+        "type": "string",
+        "default": "",
+        "condition": {
+          "companion_enabled": true
+        }
+      },
+      "bot_action_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "自行刷手机的记忆计入「个人记忆-行动」",
+        "hint": "仅开启 MemoryCompanion 时显示。开启后 AI 自行唤醒（持续刷/随机/定时自主浏览）的学习记忆额外以「个人记忆-行动」记入一份，不计入用户记忆；默认关闭（不计）",
+        "condition": {
+          "companion_enabled": true
+        }
+      },
       "backend": {
-        "description": "存储去向",
-        "hint": "local=仅插件本地（默认）；companion=同步到 MemoryCompanion（astrbot_plugin_memory_companion）；livingmemory=同步到 LivingMemory（astrbot_plugin_livingmemory）；companion+livingmemory=两个记忆插件都同步（插件本地档案始终保留）",
+        "description": "存储去向（旧版兼容字段）",
+        "hint": "旧版下拉存储去向，已迁移为下方的独立开关；保留该字段以保证旧配置可读取，不再在页面显示。",
         "type": "string",
         "options": [
           "local",
@@ -567,19 +597,8 @@
           "livingmemory",
           "companion+livingmemory"
         ],
-        "default": "local"
-      },
-      "companion_user_id": {
-        "description": "记忆绑定用户 ID",
-        "hint": "同步到 MemoryCompanion 时绑定哪个用户；留空时用户会话用发送者 ID、自刷任务用 owner_ids[0]",
-        "type": "string",
-        "default": ""
-      },
-      "bot_action_enabled": {
-        "type": "bool",
-        "default": false,
-        "description": "自行刷手机的记忆计入「个人记忆-行动」",
-        "hint": "开启后，AI 自行刷手机（持续刷/随机/后台任务）时写入的学习记忆会额外同步一份到 MemoryCompanion 的个人记忆-行动；默认关闭（不计）"
+        "default": "local",
+        "invisible": true
       }
     }
   },
@@ -825,14 +844,14 @@
   },
   "wireguard": {
     "description": "WireGuard 组网",
-    "hint": "插件内置 userspace WireGuard helper（无需 NET_ADMIN/tun）：client=连接已有 WG 服务器；server=本插件当服务器，手机装 WireGuard App 接入。开启后插件启动时拉起 helper，可用 ADB over WG 经隧道访问手机（adb_local_port）。 注意 ADB over WG 对手机官方 WG App 受 Android VPN 按 UID 分流限制，详见使用手册「已知限制」。",
+    "hint": "插件内置 userspace WireGuard helper（无需 NET_ADMIN/tun）：client=连接已有 WG 服务器；server=本插件当服务器，手机装 WireGuard App 接入。开启后插件启动时拉起 helper，可用 ADB over WG 经隧道访问手机（adb_local_port）。未开启时其余字段不显示。",
     "type": "object",
     "items": {
       "enabled": {
         "type": "bool",
         "default": false,
         "description": "启用 WireGuard",
-        "hint": "开启后插件启动时拉起 helper；关闭后停止 helper 并恢复原 ADB 目标。helper 缺失/配置不全时会明确报错且不启动子进程。"
+        "hint": "开启后插件启动时拉起 helper；关闭后停止 helper 并恢复原 ADB 目标。helper 缺失/配置不全时会明确报错且不启动子进程；开启后再按角色显示其余配置。"
       },
       "mode": {
         "type": "string",
@@ -842,7 +861,10 @@
           "server"
         ],
         "description": "角色",
-        "hint": "client=连接已有 WireGuard 服务器；server=本插件作为服务器，手机以 WireGuard 客户端接入。修改后保存即重启 helper。"
+        "hint": "client=连接已有 WireGuard 服务器；server=本插件作为服务器，手机以 WireGuard 客户端接入。修改后保存即重启 helper。",
+        "condition": {
+          "enabled": true
+        }
       },
       "server_endpoint": {
         "type": "string",
@@ -850,6 +872,7 @@
         "description": "WG 服务器地址",
         "hint": "仅 client 模式显示：要连接的 WireGuard 服务器 host:port（必填），如 192.168.250.50:51820。",
         "condition": {
+          "enabled": true,
           "mode": "client"
         }
       },
@@ -859,6 +882,7 @@
         "description": "服务器公钥",
         "hint": "仅 client 模式显示且必填：对端 WireGuard 服务器公钥（base64，32 字节）。",
         "condition": {
+          "enabled": true,
           "mode": "client"
         }
       },
@@ -868,6 +892,7 @@
         "description": "监听端口",
         "hint": "仅 server 模式显示：监听 UDP 端口（需在容器/网关把该端口暴露给手机侧）。",
         "condition": {
+          "enabled": true,
           "mode": "server"
         }
       },
@@ -877,6 +902,7 @@
         "description": "公开地址",
         "hint": "仅 server 模式显示且必填：手机侧可访问到本插件 WG server 的地址，如 192.168.250.50:51820；只填 host 时端口取 listen_port。",
         "condition": {
+          "enabled": true,
           "mode": "server"
         }
       },
@@ -884,43 +910,64 @@
         "type": "string",
         "default": "",
         "description": "预共享密钥",
-        "hint": "可选：与对端配置相同的 base64 PSK（32 字节）；留空不使用。"
+        "hint": "可选：与对端配置相同的 base64 PSK（32 字节）；留空不使用。",
+        "condition": {
+          "enabled": true
+        }
       },
       "interface_address": {
         "type": "string",
         "default": "",
         "description": "本机 WG 地址",
-        "hint": "CIDR，留空按模式取默认：client=10.66.0.2/24，server=10.66.0.1/24；须为 IPv4。"
+        "hint": "CIDR，留空按模式取默认：client=10.66.0.2/24，server=10.66.0.1/24；须为 IPv4。",
+        "condition": {
+          "enabled": true
+        }
       },
       "phone_wg_ip": {
         "type": "string",
         "default": "",
         "description": "手机 WG 地址",
-        "hint": "手机在 WireGuard 网内的 IPv4 地址，也是 ADB over WG 转发目标；留空按模式取默认：client=10.66.0.3，server=10.66.0.2（须在本机网段内）。 官方 WG App 手机的 adbd 通常不可经隧道访问（VPN 按 UID 分流），见使用手册「已知限制」。"
+        "hint": "手机在 WireGuard 网内的 IPv4 地址，也是 ADB over WG 转发目标；留空按模式取默认：client=10.66.0.3，server=10.66.0.2（须在本机网段内）。 官方 WG App 手机的 adbd 通常不可经隧道访问（VPN 按 UID 分流），见使用手册「已知限制」。",
+        "condition": {
+          "enabled": true
+        }
       },
       "adb_local_port": {
         "type": "int",
         "default": 15555,
         "description": "ADB 隧道本地端口",
-        "hint": "helper 在容器 127.0.0.1 监听该端口并转发到手机 5555；0=不启用 ADB over WG。 手机官方 WireGuard App 场景下 adbd 回包受 Android VPN 按 UID 分流限制，ADB over WG 主要用于 Linux/容器或 root 全局 WG 对端（详见使用手册「已知限制」）。"
+        "hint": "helper 在容器 127.0.0.1 监听该端口并转发到手机 5555；0=不启用 ADB over WG。 手机官方 WireGuard App 场景下 adbd 回包受 Android VPN 按 UID 分流限制，ADB over WG 主要用于 Linux/容器或 root 全局 WG 对端（详见使用手册「已知限制」）。",
+        "condition": {
+          "enabled": true
+        }
       },
       "auto_adb": {
         "type": "bool",
         "default": false,
         "description": "自动切换 ADB 目标",
-        "hint": "helper 健康后把 ADB 目标切到 127.0.0.1:<adb_local_port>，停止/异常/配置变化时恢复原目标。需 adb_local_port>0。"
+        "hint": "helper 健康后把 ADB 目标切到 127.0.0.1:<adb_local_port>，停止/异常/配置变化时恢复原目标。需 adb_local_port>0。",
+        "condition": {
+          "enabled": true
+        }
       },
       "adb_target_port": {
         "description": "手机隧道内 ADB 入口端口",
         "type": "int",
         "default": 5555,
-        "hint": "官方 WireGuard App + Phone WG Relay 填 15555；直接 adbd 填 5555。Relay 需监听手机 WG 地址并仅允许本插件 WG 地址。"
+        "hint": "官方 WireGuard App + Phone WG Relay 填 15555；直接 adbd 填 5555。Relay 需监听手机 WG 地址并仅允许本插件 WG 地址。",
+        "condition": {
+          "enabled": true
+        }
       },
       "socks_port": {
         "description": "通用 SOCKS5 TCP 代理本地端口",
         "type": "int",
         "default": 0,
-        "hint": "0 关闭；启用后监听 127.0.0.1，仅支持 peer AllowedIPs 内的 IPv4/IPv6 地址 CONNECT，不需逐个固定转发。"
+        "hint": "0 关闭；启用后监听 127.0.0.1，仅支持 peer AllowedIPs 内的 IPv4/IPv6 地址 CONNECT，不需逐个固定转发。",
+        "condition": {
+          "enabled": true
+        }
       }
     }
   },

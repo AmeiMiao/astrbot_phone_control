@@ -45,7 +45,7 @@ from ..apps import (
 from ..backends import BackendManager
 from ..browse import BrowseSession
 from ..chat_memory import ChatMemory
-from ..config import UNCONFIGURED_MESSAGE, PhoneConfig
+from ..config import UNCONFIGURED_MESSAGE, PhoneConfig, migrate_memory_config
 from ..config_apply import ACTION_START, ACTION_STOP, build_apply_plan
 from ..diary import PhoneDiary
 from ..interactions import (
@@ -282,6 +282,21 @@ class BootstrapMixin:
         self._terminated = False
         self._live_instance_registered = False
         self.raw_config: Any = config if config is not None else {}
+        # 旧版 memory.backend 一次性迁移为独立布尔开关（保持原选择）。
+        if migrate_memory_config(self.raw_config):
+            save = getattr(self.raw_config, "save_config", None)
+            if callable(save):
+                try:
+                    save()
+                except Exception as exc:  # noqa: BLE001 - 保存失败不影响插件加载
+                    logger.warning("迁移记忆存储配置后保存失败：%s", exc)
+            memory_raw = self.raw_config.get("memory")
+            memory_raw = memory_raw if isinstance(memory_raw, dict) else {}
+            logger.info(
+                "记忆存储配置已迁移：MemoryCompanion=%s，LivingMemory=%s",
+                bool(memory_raw.get("companion_enabled")),
+                bool(memory_raw.get("livingmemory_enabled")),
+            )
         initial = PhoneConfig.from_mapping(
             self.raw_config,
             warn=lambda message: logger.warning(message),

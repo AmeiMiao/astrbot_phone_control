@@ -485,11 +485,27 @@ class ControlSettings:
 
 @dataclass(frozen=True)
 class MemorySettings:
-    """记忆/学习内容的存储去向（本地插件 / MemoryCompanion / LivingMemory 及其组合）。"""
+    """记忆/学习内容的存储去向（本地插件 / MemoryCompanion / LivingMemory）。
 
-    backend: str = DEFAULT_MEMORY_BACKEND
+    本地档案始终写入；``companion_enabled`` 与 ``livingmemory_enabled``
+    独立控制是否额外同步到对应记忆插件，便于按条件显示相关配置项。
+    """
+
+    companion_enabled: bool = False
+    livingmemory_enabled: bool = False
     companion_user_id: str = DEFAULT_MEMORY_COMPANION_USER_ID
     bot_action_enabled: bool = False
+
+    @property
+    def backend(self) -> str:
+        """兼容旧存储去向字符串（local / companion / livingmemory / 组合）。"""
+        if self.companion_enabled and self.livingmemory_enabled:
+            return "companion+livingmemory"
+        if self.companion_enabled:
+            return "companion"
+        if self.livingmemory_enabled:
+            return "livingmemory"
+        return "local"
 
 
 @dataclass(frozen=True)
@@ -608,6 +624,50 @@ def novelty_settings_from_raw(
             maximum=10,
         ),
     )
+
+
+def _memory_backend_legacy(
+    memory_card: Mapping[str, Any] | None,
+    source: Mapping[str, Any],
+    warn: WarnFn,
+) -> str:
+    """读取旧版 memory.backend（兼容 both/all），非法值回退 local。"""
+    raw = _pick(memory_card, source, "backend")
+    text = str(raw or "").strip().lower()
+    if text in {"both", "all"}:
+        return "companion+livingmemory"
+    if text in MEMORY_BACKENDS:
+        return text
+    if text and text not in {"local", ""}:
+        warn(f"配置项 memory.backend 的值 {raw!r} 不在 {MEMORY_BACKENDS} 中，已按 local 处理")
+    return "local"
+
+
+def migrate_memory_config(raw: Any) -> bool:
+    """把旧版 ``memory.backend`` 迁移为 ``companion_enabled``/``livingmemory_enabled``。
+
+    仅在旧配置存在非 local 的 backend、且没有新布尔字段时迁移；迁移后把
+    backend 置为 local 作为已迁移标记。返回是否修改了配置（供插件保存）。
+    """
+    if not isinstance(raw, dict):
+        return False
+    memory = raw.get("memory")
+    if not isinstance(memory, dict):
+        return False
+    if "companion_enabled" in memory or "livingmemory_enabled" in memory:
+        return False
+    backend = str(memory.get("backend") or "").strip().lower()
+    if backend in {"both", "all"}:
+        backend = "companion+livingmemory"
+    if backend not in {"companion", "livingmemory", "companion+livingmemory"}:
+        return False
+    memory["companion_enabled"] = backend in {"companion", "companion+livingmemory"}
+    memory["livingmemory_enabled"] = backend in {
+        "livingmemory",
+        "companion+livingmemory",
+    }
+    memory["backend"] = "local"
+    return True
 
 
 @dataclass(frozen=True)
@@ -1417,22 +1477,40 @@ class PhoneConfig:
         )
 
         memory_card = card("memory")
-        raw_memory_backend = _pick(memory_card, source, "backend")
-        memory_backend_text = str(raw_memory_backend or "").strip().lower()
-        # 兼容 both/all → companion+livingmemory
-        if memory_backend_text in {"both", "all"}:
-            memory_backend = "companion+livingmemory"
-        elif memory_backend_text in MEMORY_BACKENDS:
-            memory_backend = memory_backend_text
-        else:
-            if memory_backend_text:
-                warn_fn(
-                    f"配置项 memory.backend 的值 {raw_memory_backend!r} 不在 "
-                    f"{MEMORY_BACKENDS} 中，回退默认 {DEFAULT_MEMORY_BACKEND}"
-                )
-            memory_backend = DEFAULT_MEMORY_BACKEND
+        memory_backend_text = _memory_backend_legacy(memory_card, source, warn_fn)
+        companion_raw = _pick(memory_card, source, "companion_enabled")
+        livingmemory_raw = _pick(memory_card, source, "livingmemory_enabled")
+        legacy_companion = memory_backend_text in {
+            "companion",
+            "companion+livingmemory",
+        }
+        legacy_livingmemory = memory_backend_text in {
+            "livingmemory",
+            "companion+livingmemory",
+        }
+        companion_enabled = (
+            _as_bool(
+                companion_raw,
+                legacy_companion,
+                "memory.companion_enabled",
+                warn_fn,
+            )
+            if companion_raw is not None
+            else legacy_companion
+        )
+        livingmemory_enabled = (
+            _as_bool(
+                livingmemory_raw,
+                legacy_livingmemory,
+                "memory.livingmemory_enabled",
+                warn_fn,
+            )
+            if livingmemory_raw is not None
+            else legacy_livingmemory
+        )
         memory = MemorySettings(
-            backend=memory_backend,
+            companion_enabled=companion_enabled,
+            livingmemory_enabled=livingmemory_enabled,
             companion_user_id=_as_str(
                 _pick(memory_card, source, "companion_user_id"),
                 DEFAULT_MEMORY_COMPANION_USER_ID,
