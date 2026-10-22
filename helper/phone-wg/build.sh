@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# 构建 phone-wg 多平台静态二进制并复制到插件 bin/<平台>/。
+# 构建 phone-wg 静态二进制。
 #
-# 默认目标：linux/amd64、linux/arm64、windows/amd64（与插件随包平台一致）。
+# 插件只随包分发 Linux x86_64（控制市场包体积）；默认只构建 linux/amd64 并写入
+# ../../bin/linux-x86_64/phone-wg。其他平台由用户自行编译，默认输出到
+# ./dist/<os>-<arch>/phone-wg[.exe]，再自行复制为插件根目录 bin/phone-wg。
 # 本机没有 Go 时自动改用 docker 镜像构建（需 docker 权限）：
 #   BUILD_IMAGE=golang:1.26-alpine ./build.sh
-# 只构建部分目标：
+# 构建其他平台：
 #   TARGETS="linux/arm64" ./build.sh
+#   TARGETS="windows/amd64" ./build.sh
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -13,20 +16,20 @@ cd "$(dirname "$0")"
 GO_VERSION="${GO_VERSION:-1.26}"
 BUILD_IMAGE="${BUILD_IMAGE:-golang:${GO_VERSION}-alpine}"
 PLUGIN_BIN="${PLUGIN_BIN:-../../bin}"
-TARGETS="${TARGETS:-linux/amd64 linux/arm64 windows/amd64}"
+OUT_DIR="${OUT_DIR:-dist}"
+TARGETS="${TARGETS:-linux/amd64}"
 
 export CGO_ENABLED=0
 export GOFLAGS="${GOFLAGS:--mod=mod}"
 export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
 export GOSUMDB="${GOSUMDB:-off}"
 
-# 目标平台 -> 插件 bin 目录（名称与 core/platform_bins.py 的宿主平台识别一致）
+# 目标平台 -> 产物路径：随包的 linux/amd64 写插件 bin/linux-x86_64/；
+# 其他平台写本地 dist/<os>-<arch>/，由用户自行放到插件根目录 bin/phone-wg。
 dest_for() {
 	case "$1" in
 	linux/amd64) echo "${PLUGIN_BIN}/linux-x86_64/phone-wg" ;;
-	linux/arm64) echo "${PLUGIN_BIN}/linux-aarch64/phone-wg" ;;
-	windows/amd64) echo "${PLUGIN_BIN}/windows-x86_64/phone-wg.exe" ;;
-	*) echo "bin/$1/phone-wg" ;;
+	*) echo "${OUT_DIR}/${1%%/*}-${1##*/}/phone-wg" ;;
 	esac
 }
 

@@ -30,24 +30,25 @@
 
 ```bash
 cd helper/phone-wg
-./build.sh                 # 默认构建 linux/amd64、linux/arm64、windows/amd64
-TARGETS="linux/arm64" ./build.sh   # 只构建单个目标
+./build.sh                          # 默认构建 linux/amd64，写入插件 bin/linux-x86_64/phone-wg
+TARGETS="linux/arm64" ./build.sh    # 用户自编译其他平台，输出 dist/linux-arm64/phone-wg
+TARGETS="windows/amd64" ./build.sh  # 输出 dist/windows-amd64/phone-wg.exe
 ```
 
-构建固定使用 `CGO_ENABLED=0`，产物为静态链接二进制，按目标平台直接写入插件的
-`bin/<平台>/`：
+构建固定使用 `CGO_ENABLED=0`，产物为静态链接二进制。插件只随包分发 Linux x86_64
+（控制插件市场包体积）；其他平台由用户自行编译，再把产物复制为插件根目录的
+`bin/phone-wg`（Windows 为 `bin/phone-wg.exe`，需自备 WireGuard 官方 `wintun.dll`）：
 
 | 目标 | 产物 |
 | --- | --- |
-| `linux/amd64` | `bin/linux-x86_64/phone-wg` |
-| `linux/arm64` | `bin/linux-aarch64/phone-wg` |
-| `windows/amd64` | `bin/windows-x86_64/phone-wg.exe` |
+| `linux/amd64`（随包） | `bin/linux-x86_64/phone-wg` |
+| 其他平台（用户自编译） | `helper/phone-wg/dist/<os>-<arch>/phone-wg[.exe]` |
 
 构建后可核对：
 
 ```bash
-file ../../bin/linux-aarch64/phone-wg
-# ELF 64-bit LSB executable, ARM aarch64, statically linked
+file ../../bin/linux-x86_64/phone-wg
+# ELF 64-bit LSB executable, x86-64, statically linked
 ```
 
 `build.sh` 会先后执行 `go mod tidy`、`go vet ./...`、`go test ./...` 再按目标矩阵编译；

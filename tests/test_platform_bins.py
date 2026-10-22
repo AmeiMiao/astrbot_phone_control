@@ -1,4 +1,7 @@
-"""core.platform_bins 单元测试：宿主平台识别、二进制选择与可执行位修复。"""
+"""core.platform_bins 单元测试：宿主平台识别、二进制选择与可执行位修复。
+
+随包只分发 Linux x86_64；其他平台必须回退到 ``adb.path``/PATH 与用户自行编译的 helper。
+"""
 
 from __future__ import annotations
 
@@ -7,102 +10,92 @@ import stat
 from pathlib import Path
 
 from core.platform_bins import (
-    PLATFORM_LINUX_AARCH64,
     PLATFORM_LINUX_X86_64,
-    PLATFORM_WINDOWS_X86_64,
-    binary_filename,
+    SUPPORTED_PLATFORMS,
     bundled_adb,
     bundled_binary,
     bundled_phone_wg,
     ensure_bundled_executables,
     host_platform,
+    platform_dir,
 )
 
 
 def test_host_platform_mapping():
     assert host_platform(system="Linux", machine="x86_64") == PLATFORM_LINUX_X86_64
     assert host_platform(system="Linux", machine="amd64") == PLATFORM_LINUX_X86_64
-    assert host_platform(system="Linux", machine="aarch64") == PLATFORM_LINUX_AARCH64
-    assert host_platform(system="Linux", machine="arm64") == PLATFORM_LINUX_AARCH64
-    assert host_platform(system="Windows", machine="AMD64") == PLATFORM_WINDOWS_X86_64
-    # macOS / 其他架构不随包分发二进制，返回空串由 adb.path/PATH 兜底。
+    assert host_platform(system="Linux", machine="AMD64") == PLATFORM_LINUX_X86_64
+    # 其余平台不随包分发二进制，返回空串由 adb.path/PATH 兜底。
+    assert host_platform(system="Linux", machine="aarch64") == ""
+    assert host_platform(system="Linux", machine="arm64") == ""
+    assert host_platform(system="Windows", machine="AMD64") == ""
+    assert host_platform(system="Darwin", machine="x86_64") == ""
     assert host_platform(system="Darwin", machine="arm64") == ""
     assert host_platform(system="Linux", machine="riscv64") == ""
     assert host_platform(system="FreeBSD", machine="x86_64") == ""
 
 
-def test_binary_filename_windows_uses_exe():
-    assert binary_filename("adb", platform_id=PLATFORM_WINDOWS_X86_64) == "adb.exe"
-    assert binary_filename("phone-wg", platform_id=PLATFORM_WINDOWS_X86_64) == "phone-wg.exe"
-    assert binary_filename("adb", platform_id=PLATFORM_LINUX_X86_64) == "adb"
+def test_supported_platforms_only_linux_x86_64():
+    assert SUPPORTED_PLATFORMS == (PLATFORM_LINUX_X86_64,)
 
 
-def test_bundled_binary_selects_platform_dir(tmp_path):
-    win = tmp_path / "bin" / PLATFORM_WINDOWS_X86_64
-    win.mkdir(parents=True)
-    (win / "adb.exe").write_bytes(b"PE")
-    assert bundled_adb(tmp_path, platform_id=PLATFORM_WINDOWS_X86_64) == win / "adb.exe"
-    assert bundled_phone_wg(tmp_path, platform_id=PLATFORM_WINDOWS_X86_64) is None
+def test_bundled_binary_selects_only_linux_x86_64(tmp_path):
+    platform = tmp_path / "bin" / PLATFORM_LINUX_X86_64
+    platform.mkdir(parents=True)
+    (platform / "adb").write_bytes(b"ELF")
+    (platform / "phone-wg").write_bytes(b"ELF")
 
-    arm = tmp_path / "bin" / PLATFORM_LINUX_AARCH64
+    assert bundled_adb(tmp_path, platform_id=PLATFORM_LINUX_X86_64) == platform / "adb"
+    assert bundled_phone_wg(tmp_path) == platform / "phone-wg"
+    assert bundled_binary("missing", root=tmp_path) is None
+
+    # 其他平台目录即使存在也不参与选择（不再随包分发）。
+    arm = tmp_path / "bin" / "linux-aarch64"
     arm.mkdir(parents=True)
-    (arm / "phone-wg").write_bytes(b"ELF")
-    assert bundled_phone_wg(tmp_path, platform_id=PLATFORM_LINUX_AARCH64) == arm / "phone-wg"
-    assert bundled_binary("missing", root=tmp_path, platform_id=PLATFORM_LINUX_AARCH64) is None
-    assert platform_missing(tmp_path) is None
-
-
-def platform_missing(root: Path) -> Path | None:
-    """不支持平台返回 None（避免测试里依赖运行主机）。"""
-    return bundled_adb(root, platform_id="")
+    (arm / "adb").write_bytes(b"ELF")
+    assert bundled_adb(tmp_path, platform_id="linux-aarch64") is None
+    assert platform_dir(tmp_path, platform_id="linux-aarch64") is None
+    assert bundled_adb(tmp_path, platform_id="") is None
 
 
 def test_ensure_bundled_executables_repairs_modes(tmp_path):
-    platform_id = PLATFORM_LINUX_AARCH64
-    directory = tmp_path / "bin" / platform_id
-    lib = directory / "lib"
-    lib.mkdir(parents=True)
+    platform = PLATFORM_LINUX_X86_64
+    directory = tmp_path / "bin" / platform
+    directory.mkdir(parents=True)
     adb = directory / "adb"
     helper = directory / "phone-wg"
-    real = lib / "adb-bin"
-    for path in (adb, helper, real):
+    for path in (adb, helper):
         path.write_bytes(b"ELF")
         path.chmod(0o644)
 
-    result = ensure_bundled_executables(tmp_path, platform_id=platform_id)
+    result = ensure_bundled_executables(tmp_path, platform_id=platform)
     assert set(result) == {
-        f"bin/{platform_id}/adb",
-        f"bin/{platform_id}/phone-wg",
-        f"bin/{platform_id}/lib/adb-bin",
+        f"bin/{platform}/adb",
+        f"bin/{platform}/phone-wg",
     }
     assert all(result.values())
-    for path in (adb, helper, real):
+    for path in (adb, helper):
         mode = path.stat().st_mode
         assert mode & stat.S_IXUSR and mode & stat.S_IXGRP and mode & stat.S_IXOTH
 
 
 def test_common_repository_layout_has_bundled_adb_for_supported_platform():
-    """仓库对 x86_64 宿主确实随包提供 adb（其他交付平台允许缺失并回退）。"""
+    """仓库对 Linux x86_64 宿主随包提供 adb/phone-wg/说明文件。"""
     repository = Path(__file__).resolve().parents[1]
     path = bundled_adb(repository, platform_id=PLATFORM_LINUX_X86_64)
     assert path is not None and os.access(path, os.X_OK)
+    assert bundled_phone_wg(repository, platform_id=PLATFORM_LINUX_X86_64) is not None
+    assert (repository / "bin" / PLATFORM_LINUX_X86_64 / "NOTICE.txt").is_file()
 
 
-def test_repository_ships_arm64_and_windows_platform_dirs():
-    """仓库随包 Linux ARM64 与 Windows 的 adb/phone-wg 及说明文件。"""
+def test_repository_ships_only_linux_x86_64_platform_dir():
+    """插件体积限制：其他平台目录已移除，用户自行编译/提供系统 adb。"""
     root = Path(__file__).resolve().parents[1]
-    arm = root / "bin" / PLATFORM_LINUX_AARCH64
-    wrapper = arm / "adb"
-    assert wrapper.is_file()
-    assert "lib/adb-bin" in wrapper.read_text(encoding="utf-8")
-    assert (arm / "lib" / "adb-bin").is_file()
-    assert (arm / "phone-wg").is_file()
-    assert (arm / "NOTICE.txt").is_file()
-    assert list((arm / "lib").glob("*.so*")), "ARM64 adb 依赖库缺失"
-
-    win = root / "bin" / PLATFORM_WINDOWS_X86_64
-    assert (win / "adb.exe").is_file()
-    assert (win / "AdbWinApi.dll").is_file()
-    assert (win / "AdbWinUsbApi.dll").is_file()
-    assert (win / "phone-wg.exe").is_file()
-    assert (win / "NOTICE.txt").is_file()
+    platform_dirs = {
+        path.name
+        for path in (root / "bin").iterdir()
+        if path.is_dir() and "-" in path.name
+    }
+    assert platform_dirs == {PLATFORM_LINUX_X86_64}
+    assert not (root / "bin" / "linux-aarch64").exists()
+    assert not (root / "bin" / "windows-x86_64").exists()

@@ -1042,8 +1042,8 @@ class WireGuardManager:
         if not helper.is_file():
             raise WireGuardConfigError(
                 f"未找到 WireGuard helper：{helper}"
-                "（当前平台需要随包提供 bin/<平台>/phone-wg；"
-                "也可用 /phone wg status 查看平台信息）"
+                "（插件只随包提供 Linux x86_64 的 phone-wg；其他平台请按 helper/phone-wg "
+                "源码编译后放到插件根目录 bin/phone-wg，也可用 /phone wg status 查看平台信息）"
             )
         if not ensure_executable(helper):
             raise WireGuardConfigError(
@@ -1436,7 +1436,7 @@ class WireGuardManager:
             lines.append(f"- 重试：约 {int(status['retry_in'])} 秒后重试")
         lines.append(f"- helper：{status['helper']}")
         if not status["helper_exists"]:
-            lines.append("  （helper 不存在：当前平台没有随包 phone-wg，WireGuard 组网不可用）")
+            lines.append("  （helper 不存在：仅 Linux x86_64 随包 phone-wg；其他平台可自行编译后放到插件根目录 bin/phone-wg）")
         version = status.get("version") or ""
         if version:
             lines.append(f"  helper 版本：{version}")

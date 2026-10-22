@@ -8,13 +8,11 @@
 
 | 组件 | 版本/来源 | 许可证 | 分发形式与说明 |
 | --- | --- | --- | --- |
-| **adb**（Android platform-tools，Linux x86_64 / Windows x86_64） | AOSP Android SDK Platform-Tools 37.0.1（官方） | **Apache-2.0** | 位于 `bin/linux-x86_64/adb` 与 `bin/windows-x86_64/adb.exe`（含 `AdbWinApi.dll`、`AdbWinUsbApi.dll`），原样分发未修改。版权归 Google LLC 及 Android 项目贡献者；许可证与 NOTICE 全文见 `bin/linux-x86_64/NOTICE.txt`（来源 sdk-repo-linux-platform-tools.zip 与 sdk-repo-windows-platform-tools.zip） |
-| **adb**（Android platform-tools，Linux ARM64 自包含重建） | Debian `android-platform-tools` 34.0.5（bookworm-backports arm64）+ Debian 共享库 | **Apache-2.0** 及随包库各自许可证（BSD/MIT/ISC/OpenSSL/LGPL 等） | 位于 `bin/linux-aarch64/`：`adb` 为设置 `LD_LIBRARY_PATH` 的 POSIX sh 包装脚本，真实程序在 `lib/adb-bin`，依赖库在 `lib/*.so*`。Google 未发布 Linux ARM64 官方 platform-tools，此目录由 Debian 12 arm64 二进制包重新打包；完整包名、版本、许可证与 SHA-256 见 `bin/linux-aarch64/NOTICE.txt`，宿主需 glibc ≥ 2.36 |
+| **adb**（Android platform-tools，Linux x86_64） | AOSP Android SDK Platform-Tools 37.0.1（官方） | **Apache-2.0** | 位于 `bin/linux-x86_64/adb`，原样分发未修改。版权归 Google LLC 及 Android 项目贡献者；许可证与 NOTICE 全文见 `bin/linux-x86_64/NOTICE.txt`（来源 sdk-repo-linux-platform-tools.zip） |
 | **scrcpy-server** | [scrcpy](https://github.com/Genymobile/scrcpy) v5.0.1 | **Apache-2.0** | 位于 `bin/scrcpy-server-v5.0.1`，为 scrcpy 项目发布的 server 构建产物，未修改；通过 adb 推送到设备的 `/data/local/tmp` 以 `app_process` 运行。版权：Copyright (c) 2018 Genymobile、Copyright (c) 2018-2026 Romain Vimont 及 scrcpy 贡献者。详见 `bin/scrcpy-server-NOTICE.txt` |
-| **phone-wg**（WireGuard userspace helper） | 本仓库 `helper/phone-wg` 源码构建；静态链接 [wireguard-go](https://git.zx2c4.com/wireguard-go/) `v0.0.0-20261006164505-2631ce99a06f` 与 [gVisor](https://gvisor.dev/) `v0.0.0-20250503011706-39ed1f5ac29c` | **MIT + Apache-2.0** | 位于 `bin/linux-x86_64/phone-wg`（linux/amd64）、`bin/linux-aarch64/phone-wg`（linux/arm64）与 `bin/windows-x86_64/phone-wg.exe`（windows/amd64），均为静态链接 ELF/PE；wireguard-go 为 **MIT**，gVisor netstack 为 **Apache-2.0**，编译时未修改上游代码。Windows 产物运行时需用户自备 WireGuard 官方 `wintun.dll`（不随插件分发）。静态链接组件清单与许可证声明见「四、phone-wg 静态链接的第三方组件」 |
+| **phone-wg**（WireGuard userspace helper） | 本仓库 `helper/phone-wg` 源码构建；静态链接 [wireguard-go](https://git.zx2c4.com/wireguard-go/) `v0.0.0-20261006164505-2631ce99a06f` 与 [gVisor](https://gvisor.dev/) `v0.0.0-20250503011706-39ed1f5ac29c` | **MIT + Apache-2.0** | 随包分发 `bin/linux-x86_64/phone-wg`（linux/amd64，静态链接 ELF）；wireguard-go 为 **MIT**，gVisor netstack 为 **Apache-2.0**，编译时未修改上游代码。其他平台不随包分发，用户可按本仓库源码自行编译。静态链接组件清单与许可证声明见「四、phone-wg 静态链接的第三方组件」 |
 
-Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`、`bin/linux-aarch64/NOTICE.txt` 与
-`bin/windows-x86_64/NOTICE.txt`，或 <https://www.apache.org/licenses/LICENSE-2.0>。
+Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`，或 <https://www.apache.org/licenses/LICENSE-2.0>。
 
 ## 二、运行时依赖（不随插件分发）
 
@@ -42,7 +40,7 @@ Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`、`bin/linux-aarch64
 
 ## 四、phone-wg 静态链接的第三方组件
 
-`bin/<平台>/phone-wg`（linux/amd64、linux/arm64、windows/amd64）由本仓库 `helper/phone-wg`
+随包分发的 `bin/linux-x86_64/phone-wg`（linux/amd64）由本仓库 `helper/phone-wg`
 的 Go 源码构建，静态链接以下组件
 （Go 编译产物不保留动态依赖，许可证声明随二进制分发）：
 
@@ -56,7 +54,7 @@ Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`、`bin/linux-aarch64
 | [golang.org/x/time](https://pkg.go.dev/golang.org/x/time) | `v0.7.0` | **BSD-3-Clause** | Copyright 2009 The Go Authors |
 | [github.com/google/btree](https://github.com/google/btree) | `v1.1.2` | **Apache-2.0** | Copyright 2014 Google LLC |
 | Go 运行时与标准库 | Go 1.26 工具链 | **BSD-3-Clause** | Copyright 2009 The Go Authors |
-| `golang.zx2c4.com/wintun` | `v0.0.0-20230126152724-0fa3db229ce2` | **MIT** | 仅 wireguard-go 的 Windows 构建使用，linux/amd64 产物不包含该模块代码 |
+| `golang.zx2c4.com/wintun` | `v0.0.0-20230126152724-0fa3db229ce2` | **MIT** | 仅 wireguard-go 的 Windows 构建使用；插件随包产物为 linux/amd64，不包含该模块代码（用户自行交叉编译 Windows 版时包含） |
 
 Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt` 或
 <https://www.apache.org/licenses/LICENSE-2.0>；BSD-3-Clause 许可证全文见
@@ -91,14 +89,3 @@ gVisor 的声明：Copyright 2018 The gVisor Authors，许可证为 Apache-2.0�
 ## 五、Phone WG Relay
 
 `bin/android/phone-wg-relay.apk` 由本项目 `helper/android-relay` 源码构建，使用项目 MIT 许可；依赖 Android 系统 API。官方 WireGuard App 由用户按其官方渠道安装。
-
-## 六、Linux ARM64 adb 随包共享库
-
-`bin/linux-aarch64/lib/` 下的 `.so` 为 `lib/adb-bin` 运行所需的 Debian 12 arm64 共享库，
-按 SONAME 原样分发、未修改：android-libbase / android-libcutils / android-liblog /
-android-libziparchive / android-libboringssl（Apache-2.0 及 OpenSSL/ISC/BSD 条款）、
-libprotobuf32（BSD-3-Clause）、libbrotli1（MIT）、liblz4-1（BSD-2-Clause）、
-libusb-1.0-0（LGPL-2.1-or-later）、libudev1（LGPL-2.1-or-later）、libzstd1（BSD-3-Clause）、
-libz1（zlib License）、libstdc++6 与 libgcc-s1（GPL-3.0-with-GCC-exception，动态链接使用）。
-各包的精确版本、Debian 包文件名、来源 URL、许可证与 SHA-256 见 `bin/linux-aarch64/NOTICE.txt`；
-libc/ld-linux 等 glibc 核心由宿主提供（要求 glibc ≥ 2.36），不随插件分发。

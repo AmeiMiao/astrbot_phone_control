@@ -16,6 +16,7 @@
 
 ### Changed
 
+- 为满足 AstrBot 插件市场包体积限制，随包只保留 Linux x86_64 的 `adb` 与 `phone-wg`（`bin/linux-x86_64/`）；Linux ARM64、Windows 等其他平台不再随包分发，`adb` 改用系统 adb（`adb.path` 或 PATH），`phone-wg` 可按 `helper/phone-wg` 源码自行编译后放到插件根目录 `bin/phone-wg`。
 - App 使用经验移除 AstrBot 知识库后端与 `prompt.app_memory_backend` / `app_memory_kb_name` 配置，经验只保存在插件本地 `app_memory.json`，不再需要选择存储位置。
 - 聊天语义找回索引只包含学习档案与浏览日志，不再索引 App 使用经验；移除 `recall.include_app_experience` 配置项。
 - 自主玩手机流程改为由 AI 自己的兴趣驱动：先按自身兴趣决定打开/继续，中途不感兴趣直接退出；分享与评论/点赞等互动放到内容看完或玩完后独立判断，可都做、无先后；最近聊天仅用于结束后判断分享/互动对象，不再作为开始刷手机的动机。
