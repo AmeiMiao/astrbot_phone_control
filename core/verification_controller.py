@@ -28,7 +28,7 @@ class PhoneVerification:
     - 用户通过 ``/phone verify status|resume|cancel <id>`` 处理。
     """
 
-    def __init__(self, plugin: "PhoneControlPlugin") -> None:
+    def __init__(self, plugin: Any) -> None:
         self.plugin = plugin
         self.store = verification_mod.VerificationStore(plugin.data_dir)
         loaded = self.store.load_result()

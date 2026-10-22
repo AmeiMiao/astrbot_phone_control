@@ -14,6 +14,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
+from ..errors import PhoneControlError
 from ..memory_sync import (
     build_learning_payload,
     wants_companion,

@@ -33,6 +33,7 @@ from .errors import (
     AppNotInstalledError,
     BrowseError,
     PhoneControlError,
+    UiDumpError,
 )
 from .models import BrowseRequest, BrowseResult, FeedItem, ScreenSnapshot, UiNode
 
