@@ -234,6 +234,8 @@ class PhoneService:
         self.user_priority = UserTaskPriority()
         self._installed_cache: tuple[float, list[str]] | None = None
         self.memory_sync_hook: Any = None
+        # 语义索引刷新钩子（由插件注入：只置位后台维护事件，不做任何 IO）。
+        self.semantic_refresh_hook: Any = None
         # 自主任务模型供应商应用钩子（由插件注入，避免 core 模块依赖 AstrBot）
         self.task_provider_hook: Any = None
         # 最近一次 token 实际 usage 对账结果（/phone quota 展示）
@@ -1572,6 +1574,7 @@ class PhoneService:
         except LearningError as exc:
             raise ActionFailedError(str(exc)) from exc
         total = len(self.learning.entries())
+        self.request_semantic_refresh()
         snippet = str(record.get("content") or "")[:80]
         return f"已记录学习内容（累计 {total} 条）：{snippet}"
 
@@ -1616,6 +1619,16 @@ class PhoneService:
             "initiator_user_id": initiator,
             "requested_by": requested_by,
         }
+
+    def request_semantic_refresh(self) -> None:
+        """请求后台增量刷新语义索引（只置位事件，不做 IO、不创建任务）。"""
+        hook = getattr(self, "semantic_refresh_hook", None)
+        if not callable(hook):
+            return
+        try:
+            hook()
+        except Exception as exc:  # noqa: BLE001 - 索引刷新失败不影响主流程
+            logger.debug("请求语义索引刷新失败（忽略）：%s", exc)
 
     # ---- 会话记录 / 主动分享 -----------------------------------------
 
@@ -1819,6 +1832,7 @@ class PhoneService:
                     keep_rounds=config.browse.diary_protect_rounds,
                 )
                 result.diary_recorded = True
+                self.request_semantic_refresh()
             except Exception as exc:  # noqa: BLE001 - 记忆写入失败不影响浏览结果
                 logger.warning("写入浏览日志失败：%s", exc)
         # 新鲜感/厌倦感：浏览采样到的内容按主题累计疲劳度；占用不阻塞浏览结果。

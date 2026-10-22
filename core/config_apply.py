@@ -134,6 +134,21 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "novelty.similarity",
         "novelty.max_entries",
         "novelty.inject_limit",
+        # 聊天语义找回全部字段都在使用时实时读取：查询参数每轮从配置快照读取，
+        # 索引维护任务下一轮检查时按新参数重建（provider/来源开关/上限变化都会
+        # 改变文档 hash 或签名），无需重建插件组件。
+        "recall.enabled",
+        "recall.embedding_provider_id",
+        "recall.top_k",
+        "recall.min_score",
+        "recall.max_chars",
+        "recall.index_max_docs",
+        "recall.doc_chars",
+        "recall.timeout_seconds",
+        "recall.refresh_minutes",
+        "recall.include_diary",
+        "recall.include_learning",
+        "recall.include_app_experience",
     }
 )
 

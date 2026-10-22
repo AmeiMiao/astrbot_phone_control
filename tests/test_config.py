@@ -1294,3 +1294,132 @@ def test_conf_schema_description_width_within_limit():
 
     walk(schema)
     assert too_wide == []
+
+
+# ----------------------------------------------------------------------
+# 聊天语义找回（recall 卡片）
+# ----------------------------------------------------------------------
+
+
+def test_recall_config_defaults_and_parsing():
+    """语义找回默认关闭；参数可配置并收敛到合法区间。"""
+    recall = PhoneConfig.from_mapping({}).recall
+    assert recall.enabled is False
+    assert recall.embedding_provider_id == ""
+    assert recall.top_k == 5
+    assert recall.min_score == 0.25
+    assert recall.max_chars == 1200
+    assert recall.index_max_docs == 2000
+    assert recall.doc_chars == 300
+    assert recall.timeout_seconds == 3
+    assert recall.refresh_minutes == 10
+    assert recall.include_diary is True
+    assert recall.include_learning is True
+    assert recall.include_app_experience is True
+
+    warnings: list[str] = []
+    tuned = PhoneConfig.from_mapping(
+        {
+            "recall": {
+                "enabled": True,
+                "embedding_provider_id": "my-embed",
+                "top_k": 8,
+                "min_score": 0.5,
+                "max_chars": 900,
+                "index_max_docs": 500,
+                "doc_chars": 200,
+                "timeout_seconds": 5,
+                "refresh_minutes": 0,
+                "include_diary": False,
+                "include_learning": False,
+                "include_app_experience": False,
+            }
+        },
+        warn=warnings.append,
+    )
+    assert tuned.recall.enabled is True
+    assert tuned.recall.embedding_provider_id == "my-embed"
+    assert tuned.recall.top_k == 8
+    assert tuned.recall.min_score == 0.5
+    assert tuned.recall.max_chars == 900
+    assert tuned.recall.index_max_docs == 500
+    assert tuned.recall.doc_chars == 200
+    assert tuned.recall.timeout_seconds == 5
+    assert tuned.recall.refresh_minutes == 0
+    assert tuned.recall.include_diary is False
+    assert tuned.recall.include_learning is False
+    assert tuned.recall.include_app_experience is False
+    assert warnings == []
+
+    # 非法/越界值按默认或上下限收敛
+    clamped = PhoneConfig.from_mapping(
+        {
+            "recall": {
+                "top_k": 0,
+                "min_score": 3.0,
+                "max_chars": 1,
+                "index_max_docs": 0,
+                "doc_chars": 1,
+                "timeout_seconds": 0,
+                "refresh_minutes": -5,
+            }
+        },
+        warn=warnings.append,
+    )
+    assert clamped.recall.top_k == 1
+    assert clamped.recall.min_score == 1.0
+    assert clamped.recall.max_chars == 100
+    assert clamped.recall.index_max_docs == 10
+    assert clamped.recall.doc_chars == 50
+    assert clamped.recall.timeout_seconds == 1
+    assert clamped.recall.refresh_minutes == 0
+    assert warnings
+
+    invalid = PhoneConfig.from_mapping(
+        {"recall": {"top_k": "many"}}, warn=warnings.append
+    )
+    assert invalid.recall.top_k == 5
+
+
+def test_conf_schema_recall_card():
+    """recall 卡片存在，字段类型/默认值与配置解析一致。"""
+    import json
+    from pathlib import Path as _Path
+
+    schema = json.loads(
+        (_Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    card = schema["recall"]
+    assert card["type"] == "object"
+    assert card.get("description")
+    assert card.get("hint")
+    items = card["items"]
+    expected = {
+        "enabled": ("bool", False),
+        "embedding_provider_id": ("string", ""),
+        "top_k": ("int", 5),
+        "min_score": ("float", 0.25),
+        "max_chars": ("int", 1200),
+        "index_max_docs": ("int", 2000),
+        "doc_chars": ("int", 300),
+        "timeout_seconds": ("int", 3),
+        "refresh_minutes": ("int", 10),
+        "include_diary": ("bool", True),
+        "include_learning": ("bool", True),
+        "include_app_experience": ("bool", True),
+    }
+    for name, (field_type, default) in expected.items():
+        assert name in items, name
+        assert items[name]["type"] == field_type, name
+        assert items[name]["default"] == default, name
+        assert items[name].get("description")
+        assert items[name].get("hint")
+    # 留空=自动选择 Embedding Provider 的口径写在 hint 里
+    assert "Embedding Provider" in items["embedding_provider_id"]["hint"]
+    assert "留空" in items["embedding_provider_id"]["hint"]
+    # 学习/日记/App 经验三个来源开关默认全部索引
+    assert items["include_learning"]["default"] is True
+    assert items["include_diary"]["default"] is True
+    assert items["include_app_experience"]["default"] is True
