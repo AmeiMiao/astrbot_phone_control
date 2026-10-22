@@ -1453,7 +1453,18 @@ def test_legacy_memory_backend_is_derived_when_switches_absent():
     assert both.memory.livingmemory_enabled is True
     legacy_both = PhoneConfig.from_mapping({"memory": {"backend": "both"}})
     assert legacy_both.memory.backend == "companion+livingmemory"
-    # 新开关优先于旧 backend（迁移后 backend 固定为 local）。
+    # AstrBot 会为已安装配置注入新字段默认值 false：旧 backend 仍应生效。
+    injected = PhoneConfig.from_mapping(
+        {
+            "memory": {
+                "backend": "companion",
+                "companion_enabled": False,
+                "livingmemory_enabled": False,
+            }
+        }
+    )
+    assert injected.memory.backend == "companion"
+    # 新开关已有选择时优先于旧 backend（迁移后 backend 固定为 local）。
     migrated = PhoneConfig.from_mapping(
         {
             "memory": {
@@ -1477,7 +1488,20 @@ def test_memory_config_migration_sets_switches_once():
     # 已迁移/新配置不再修改。
     assert migrate_memory_config(raw) is False
     assert migrate_memory_config({"memory": {"backend": "local"}}) is False
-    assert migrate_memory_config({"memory": {"backend": "local", "companion_enabled": True}}) is False
+    assert migrate_memory_config(
+        {"memory": {"backend": "local", "companion_enabled": True}}
+    ) is False
+    # AstrBot 注入默认值 false 时仍迁移旧 backend。
+    injected = {
+        "memory": {
+            "backend": "livingmemory",
+            "companion_enabled": False,
+            "livingmemory_enabled": False,
+        }
+    }
+    assert migrate_memory_config(injected) is True
+    assert injected["memory"]["livingmemory_enabled"] is True
+    assert injected["memory"]["backend"] == "local"
 
 
 def test_conf_schema_memory_and_wireguard_conditions():

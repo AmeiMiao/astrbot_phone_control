@@ -683,13 +683,19 @@ def migrate_memory_config(raw: Any) -> bool:
     memory = raw.get("memory")
     if not isinstance(memory, dict):
         return False
-    if "companion_enabled" in memory or "livingmemory_enabled" in memory:
-        return False
     backend = str(memory.get("backend") or "").strip().lower()
     if backend in {"both", "all"}:
         backend = "companion+livingmemory"
     if backend not in {"companion", "livingmemory", "companion+livingmemory"}:
         return False
+    # 新开关已有任一为 true：用户已在使用新配置，只需把 backend 归零。
+    if bool(memory.get("companion_enabled")) or bool(
+        memory.get("livingmemory_enabled")
+    ):
+        if str(memory.get("backend") or "").strip().lower() == "local":
+            return False
+        memory["backend"] = "local"
+        return True
     memory["companion_enabled"] = backend in {"companion", "companion+livingmemory"}
     memory["livingmemory_enabled"] = backend in {
         "livingmemory",
@@ -1518,26 +1524,22 @@ class PhoneConfig:
             "livingmemory",
             "companion+livingmemory",
         }
-        companion_enabled = (
-            _as_bool(
-                companion_raw,
-                legacy_companion,
-                "memory.companion_enabled",
-                warn_fn,
-            )
-            if companion_raw is not None
-            else legacy_companion
+        companion_enabled = _as_bool(
+            companion_raw, False, "memory.companion_enabled", warn_fn
         )
-        livingmemory_enabled = (
-            _as_bool(
-                livingmemory_raw,
-                legacy_livingmemory,
-                "memory.livingmemory_enabled",
-                warn_fn,
-            )
-            if livingmemory_raw is not None
-            else legacy_livingmemory
+        livingmemory_enabled = _as_bool(
+            livingmemory_raw, False, "memory.livingmemory_enabled", warn_fn
         )
+        # 旧版 backend 非 local 且两个新开关都未选中：按旧选择派生（AstrBot 会为
+        # 已安装配置注入新字段默认值 false，不能只看字段是否存在）。迁移时插件会
+        # 把 backend 置为 local，之后用户手动关闭开关可正常保存。
+        if (
+            not companion_enabled
+            and not livingmemory_enabled
+            and memory_backend_text != "local"
+        ):
+            companion_enabled = legacy_companion
+            livingmemory_enabled = legacy_livingmemory
         memory = MemorySettings(
             companion_enabled=companion_enabled,
             livingmemory_enabled=livingmemory_enabled,
