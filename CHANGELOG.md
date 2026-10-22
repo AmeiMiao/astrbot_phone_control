@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.1.4.6] - 2026-10-22
+
+### Changed
+
+- 配置页整体整理：按连接、权限、浏览、自主任务、记忆、提示词、感知、控制后端、组网、媒体、抓包、验证、调试分组排序，卡内按「先开关后参数」排列。
+- 记忆存储由单一 `memory.backend` 下拉改为 `memory.companion_enabled` / `memory.livingmemory_enabled` 独立开关；未选中 MemoryCompanion 时不再显示绑定用户与「个人记忆-行动」配置项。旧版 `memory.backend` 在插件加载时自动迁移为对应开关并隐藏。
+- WireGuard 未开启时只显示开关，开启后再按 client/server 角色显示其余配置项。
+- 新增「聊天语义找回」卡片并入配置分组；普通聊天只读本地记忆，不触发手机连接或后台任务。
+
 ## [0.1.4.5] - 2026-10-22
 
 ### Added

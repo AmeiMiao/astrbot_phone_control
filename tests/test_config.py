@@ -1423,3 +1423,115 @@ def test_conf_schema_recall_card():
     assert items["include_learning"]["default"] is True
     assert items["include_diary"]["default"] is True
     assert items["include_app_experience"]["default"] is True
+def test_memory_backend_is_split_into_independent_switches():
+    config = PhoneConfig.from_mapping(
+        {"memory": {"companion_enabled": True, "livingmemory_enabled": True}}
+    )
+    assert config.memory.companion_enabled is True
+    assert config.memory.livingmemory_enabled is True
+    assert config.memory.backend == "companion+livingmemory"
+
+    only_companion = PhoneConfig.from_mapping(
+        {"memory": {"companion_enabled": True, "livingmemory_enabled": False}}
+    )
+    assert only_companion.memory.backend == "companion"
+    only_living = PhoneConfig.from_mapping(
+        {"memory": {"companion_enabled": False, "livingmemory_enabled": True}}
+    )
+    assert only_living.memory.backend == "livingmemory"
+    assert PhoneConfig.from_mapping({}).memory.backend == "local"
+
+
+def test_legacy_memory_backend_is_derived_when_switches_absent():
+    companion = PhoneConfig.from_mapping({"memory": {"backend": "companion"}})
+    assert companion.memory.companion_enabled is True
+    assert companion.memory.livingmemory_enabled is False
+    both = PhoneConfig.from_mapping(
+        {"memory": {"backend": "companion+livingmemory"}}
+    )
+    assert both.memory.companion_enabled is True
+    assert both.memory.livingmemory_enabled is True
+    legacy_both = PhoneConfig.from_mapping({"memory": {"backend": "both"}})
+    assert legacy_both.memory.backend == "companion+livingmemory"
+    # 新开关优先于旧 backend（迁移后 backend 固定为 local）。
+    migrated = PhoneConfig.from_mapping(
+        {
+            "memory": {
+                "backend": "local",
+                "companion_enabled": True,
+                "livingmemory_enabled": False,
+            }
+        }
+    )
+    assert migrated.memory.backend == "companion"
+
+
+def test_memory_config_migration_sets_switches_once():
+    from core.config import migrate_memory_config
+
+    raw = {"memory": {"backend": "companion+livingmemory"}}
+    assert migrate_memory_config(raw) is True
+    assert raw["memory"]["companion_enabled"] is True
+    assert raw["memory"]["livingmemory_enabled"] is True
+    assert raw["memory"]["backend"] == "local"
+    # 已迁移/新配置不再修改。
+    assert migrate_memory_config(raw) is False
+    assert migrate_memory_config({"memory": {"backend": "local"}}) is False
+    assert migrate_memory_config({"memory": {"backend": "local", "companion_enabled": True}}) is False
+
+
+def test_conf_schema_memory_and_wireguard_conditions():
+    """未开启对应开关时隐藏记忆/WireGuard 子配置项。"""
+    import json
+    from pathlib import Path
+
+    schema = json.loads(
+        (Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    memory_items = schema["memory"]["items"]
+    assert memory_items["backend"]["invisible"] is True
+    assert memory_items["companion_user_id"]["condition"] == {
+        "companion_enabled": True
+    }
+    assert memory_items["bot_action_enabled"]["condition"] == {
+        "companion_enabled": True
+    }
+    wg_items = schema["wireguard"]["items"]
+    for key, item in wg_items.items():
+        if key == "enabled":
+            assert "condition" not in item
+            continue
+        assert item.get("condition", {}).get("enabled") is True, key
+    assert wg_items["server_endpoint"]["condition"] == {
+        "enabled": True,
+        "mode": "client",
+    }
+    assert wg_items["listen_port"]["condition"] == {
+        "enabled": True,
+        "mode": "server",
+    }
+
+
+def test_conf_schema_group_order_is_intentional():
+    import json
+    from pathlib import Path
+
+    schema = json.loads(
+        (Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    groups = list(schema)
+    assert groups[:4] == ["adb", "security", "browse", "auto"]
+    assert groups.index("memory") < groups.index("recall") < groups.index("prompt")
+    assert groups.index("wireguard") > groups.index("perception")
+    assert groups[-1] == "debug"
+    # 聊天语义找回未开启时隐藏其余配置项。
+    recall_items = schema["recall"]["items"]
+    for key, item in recall_items.items():
+        if key == "enabled":
+            assert "condition" not in item
+        else:
+            assert item.get("condition") == {"enabled": True}, key
