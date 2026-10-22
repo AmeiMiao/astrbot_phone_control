@@ -368,9 +368,10 @@ class PhoneAppMemoryTool(_PhoneToolBase):
     name: str = "phone_app_memory"
     description: str = (
         "查询某个 App 的使用经验（布局、按钮位置、进入某页面的入口与操作步骤）。"
-        "操作不熟悉的 App、或准备完成点赞/评论/发帖/发布等固定入口任务前先调用本工具，"
-        "按记住的经验操作；页面与经验不符说明 App 已改版，先重新探索再用 "
-        "phone_app_remember 更新。page 可选（如 首页/发布/评论区），留空返回该 App 全部经验。"
+        "打开 App 与读取屏幕后插件会自动按当前 App/页面召回经验；本工具用于主动按"
+        "页面/任务查询更多经验。页面与经验不符说明 App 已改版，先重新探索再用 "
+        "phone_app_remember 更新。page 可选（如 首页/发布/评论区），有向量模型时按语义匹配，"
+        "否则按页面关键词与更新时间返回。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
@@ -407,7 +408,7 @@ class PhoneAppMemoryTool(_PhoneToolBase):
         if store is None:
             return "error: App 记忆未启用"
         try:
-            entries = await self.service.experiences.lookup(app, page=page, limit=limit)
+            entries = await self.service.experiences.recall(app, page=page, limit=limit)
         except Exception as exc:  # noqa: BLE001 - 记忆读取失败给可读错误
             return _error(exc)
         if not entries:
@@ -419,8 +420,9 @@ class PhoneAppMemoryTool(_PhoneToolBase):
         for entry in entries:
             page_text = entry.page or "通用"
             when = time.strftime("%m-%d %H:%M", time.localtime(float(entry.updated_at or 0)))
+            stale = "（可能已失效，请以当前屏幕重新确认）" if entry.stale else ""
             lines.append(
-                f"- [{page_text}]（{when}，用过 {entry.hits} 次）：{entry.note}"
+                f"- [{page_text}]（{when}，用过 {entry.hits} 次{stale}）：{entry.note}"
             )
             if entry.steps:
                 lines.append("  步骤：" + (" → ".join(entry.steps)))
@@ -438,8 +440,8 @@ class PhoneAppRememberTool(_PhoneToolBase):
     name: str = "phone_app_remember"
     description: str = (
         "记住一个 App 的布局与使用方式，供以后复用：note 写关键布局/入口/按钮位置，"
-        "steps 写操作步骤（可省略）。同一 App + page 再次记录会覆盖更新为更高版本；"
-        "App 改版导致旧经验失效时，重新探索后用本工具覆盖记录即可。"
+        "steps 写操作步骤（可省略）。同一 App + page 再次记录会覆盖更新为更高版本，"
+        "并清除可能失效标记；App 改版或操作失败后，重新探索并用本工具覆盖记录即可。"
     )
     parameters: dict = Field(
         default_factory=lambda: {

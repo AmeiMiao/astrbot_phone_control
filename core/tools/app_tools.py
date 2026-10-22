@@ -54,22 +54,8 @@ class PhoneOpenAppTool(_PhoneToolBase):
         text = (
             f"{opened}\n"
             "建议先 phone_check_inbox 浏览新消息（消息/回复我的/私信/通知），"
-            "再决定接下来做什么"
+            "再决定接下来做什么。"
         )
-        memory = ""
-        store = getattr(self.service, "app_memory", None)
-        if store is not None:
-            try:
-                memory = await self.service.experiences.render_app(app, limit=2, max_chars=500)
-            except Exception:  # noqa: BLE001 - 经验读取失败不影响打开 App
-                memory = ""
-        if memory:
-            text += (
-                "\n按下面记住的经验操作；界面与经验不符说明 App 已改版，先重新探索，"
-                "再用 phone_app_remember 更新记忆：\n" + memory
-            )
-        else:
-            text += "\n暂无这个 App 的使用经验；熟悉界面后可用 phone_app_remember 记录布局/入口/步骤。"
         return _ok(text)
 
 

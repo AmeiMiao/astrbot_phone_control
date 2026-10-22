@@ -90,6 +90,12 @@ class AppMemoryEntry:
     """被查询命中并注入提示词的次数。"""
     version: int = 1
     """覆盖更新版本号；同一 (app, page) 每次覆盖 +1。"""
+    failures: int = 0
+    """连续操作失败次数（召回后相关操作报错累加）。"""
+    last_failure_at: float = 0.0
+    """最后一次操作失败时间戳（秒）。"""
+    stale_at: float = 0.0
+    """被判定为可能失效的时间戳；0 表示有效。"""
 
     def as_dict(self) -> dict[str, Any]:
         """转为可直接 JSON 序列化的字典。"""
@@ -102,7 +108,15 @@ class AppMemoryEntry:
             "updated_at": self.updated_at,
             "hits": self.hits,
             "version": self.version,
+            "failures": self.failures,
+            "last_failure_at": self.last_failure_at,
+            "stale_at": self.stale_at,
         }
+
+    @property
+    def stale(self) -> bool:
+        """经验是否已被标记为可能失效。"""
+        return self.stale_at > 0
 
 
 def _coerce_float(value: Any, default: float = 0.0) -> float:
@@ -250,6 +264,9 @@ def _entry_from_dict(raw: Any) -> AppMemoryEntry | None:
         updated_at=_coerce_float(raw.get("updated_at")),
         hits=max(0, _coerce_int(raw.get("hits"))),
         version=max(1, _coerce_int(raw.get("version"), 1)),
+        failures=max(0, _coerce_int(raw.get("failures"))),
+        last_failure_at=_coerce_float(raw.get("last_failure_at")),
+        stale_at=_coerce_float(raw.get("stale_at")),
     )
 
 
@@ -404,6 +421,9 @@ class AppMemoryStore:
                     steps=step_items,
                     updated_at=when,
                     version=previous.version + 1,
+                    failures=0,
+                    last_failure_at=0.0,
+                    stale_at=0.0,
                 )
                 self._entries[index] = entry
             self._save_locked()
@@ -492,7 +512,8 @@ class AppMemoryStore:
             scene = f"（{entry.page}）" if entry.page else "（通用）"
             note = _clip(entry.note, RENDER_NOTE_CHARS)
             when = _format_time(entry.updated_at)
-            lines.append(f"- {scene}（{when}，已用 {entry.hits} 次）{note}")
+            stale = "，可能已失效需重新确认" if entry.stale else ""
+            lines.append(f"- {scene}（{when}，已用 {entry.hits} 次{stale}）{note}")
             if entry.steps:
                 steps = "；".join(
                     _clip(step, RENDER_STEP_CHARS) for step in entry.steps
@@ -540,7 +561,8 @@ class AppMemoryStore:
                 label = entry.label or entry.app
                 scene = f"（{entry.page}）" if entry.page else ""
                 note = _clip(entry.note, PROMPT_NOTE_CHARS)
-                line = f"- {label}{scene}：{note}"
+                stale = "（可能已失效）" if entry.stale else ""
+                line = f"- {label}{scene}{stale}：{note}"
                 if entry.steps:
                     shown = " → ".join(
                         _clip(step, PROMPT_STEP_CHARS)
@@ -553,6 +575,65 @@ class AppMemoryStore:
         return _truncate("\n".join(lines), max_chars)
 
     # ---- 维护 ---------------------------------------------------------
+
+    def mark_failed(
+        self,
+        app: Any,
+        pages: Any = None,
+        *,
+        ts: Any = None,
+        threshold: int = 2,
+    ) -> list[AppMemoryEntry]:
+        """记录一次操作失败：相关经验累计失败次数，达到阈值标记为可能失效。
+
+        Args:
+            app: App 名称（中文名/别名/包名均可）。
+            pages: 指定页面列表（召回时命中的页面）；``None`` 表示该 App 全部经验。
+            ts: 失败时间戳，缺省当前时间。
+            threshold: 累计失败多少次后标记失效（默认 2，最小 1）。
+
+        Returns:
+            本次被更新的经验条目；App 无法解析或无匹配条目时返回空列表。
+        """
+        resolved = _normalize_app(app)
+        if resolved is None:
+            return []
+        key = resolved[0]
+        page_filter: set[str] | None = None
+        if pages is not None:
+            if isinstance(pages, str):
+                pages = [pages]
+            page_filter = {_normalize_page(page) for page in pages}
+        try:
+            when = float(ts) if ts is not None else time.time()
+        except (TypeError, ValueError):
+            when = time.time()
+        try:
+            limit = max(1, int(threshold))
+        except (TypeError, ValueError):
+            limit = 1
+        with self._lock:
+            updated: list[AppMemoryEntry] = []
+            for index, entry in enumerate(self._entries):
+                if entry.app != key:
+                    continue
+                if page_filter is not None and entry.page not in page_filter:
+                    continue
+                failures = entry.failures + 1
+                stale_at = entry.stale_at
+                if failures >= limit and not stale_at:
+                    stale_at = when
+                replacement = replace(
+                    entry,
+                    failures=failures,
+                    last_failure_at=when,
+                    stale_at=stale_at,
+                )
+                self._entries[index] = replacement
+                updated.append(replacement)
+            if updated:
+                self._save_locked()
+            return updated
 
     def forget(self, app: Any, *, page: Any = None) -> int:
         """删除某个 App 的使用经验。
@@ -597,6 +678,7 @@ class AppMemoryStore:
         return {
             "entries": len(items),
             "apps": len({entry.app for entry in items}),
+            "stale": len([entry for entry in items if entry.stale]),
             "max_entries": self.max_entries,
             "path": str(self.path),
         }

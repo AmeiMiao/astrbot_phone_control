@@ -350,6 +350,9 @@ def test_entry_as_dict_and_frozen(tmp_path):
         "updated_at",
         "hits",
         "version",
+        "failures",
+        "last_failure_at",
+        "stale_at",
     }
     assert data["steps"] == ["第一步"]
     assert data["app"] == "com.ss.android.ugc.aweme"
@@ -364,6 +367,7 @@ def test_stats_and_defaults(tmp_path):
     assert store.stats() == {
         "entries": 0,
         "apps": 0,
+        "stale": 0,
         "max_entries": DEFAULT_MAX_ENTRIES,
         "path": str(tmp_path / MEMORY_FILENAME),
     }
@@ -444,3 +448,37 @@ def test_threaded_remembers_are_consistent(tmp_path):
 
     assert len(store.entries()) == 20
     assert len(_read_payload(tmp_path)["entries"]) == 20
+
+
+def test_mark_failed_accumulates_and_marks_stale(tmp_path):
+    """操作失败累计到阈值后标记可能失效；重新记住同页面后清除标记。"""
+    store = AppMemoryStore(tmp_path)
+    store.remember(app="抖音", page="发布", note="右下角 + 号进入发布页", ts=1.0)
+    store.remember(app="抖音", page="首页", note="顶部搜索入口", ts=2.0)
+
+    updated = store.mark_failed("抖音", ["发布"], ts=10.0, threshold=2)
+    assert [e.page for e in updated] == ["发布"]
+    assert updated[0].failures == 1
+    assert updated[0].stale is False
+
+    updated = store.mark_failed("抖音", ["发布"], ts=20.0, threshold=2)
+    assert updated[0].failures == 2
+    assert updated[0].stale is True
+    assert updated[0].stale_at == 20.0
+
+    # 未命中的页面不受影响
+    home = next(e for e in store.entries() if e.page == "首页")
+    assert home.failures == 0 and home.stale is False
+    # 渲染提示可能失效
+    assert "可能已失效" in store.render_app("抖音")
+    # 重新记录同页面经验：版本 +1 且清除失效标记
+    refreshed = store.remember(app="抖音", page="发布", note="改为底部 + 号", ts=30.0)
+    assert refreshed.version == 2
+    assert refreshed.failures == 0 and refreshed.stale is False
+    assert "可能已失效" not in store.render_app("抖音")
+
+
+def test_mark_failed_unknown_app_returns_empty(tmp_path):
+    store = AppMemoryStore(tmp_path)
+    assert store.mark_failed("", ["发布"]) == []
+    assert store.mark_failed("不存在", ["发布"]) == []

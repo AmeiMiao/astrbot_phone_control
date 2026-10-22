@@ -19,6 +19,31 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 from ..device_gate import ExecutionCancelled, GateError
 from ..config import UNCONFIGURED_MESSAGE, PhoneConfig
 from ..errors import AdbNotConfiguredError, PhoneControlError
+from ..apps import app_label_for_package
+
+# 操作前自动召回 App 经验的工具：这些工具会读取/切换页面，召回结果随结果返回。
+_APP_RECALL_TOOLS = frozenset(
+    {"phone_open_app", "phone_screen", "phone_read_screen", "phone_check_inbox", "phone_content"}
+)
+# 失败会触发经验失效标记的工具（当前页面上的具体操作/导航）。
+_APP_RECALL_FAILURE_TOOLS = frozenset(
+    {
+        "phone_tap",
+        "phone_long_press",
+        "phone_swipe",
+        "phone_input_text",
+        "phone_key",
+        "phone_open_app",
+        "phone_check_inbox",
+        "phone_content",
+    }
+)
+_APP_RECALL_STATE_KEY = "phone_app_recall_state"
+_APP_RECALL_STALE_HINT = (
+    "\n\n【App 经验更新】刚才召回的经验可能已失效（已记为可疑）："
+    "请先以当前屏幕重新探索正确入口，成功后用 phone_app_remember 覆盖更新该 App/页面经验，"
+    "不要继续按旧步骤重试。"
+)
 
 
 def _as_int(value: Any, default: int) -> int:
@@ -155,6 +180,18 @@ def _ok(payload: str) -> str:
     return payload if payload else "ok"
 
 
+def _append_text(result: Any, text: str) -> Any:
+    """在工具结果末尾追加文本（兼容字符串与 MCP CallToolResult）。"""
+    if not text:
+        return result
+    if isinstance(result, str):
+        return result + text
+    if isinstance(result, mcp.types.CallToolResult):
+        result.content.append(mcp.types.TextContent(type="text", text=text))
+        return result
+    return result
+
+
 def _image_result(text: str, data: bytes | None, mime: str) -> ToolExecResult:
     """组装「文本 + 可选图片」工具结果；图片 MIME 以服务层返回为准。"""
     text = _ok(text)
@@ -277,6 +314,132 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
         """新鲜的「已看腻」提示文本。"""
         return _novelty_bored_note(match)
 
+    # ---- 操作前 App 经验召回 / 失败更新 ------------------------------
+
+    def _app_recall_state(self, event: Any) -> dict[str, Any]:
+        """当前 Agent run 内的经验召回状态（页面去重与失效标记用）。"""
+        try:
+            state = event.get_extra(_APP_RECALL_STATE_KEY)
+        except Exception:  # noqa: BLE001 - 鸭子类型事件
+            state = None
+        if not isinstance(state, dict):
+            state = {"pages": [], "entries": []}
+        return state
+
+    def _save_app_recall_state(self, event: Any, state: dict[str, Any]) -> None:
+        try:
+            event.set_extra(_APP_RECALL_STATE_KEY, state)
+        except Exception:  # noqa: BLE001 - 事件不支持 extra 时忽略
+            pass
+
+    async def _current_app_page(
+        self, event: Any
+    ) -> tuple[str, str, str]:
+        """返回当前前台 ``(package, activity, 屏幕文本摘要)``；取不到时为空串。"""
+        service = self.service
+        try:
+            snapshot = service._cached_ui_snapshot()
+        except Exception:  # noqa: BLE001 - 缓存读取失败按无快照处理
+            snapshot = None
+        if snapshot is not None and snapshot.package:
+            texts: list[str] = []
+            for node in snapshot.nodes[:40]:
+                text = node.text or node.desc
+                if text:
+                    texts.append(str(text))
+            return snapshot.package, snapshot.activity, " ".join(texts)[:400]
+        if self.name == "phone_open_app":
+            try:
+                package, activity = await service.actions.foreground()
+            except Exception:  # noqa: BLE001 - 前台查询失败时跳过召回
+                return "", "", ""
+            return str(package or ""), str(activity or ""), ""
+        return "", "", ""
+
+    async def _pre_operation_recall(self, event: Any) -> str:
+        """操作前按当前 App/页面召回经验；同一页面的重复工具调用只召回一次。"""
+        if self.name not in _APP_RECALL_TOOLS or event is None:
+            return ""
+        try:
+            prompt = self.service.config.prompt
+        except Exception:  # noqa: BLE001 - 配置读取失败时跳过召回
+            return ""
+        if not prompt.app_memory_enabled or prompt.app_memory_limit <= 0:
+            return ""
+        reader = getattr(self.service, "app_recall_reader", None)
+        if reader is None:
+            return ""
+        package, activity, context = await self._current_app_page(event)
+        if not package:
+            return ""
+        state = self._app_recall_state(event)
+        page_key = f"{package}|{activity}" if activity else package
+        if page_key in state["pages"]:
+            return ""
+        label = app_label_for_package(package) or package
+        try:
+            entries = await asyncio.wait_for(
+                reader.select(
+                    app_key=package,
+                    label=label,
+                    page_hint=activity,
+                    context=context,
+                    limit=min(3, max(1, int(prompt.app_memory_limit))),
+                ),
+                timeout=4.0,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 召回失败不影响工具结果
+            logger.debug("操作前 App 经验召回失败：%s", exc)
+            entries = []
+        state["pages"] = (list(state["pages"]) + [page_key])[-20:]
+        if not entries:
+            self._save_app_recall_state(event, state)
+            return ""
+        from ..app_recall import render_entries
+
+        known = {(item["app"], item["page"]) for item in state["entries"]}
+        state["entries"] = (
+            list(state["entries"])
+            + [
+                {"app": entry.app, "page": entry.page}
+                for entry in entries
+                if (entry.app, entry.page) not in known
+            ]
+        )[-20:]
+        self._save_app_recall_state(event, state)
+        return render_entries(entries, limit=3, max_chars=600)
+
+    def _mark_recall_failed(self, event: Any) -> str:
+        """操作失败后把本轮召回过的经验累计失效；返回给模型的更新提示。"""
+        if event is None:
+            return ""
+        state = self._app_recall_state(event)
+        entries = state.get("entries") or []
+        if not entries:
+            return ""
+        by_app: dict[str, list[str]] = {}
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            app = str(item.get("app") or "").strip()
+            if not app:
+                continue
+            by_app.setdefault(app, []).append(str(item.get("page") or ""))
+        marked = False
+        for app, pages in by_app.items():
+            try:
+                updated = self.service.experiences.mark_failed(app, pages)
+            except Exception:  # noqa: BLE001 - 标记失败不影响工具结果
+                updated = []
+            if updated:
+                marked = True
+        # 本轮已命中的经验不再重复标记；后续失败重新召回后再累计。
+        state["entries"] = []
+        self._save_app_recall_state(event, state)
+        return _APP_RECALL_STALE_HINT if marked else ""
+
 
 class _PermissionDenied(Exception):
     """内部信号：权限门禁拒绝（由 :func:`_wrap_call` 转成文本）。"""
@@ -337,13 +500,37 @@ def _wrap_call(handler):
                     gate.release_event(event)
                 except Exception:  # noqa: BLE001 - 释放失败由 stale 回收兜底
                     pass
+        result_text = _result_text(result)
         if event is not None and hasattr(self.service, "experiences"):
             try:
-                self.service.experiences.observe(event, self.name, kwargs, _result_text(result))
+                self.service.experiences.observe(event, self.name, kwargs, result_text)
                 if self.name in {"phone_screen", "phone_read_screen"} and hasattr(self.service, "_contents"):
-                    self.service.contents.observe(event, _result_text(result))
+                    self.service.contents.observe(event, result_text)
             except Exception as exc:
                 logger.warning("收集操作经验证据失败：%s", exc)
+            # 操作失败：累计本轮召回经验的失败次数，连续失败标记可能失效。
+            if (
+                self.name in _APP_RECALL_FAILURE_TOOLS
+                and result_text.startswith("error:")
+            ):
+                hint = ""
+                try:
+                    hint = self._mark_recall_failed(event)
+                except Exception as exc:  # noqa: BLE001 - 失效标记失败不影响结果
+                    logger.debug("App 经验失效标记失败：%s", exc)
+                if hint:
+                    result = _append_text(result, hint)
+            # 操作前召回：屏幕/切换 App 类工具返回当前 App/页面相关经验。
+            elif self.name in _APP_RECALL_TOOLS and not result_text.startswith(
+                ("error:", "已中止")
+            ):
+                try:
+                    recall = await self._pre_operation_recall(event)
+                except Exception as exc:  # noqa: BLE001 - 召回失败不影响工具结果
+                    logger.debug("操作前 App 经验召回失败：%s", exc)
+                    recall = ""
+                if recall:
+                    result = _append_text(result, "\n\n" + recall)
         # 额度接近上限时在结果尾部追加软告警（不改变工具结果本身）
         try:
             warning = self.service.quota_warning_text()

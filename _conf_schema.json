@@ -728,7 +728,7 @@
         "type": "bool",
         "default": true,
         "description": "开启 App 使用经验记录",
-        "hint": "记录、查询与注入 App 布局及操作经验；经验只保存在插件本地，不需要选择存储位置。"
+        "hint": "记录、查询与注入 App 布局及操作经验；经验只保存在插件本地。打开 App 与读取屏幕后会自动按当前 App/页面召回相关经验；操作失败累计两次后标记可能失效，提示重新探索并覆盖更新。"
       },
       "app_memory_embedding_provider_id": {
         "type": "string",
@@ -737,7 +737,7 @@
           "app_memory_enabled": true
         },
         "description": "App 经验向量模型（Embedding Provider ID）",
-        "hint": "用于操作前按当前 App/页面语义召回经验；留空自动使用 AstrBot 已配置的默认 Embedding Provider。未配置向量模型时按页面关键词与更新时间查找经验，不影响记录与操作。"
+        "hint": "用于操作前按当前 App/页面语义召回经验；留空自动使用 AstrBot 已配置的默认 Embedding Provider。未配置向量模型时按页面关键词与更新时间查找经验，不影响记录与操作。索引目录与聊天语义找回分开，互不共用。"
       },
       "app_memory_limit": {
         "type": "int",

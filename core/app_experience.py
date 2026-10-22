@@ -57,6 +57,53 @@ class AppExperience:
         self.require_enabled()
         return self.service.app_memory.lookup(app, page=page, limit=limit)
 
+    async def recall(
+        self,
+        app,
+        *,
+        page: str = "",
+        context: str = "",
+        label: str = "",
+        limit: int = 3,
+    ):
+        """按当前 App/页面召回相关经验（语义索引优先，档案查找兜底）。"""
+        if not self.settings.app_memory_enabled:
+            raise AppMemoryError("App 使用经验记录未开启")
+        reader = getattr(self.service, "app_recall_reader", None)
+        if reader is None:
+            return self.service.app_memory.lookup(app, page=page, limit=limit)
+        resolved = _normalize_app(app, label)
+        if resolved is None:
+            return []
+        key, display = resolved
+        try:
+            entries = await reader.select(
+                app_key=key,
+                label=label or display,
+                page_hint=page,
+                context=context,
+                limit=limit,
+            )
+        except Exception as exc:  # noqa: BLE001 - 召回失败回退档案查找
+            from astrbot.api import logger
+
+            logger.debug("App 经验召回失败，回退档案查找：%s", exc)
+            return self.service.app_memory.lookup(app, page=page, limit=limit)
+        if entries:
+            return entries
+        return self.service.app_memory.lookup(app, page=page, limit=limit)
+
+    def mark_failed(self, app, pages=None, *, threshold=2):
+        """记录相关经验的连续失败并标记可能失效（覆盖成功后自动清除）。"""
+        if not pages:
+            return []
+        try:
+            return self.service.app_memory.mark_failed(
+                app, pages, threshold=threshold
+            )
+        except Exception:  # noqa: BLE001 - 失效标记失败不影响主流程
+            return []
+
     async def render_app(self, app, *, limit=2, max_chars=500):
         if not self.settings.app_memory_enabled:
             return ""

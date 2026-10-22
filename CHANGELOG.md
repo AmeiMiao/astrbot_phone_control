@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.1.4.9] - 2026-10-22
+
+### Added
+
+- App 经验操作前召回：`phone_open_app`、`phone_screen`、`phone_read_screen`、`phone_check_inbox`、`phone_content` 返回结果后自动按「当前包名 + 前台 Activity + 屏幕文本」召回相关经验（同一轮同一页面只召回一次）；`phone_app_memory` 也改为语义优先、档案兜底查询。
+- App 经验失效更新：经验条目新增 `failures` / `last_failure_at` / `stale_at` 字段；本轮召回经验在相关操作报错时累计失败，连续 2 次标记「可能已失效」并提示重新探索覆盖；重新 `phone_app_remember` 同 App/页面后版本 +1 并清除失效标记。
+
+### Changed
+
+- App 经验渲染与提示词注入对「可能已失效」的经验加标注，引导模型以当前屏幕为准。
+- 打开 App 后的经验提示改由统一的操作前召回路径提供，减少重复注入。
+
 ## [0.1.4.8] - 2026-10-22
 
 ### Changed

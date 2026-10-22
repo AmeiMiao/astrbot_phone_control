@@ -222,6 +222,10 @@ def test_build_query_and_render_entries_limits():
                 "updated_at": 1_760_000_000.0,
                 "hits": 1,
                 "version": 1,
+                "failures": 0,
+                "last_failure_at": 0.0,
+                "stale_at": 0.0,
+                "stale": False,
             },
         )()
     ]

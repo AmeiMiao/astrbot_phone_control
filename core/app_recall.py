@@ -127,8 +127,9 @@ def render_entries(
     for entry in entries[:count]:
         scene = entry.page or "通用"
         when = _format_time(entry.updated_at)
+        stale = "（可能已失效，请以当前屏幕重新确认）" if entry.stale else ""
         line = (
-            f"- [{scene}]（{when}）"
+            f"- [{scene}]（{when}）{stale}"
             f"{_clip(entry.note, RENDER_NOTE_CHARS)}"
         )
         if entry.steps:
@@ -190,7 +191,7 @@ class AppRecallReader:
         self._entry_provider = entry_provider
         self._cache: tuple[tuple[int, int, int], SemanticSnapshot] | None = None
 
-    async def render(
+    async def select(
         self,
         *,
         app_key: str,
@@ -198,21 +199,20 @@ class AppRecallReader:
         page_hint: str = "",
         context: str = "",
         limit: int = DEFAULT_RECALL_LIMIT,
-        max_chars: int = DEFAULT_RECALL_MAX_CHARS,
-    ) -> str:
-        """返回当前 App/页面相关经验文本；未启用或无经验时返回空串。"""
+    ) -> list[AppMemoryEntry]:
+        """按当前 App/页面返回相关经验条目（语义优先、档案兜底）。"""
         key = str(app_key or "").strip().lower()
         if not key:
-            return ""
+            return []
         try:
             config = self._config_getter()
         except Exception:  # noqa: BLE001 - 配置读取失败不影响操作
-            return ""
+            return []
         if not bool(getattr(config, "app_memory_enabled", False)):
-            return ""
+            return []
         entries = self._app_entries(key)
         if not entries:
-            return ""
+            return []
         ordered: list[AppMemoryEntry] = []
         try:
             ordered = await asyncio.wait_for(
@@ -236,7 +236,33 @@ class AppRecallReader:
             ordered = []
         if not ordered:
             ordered = _rank_entries(entries, page_hint=page_hint, context=context)
-        return render_entries(ordered, limit=limit, max_chars=max_chars)
+        try:
+            count = max(0, int(limit))
+        except (TypeError, ValueError):
+            count = DEFAULT_RECALL_LIMIT
+        return ordered[:count] if count else []
+
+    async def render(
+        self,
+        *,
+        app_key: str,
+        label: str = "",
+        page_hint: str = "",
+        context: str = "",
+        limit: int = DEFAULT_RECALL_LIMIT,
+        max_chars: int = DEFAULT_RECALL_MAX_CHARS,
+    ) -> str:
+        """返回当前 App/页面相关经验文本；未启用或无经验时返回空串。"""
+        entries = await self.select(
+            app_key=app_key,
+            label=label,
+            page_hint=page_hint,
+            context=context,
+            limit=limit,
+        )
+        if not entries:
+            return ""
+        return render_entries(entries, limit=limit, max_chars=max_chars)
 
     def _app_entries(self, app_key: str) -> list[AppMemoryEntry]:
         try:
