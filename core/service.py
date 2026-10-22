@@ -428,6 +428,17 @@ class PhoneService:
         self._installed_cache = (time.monotonic(), packages)
         return list(packages)
 
+    async def random_browse_app(self) -> tuple[str, str]:
+        """随机选择一个已安装第三方 App（用于默认浏览 App 留空）。"""
+        packages = await self.installed_packages()
+        package = pick_random_app(packages)
+        if not package:
+            raise AppNotInstalledError(
+                "没有读到已安装的第三方 App，无法随机选择；可先 phone_list_apps "
+                "查看或直接指定 App 名称/包名"
+            )
+        return package, app_label_for_package(package) or package
+
     def _log(self, message: str) -> None:
         if callable(self._device_log):
             try:

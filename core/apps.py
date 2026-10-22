@@ -26,6 +26,8 @@ Activity、登录页跳过与 dump 适配参数。插件不局限于预置画像
 
 from __future__ import annotations
 
+import random
+
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
@@ -350,6 +352,20 @@ def _looks_like_package(text: str) -> bool:
 def app_label_for_package(package: str) -> str:
     """查询包名的可读中文名；未收录时返回空串。"""
     return KNOWN_APP_LABELS.get(str(package or "").strip(), "")
+
+
+def pick_random_app(
+    packages: list[str] | tuple[str, ...] | None,
+    *,
+    rng: random.Random | None = None,
+) -> str:
+    """从已安装包名中随机选一个；空列表返回空串。"""
+    items = [str(item or "").strip() for item in (packages or ())]
+    items = [item for item in items if item]
+    if not items:
+        return ""
+    generator = rng or random
+    return generator.choice(items)
 
 
 def parse_package_list(output: str) -> list[str]:

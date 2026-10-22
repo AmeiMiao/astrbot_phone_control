@@ -37,7 +37,7 @@ def test_save_original_to_phone_checks_hash_and_deduplicates(tmp_path):
         service = SimpleNamespace(
             config=PhoneConfig.from_mapping(
                 {
-                    "browse": {
+                    "image": {
                         "auto_save_images": True,
                         "image_storage_location": "phone",
                     }
@@ -112,7 +112,7 @@ def test_server_library_survives_task_cleanup_and_can_transfer_later(tmp_path):
             return ""
 
         s = SimpleNamespace(
-            config=PhoneConfig.from_mapping({"browse": {"auto_save_images": True}}),
+            config=PhoneConfig.from_mapping({"image": {"auto_save_images": True}}),
             data_dir=tmp_path,
             guard_device=lambda _: None,
             traffic=None,
@@ -162,7 +162,7 @@ def test_both_locations_and_catalog_preserve_partial_failure(tmp_path):
         s = SimpleNamespace(
             config=PhoneConfig.from_mapping(
                 {
-                    "browse": {
+                    "image": {
                         "auto_save_images": True,
                         "image_storage_location": "phone",
                         "save_images_both": True,
@@ -217,7 +217,7 @@ def test_storage_schema_hides_primary_location_when_both_enabled():
     from pathlib import Path
 
     schema = json.loads((Path(__file__).parents[1] / "_conf_schema.json").read_text())[
-        "browse"
+        "image"
     ]["items"]
     assert schema["image_storage_location"]["condition"] == {
         "auto_save_images": True,

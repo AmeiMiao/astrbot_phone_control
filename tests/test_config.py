@@ -28,8 +28,12 @@ def test_empty_mapping_returns_defaults():
     assert config.security.auto_clean_after_task is True
     assert config.perception.max_ui_nodes == 80
     assert config.perception.screen_source == "adb"
-    assert config.browse.default_app == "douyin"
+    assert config.browse.default_app == ""
     assert config.browse.default_items == 5
+    # 图片保存使用独立卡片，默认关闭/服务端存储。
+    assert config.image.auto_save_images is False
+    assert config.image.image_storage_location == "server"
+    assert config.image.save_images_both is False
     assert config.browse.max_items == 20
     # 浏览日志默认上限 500，清理时保护最近 3 轮任务。
     assert config.browse.diary_max_entries == 500
@@ -1544,7 +1548,7 @@ def test_conf_schema_group_order_is_intentional():
         )
     )
     groups = list(schema)
-    assert groups[:4] == ["adb", "security", "browse", "auto"]
+    assert groups[:5] == ["adb", "security", "browse", "image", "auto"]
     assert groups.index("memory") < groups.index("recall") < groups.index("prompt")
     assert groups.index("wireguard") > groups.index("perception")
     assert groups[-1] == "debug"
@@ -1555,3 +1559,74 @@ def test_conf_schema_group_order_is_intentional():
             assert "condition" not in item
         else:
             assert item.get("condition") == {"enabled": True}, key
+
+
+def test_browse_default_app_empty_means_random_and_schema_default():
+    """信息流浏览默认 App 留空表示随机；schema 默认值同步为空。"""
+    import json
+    from pathlib import Path as _Path
+
+    assert PhoneConfig.from_mapping({}).browse.default_app == ""
+    tuned = PhoneConfig.from_mapping({"browse": {"default_app": "bilibili"}})
+    assert tuned.browse.default_app == "bilibili"
+    schema = json.loads(
+        (_Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert schema["browse"]["items"]["default_app"]["default"] == ""
+    assert "留空=随机" in schema["browse"]["items"]["default_app"]["hint"]
+
+
+def test_image_config_is_independent_and_legacy_browse_values_migrate():
+    """图片保存使用独立 image 卡片；旧版 browse.* 非默认值迁移并清理旧键。"""
+    from core.config import ImageSettings, migrate_image_config
+
+    config = PhoneConfig.from_mapping({})
+    assert config.image == ImageSettings()
+    tuned = PhoneConfig.from_mapping(
+        {
+            "image": {
+                "auto_save_images": True,
+                "image_storage_location": "phone",
+                "save_images_both": True,
+            }
+        }
+    )
+    assert tuned.image.auto_save_images is True
+    assert tuned.image.image_storage_location == "phone"
+    assert tuned.image.save_images_both is True
+
+    # 未迁移时解析回退旧版 browse.* 值
+    legacy = PhoneConfig.from_mapping(
+        {"browse": {"auto_save_images": True, "image_storage_location": "phone"}}
+    )
+    assert legacy.image.auto_save_images is True
+    assert legacy.image.image_storage_location == "phone"
+
+    raw = {
+        "browse": {
+            "auto_save_images": True,
+            "image_storage_location": "phone",
+            "save_images_both": True,
+        },
+        "image": {
+            "auto_save_images": False,
+            "image_storage_location": "server",
+            "save_images_both": False,
+        },
+    }
+    assert migrate_image_config(raw) is True
+    assert raw["image"] == {
+        "auto_save_images": True,
+        "image_storage_location": "phone",
+        "save_images_both": True,
+    }
+    assert "auto_save_images" not in raw["browse"]
+    assert "image_storage_location" not in raw["browse"]
+    assert "save_images_both" not in raw["browse"]
+
+    # 已是新配置或旧值全为默认：不迁移
+    assert migrate_image_config({"browse": {}, "image": {"auto_save_images": True}}) is False
+    assert migrate_image_config({"browse": {"auto_save_images": False}}) is False
+    assert migrate_image_config({}) is False

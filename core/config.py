@@ -80,6 +80,8 @@ UNCONFIGURED_MESSAGE = (
 )
 DEFAULT_AUTO_CRON = "0 */2 * * *"
 DEFAULT_APP = "douyin"
+# 信息流浏览默认 App 留空 = 随机；定时自主浏览的默认 App 仍为 douyin。
+DEFAULT_BROWSE_APP = ""
 DEFAULT_ITEMS = 5
 DEFAULT_MAX_ITEMS = 20
 DEFAULT_SETTLE_SECONDS = 2.5
@@ -413,7 +415,7 @@ class MediaSettings:
 class BrowseSettings:
     """信息流浏览参数。"""
 
-    default_app: str = DEFAULT_APP
+    default_app: str = DEFAULT_BROWSE_APP
     default_items: int = DEFAULT_ITEMS
     max_items: int = DEFAULT_MAX_ITEMS
     swipe_duration_ms: int = 800
@@ -421,13 +423,22 @@ class BrowseSettings:
     collect_screenshots: bool = True
     send_screenshots_to_user: bool = False
     auto_remember: bool = True
-    auto_save_images: bool = False
-    image_storage_location: str = "server"
-    save_images_both: bool = False
     diary_max_entries: int = DEFAULT_DIARY_LIMIT
     """浏览日志最多保留条数；达到上限自动清理旧日志。"""
     diary_protect_rounds: int = DEFAULT_DIARY_KEEP_ROUNDS
     """清理时保护最近 N 轮任务的日志（0=不保护）。"""
+
+
+@dataclass(frozen=True)
+class ImageSettings:
+    """图片保存参数（独立配置卡片，不随信息流浏览开关显隐）。"""
+
+    auto_save_images: bool = False
+    """保存图片开关；关闭时 phone_save_image 不可用。"""
+    image_storage_location: str = "server"
+    """主要存储位置：server=AstrBot 服务端，phone=手机相册。"""
+    save_images_both: bool = False
+    """同时保存服务端与手机；开启时隐藏主要存储位置选择。"""
 
 
 @dataclass(frozen=True)
@@ -717,6 +728,51 @@ def migrate_memory_config(raw: Any) -> bool:
     return True
 
 
+def migrate_image_config(raw: Any) -> bool:
+    """把旧版 ``browse.auto_save_images`` 等图片保存配置迁移到独立 ``image`` 卡片。
+
+    仅在新字段仍为默认值、旧字段存在非默认值时迁移；迁移后删除旧字段，避免配置页
+    残留未声明键。返回是否修改了配置（供插件保存）。
+    """
+    if not isinstance(raw, dict):
+        return False
+    browse = raw.get("browse")
+    if not isinstance(browse, dict):
+        return False
+    legacy = {
+        "auto_save_images": browse.get("auto_save_images"),
+        "image_storage_location": browse.get("image_storage_location"),
+        "save_images_both": browse.get("save_images_both"),
+    }
+    default_legacy = {
+        "auto_save_images": False,
+        "image_storage_location": "server",
+        "save_images_both": False,
+    }
+    if all(
+        legacy[key] is None or legacy[key] == default_legacy[key]
+        for key in legacy
+    ):
+        return False
+    image = raw.get("image")
+    if not isinstance(image, dict):
+        image = {}
+    changed = False
+    for key, legacy_value in legacy.items():
+        if legacy_value is None or legacy_value == default_legacy[key]:
+            continue
+        if image.get(key) not in (None, default_legacy[key]):
+            continue
+        image[key] = legacy_value
+        changed = True
+    if changed:
+        raw["image"] = image
+        for key in legacy:
+            browse.pop(key, None)
+        return True
+    return False
+
+
 @dataclass(frozen=True)
 class PhoneConfig:
     """插件完整配置快照。"""
@@ -726,6 +782,7 @@ class PhoneConfig:
     perception: PerceptionSettings = field(default_factory=PerceptionSettings)
     media: MediaSettings = field(default_factory=MediaSettings)
     browse: BrowseSettings = field(default_factory=BrowseSettings)
+    image: ImageSettings = field(default_factory=ImageSettings)
     auto: AutoSettings = field(default_factory=AutoSettings)
     model: ModelSettings = field(default_factory=ModelSettings)
     quota: QuotaSettings = field(default_factory=QuotaSettings)
@@ -1157,7 +1214,7 @@ class PhoneConfig:
         browse = BrowseSettings(
             default_app=_as_str(
                 _pick(browse_card, source, "default_app"),
-                DEFAULT_APP,
+                DEFAULT_BROWSE_APP,
                 "browse.default_app",
                 warn_fn,
             ),
@@ -1197,9 +1254,6 @@ class PhoneConfig:
                 "browse.auto_remember",
                 warn_fn,
             ),
-            auto_save_images=_as_bool(_pick(browse_card, source, "auto_save_images"), False, "browse.auto_save_images", warn_fn),
-            image_storage_location=_as_choice(_pick(browse_card, source, "image_storage_location"), "server", "browse.image_storage_location", warn_fn, ("server", "phone")),
-            save_images_both=_as_bool(_pick(browse_card, source, "save_images_both"), False, "browse.save_images_both", warn_fn),
             diary_max_entries=_as_int(
                 _pick(browse_card, source, "diary_max_entries"),
                 DEFAULT_DIARY_LIMIT,
@@ -1215,6 +1269,31 @@ class PhoneConfig:
                 warn_fn,
                 minimum=0,
                 maximum=100,
+            ),
+        )
+
+        # 图片保存使用独立卡片；旧版 browse.* 值在未迁移时作为回退读取。
+        image_card = card("image")
+        legacy_image_card = browse_card if isinstance(browse_card, Mapping) else None
+        image = ImageSettings(
+            auto_save_images=_as_bool(
+                _pick(image_card, legacy_image_card or {}, "auto_save_images"),
+                False,
+                "image.auto_save_images",
+                warn_fn,
+            ),
+            image_storage_location=_as_choice(
+                _pick(image_card, legacy_image_card or {}, "image_storage_location"),
+                "server",
+                "image.image_storage_location",
+                warn_fn,
+                ("server", "phone"),
+            ),
+            save_images_both=_as_bool(
+                _pick(image_card, legacy_image_card or {}, "save_images_both"),
+                False,
+                "image.save_images_both",
+                warn_fn,
             ),
         )
 
@@ -1823,6 +1902,7 @@ class PhoneConfig:
             perception=perception,
             media=media,
             browse=browse,
+            image=image,
             auto=auto,
             quota=quota,
             memory=memory,

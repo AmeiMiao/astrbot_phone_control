@@ -293,13 +293,20 @@ class CommandsMixin:
         config: PhoneConfig,
         rest: list[str],
     ) -> None:
-        app = config.browse.default_app
+        app = config.browse.default_app.strip()
         items = config.browse.default_items
         args = list(rest)
         if args and not args[0].isdigit():
             app = args.pop(0)
         if args and args[0].isdigit():
             items = int(args.pop(0))
+        if not app:
+            try:
+                app, picked_label = await self.service.random_browse_app()
+            except PhoneControlError as exc:
+                await self._say(event, f"随机选择 App 失败：{exc}")
+                return
+            await self._say(event, f"未指定 App，随机选择 {picked_label}")
         try:
             _package, app_label_text = self.service.resolve_app_target(app)
         except PhoneControlError:

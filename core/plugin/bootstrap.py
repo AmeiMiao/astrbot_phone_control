@@ -45,7 +45,12 @@ from ..apps import (
 from ..backends import BackendManager
 from ..browse import BrowseSession
 from ..chat_memory import ChatMemory
-from ..config import UNCONFIGURED_MESSAGE, PhoneConfig, migrate_memory_config
+from ..config import (
+    UNCONFIGURED_MESSAGE,
+    PhoneConfig,
+    migrate_image_config,
+    migrate_memory_config,
+)
 from ..config_apply import ACTION_START, ACTION_STOP, build_apply_plan
 from ..diary import PhoneDiary
 from ..interactions import (
@@ -304,6 +309,15 @@ class BootstrapMixin:
                 bool(memory_raw.get("companion_enabled")),
                 bool(memory_raw.get("livingmemory_enabled")),
             )
+        # 旧版 browse.* 图片保存配置一次性迁移到独立 image 卡片。
+        if migrate_image_config(self.raw_config):
+            save = getattr(self.raw_config, "save_config", None)
+            if callable(save):
+                try:
+                    save()
+                except Exception as exc:  # noqa: BLE001 - 保存失败不影响插件加载
+                    logger.warning("迁移图片保存配置后保存失败：%s", exc)
+            logger.info("图片保存配置已迁移到独立卡片")
         initial = PhoneConfig.from_mapping(
             self.raw_config,
             warn=lambda message: logger.warning(message),

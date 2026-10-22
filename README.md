@@ -1,14 +1,12 @@
 # astrbot_phone_control_mirror
 
-原 GitHub 账号因 IP 异常被停用，项目暂由 [acat778](https://github.com/acat778) 维护。
-
-[![GitHub](https://img.shields.io/badge/GitHub-acat778%2Fastrbot__phone__control-181717.svg)](https://github.com/acat778/astrbot_phone_control)
+[![GitHub](https://img.shields.io/badge/GitHub-acat-fun%2Fastrbot__phone__control-181717.svg)](https://github.com/acat778/astrbot_phone_control)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
 > 浏览 App、理解内容、记录记忆，并按规则自主互动。
 
-当前版本：`0.1.4.10` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat778/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+当前版本：`0.1.4.11` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat778/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
 
 ---
 
@@ -44,7 +42,7 @@ AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖
   `/phone wg config` 输出服务器 Peer 片段 / 手机端完整配置，可选 `auto_adb` 把 ADB 目标切到
   WG 隧道。无 root Android 配合随包的 [Phone WG Relay](helper/android-relay/README.md)，
   使用 App UID 中转 ADB；支持环回 SOCKS5 TCP 代理访问 WG 目标。
-- **按兴趣存图**：`browse.auto_save_images` 默认关闭；开启后可把喜欢的图文原图与表情包保存到 AstrBot 服务端、手机或两地，按内容去重并记录信息与路径，后续可检索及传到手机。
+- **按兴趣存图**：独立「图片保存」卡片控制（`image.auto_save_images` 默认关闭）；开启后可把喜欢的图文原图与表情包保存到 AstrBot 服务端、手机或两地，按内容去重并记录信息与路径，后续可检索及传到手机。
 - **静默分享**：操作过程不输出逐步解说，分享前整理为简短介绍，分享成功后静默收尾；看/分享分开判断，同一目标会话有可配置冷却（默认 30 分钟）避免刷屏。
 - **配置页组织**：按连接、权限、浏览、自主任务、记忆、提示词、感知、组网等分组排序；未开启的
   关联项按条件隐藏（WireGuard 未开启只显示开关、未选中 MemoryCompanion 时不显示其专属项、
@@ -114,7 +112,8 @@ AI：返回设备连接、前台 App、电量与分辨率
 | --- | --- |
 | ADB 连接 | `host` / `port` 默认留空（未启用，假开启）；`path` 留空用插件自带 adb；`serial`/超时可调 |
 | 权限与安全 | 管理员/白名单/主人；浏览与任务结束清理；点赞收藏/评论/回复/发帖授权、设备 shell、后台保留策略 |
-| 信息流浏览 | 默认 App、条数、滑动节奏、截图与日记开关 |
+| 信息流浏览 | 默认 App（留空=随机）、条数、滑动节奏、截图与日记开关 |
+| 图片保存 | 保存图片开关、主要存储位置、两地都存（独立卡片） |
 | 自主浏览 / 随机玩 / 持续刷 | 定时任务、随机间隔与概率、持续刷间隔/预算/偏好 App、分享时段与目标会话分享冷却 |
 | 自主任务模型 | 自主任务专用 Provider（用户对话不受影响） |
 | 自主任务 Token 额度 | 滚动窗口额度与单轮预算（默认不限制） |

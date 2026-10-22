@@ -17,6 +17,7 @@ from core.apps import (
     app_label_for_package,
     format_preferred_apps,
     match_preferred_app,
+    pick_random_app,
     parse_package_list,
     resolve_app,
     resolve_package,
@@ -424,3 +425,27 @@ def test_preferred_app_match_is_frozen_and_hashable():
     assert hash(match) == hash(match_preferred_app("抖音"))
     with pytest.raises(FrozenInstanceError):
         match.label = "其他"  # type: ignore[misc]
+
+
+def test_pick_random_app_uses_injected_rng_and_handles_empty():
+    import random
+
+    class FakeRng:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+        def choice(self, items):
+            assert items
+            return self.value
+
+    assert pick_random_app(["com.a", "com.b"], rng=FakeRng("com.b")) == "com.b"
+    assert pick_random_app([], rng=FakeRng("x")) == ""
+    assert pick_random_app(None) == ""
+    assert pick_random_app(["  ", ""]) == ""
+    # 默认 rng 从列表中取值
+    random.seed(2026)
+    assert pick_random_app(["com.a", "com.b", "com.c"]) in {
+        "com.a",
+        "com.b",
+        "com.c",
+    }

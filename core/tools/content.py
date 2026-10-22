@@ -30,8 +30,8 @@ class PhoneBrowseTool(_PhoneToolBase):
     name: str = "phone_browse"
     description: str = (
         "便捷快速采样：自动浏览任意已安装 App 的信息流/内容列表，抽取若干条内容并记入"
-        "浏览日志。app 可传中文标签（如 微信、小红书）或 Android 包名；没有预置画像的 App "
-        "走通用文本抽取兜底。它是省事的采样工具，不是必经流程——更自主的浏览请直接用 "
+        "浏览日志。app 可传中文标签（如 微信、小红书）或 Android 包名；留空=从已安装第三方 "
+        "App 中随机选一个；没有预置画像的 App 走通用文本抽取兜底。它是省事的采样工具，不是必经流程——更自主的浏览请直接用 "
         "phone_screen 观察、再用 phone_swipe/phone_tap/phone_wait 自己决定看什么、停留多久、"
         "是否点开详情或评论。items 为采样条数；remember 为 true 时写入浏览记忆。"
         "完成后返回每条内容的标题/作者摘要。"
@@ -42,7 +42,8 @@ class PhoneBrowseTool(_PhoneToolBase):
             "properties": {
                 "app": {
                     "type": "string",
-                    "description": "App 名称（douyin/bilibili/xiaoheihe）或包名。",
+                    "description": "App 名称（douyin/bilibili/xiaoheihe）或包名；留空=从已安装第三方 App 中随机选。",
+                    "default": "",
                 },
                 "items": {
                     "type": "integer",
@@ -60,7 +61,6 @@ class PhoneBrowseTool(_PhoneToolBase):
                     "default": True,
                 },
             },
-            "required": ["app"],
         }
     )
 
@@ -68,11 +68,13 @@ class PhoneBrowseTool(_PhoneToolBase):
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         await self._guard(context)
         app = str(kwargs.get("app") or "").strip()
+        picked_note = ""
         if not app:
-            return (
-                "error: app 不能为空；可先调用 phone_list_apps 查看已安装 App，"
-                "或用中文名/包名指定"
-            )
+            try:
+                app, picked_label = await self.service.random_browse_app()
+            except PhoneControlError as exc:
+                return f"error: {exc}"
+            picked_note = f"未指定 App，随机选择 {picked_label}。\n"
         items = _as_int(kwargs.get("items"), self.service.config.browse.default_items)
         remember = bool(kwargs.get("remember", True))
         include_screenshot = bool(kwargs.get("include_screenshot", False))
@@ -83,6 +85,8 @@ class PhoneBrowseTool(_PhoneToolBase):
             remember=remember,
         )
         text = result.summary_text()
+        if picked_note:
+            text = picked_note + text
         # 新鲜感/厌倦感：PhoneService.browse 已按主题记录曝光并回传「已看腻」标签，
         # 这里只需把结果提示给模型，要求降低同类内容的打开/停留概率。
         bored_labels = list(getattr(result, "novelty_labels", []) or [])

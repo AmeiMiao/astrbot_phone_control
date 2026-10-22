@@ -179,9 +179,9 @@
     "items": {
       "default_app": {
         "type": "string",
-        "default": "douyin",
+        "default": "",
         "description": "默认浏览的 App",
-        "hint": "douyin / bilibili / xiaoheihe，也可填 Android 包名；默认 douyin。"
+        "hint": "填 douyin / bilibili / xiaoheihe 或 Android 包名；留空=随机（/phone browse 未指定 App 时从已安装第三方 App 中随机选一个）。"
       },
       "default_items": {
         "type": "int",
@@ -241,7 +241,14 @@
         "default": 3,
         "description": "清理保护最近任务轮次",
         "hint": "清理旧日志时保留最近多少轮任务的浏览日志（每轮 Agent 任务/一条 /phone browse 命令算一轮）；这些日志即使让总量超过上限也不会被清理；0=不保护，范围 0-100，默认 3。"
-      },
+      }
+    },
+    "hint": "浏览采样与浏览日志策略。"
+  },
+  "image": {
+    "type": "object",
+    "description": "图片保存",
+    "items": {
       "auto_save_images": {
         "description": "保存图片开关",
         "type": "bool",
@@ -272,7 +279,7 @@
         "hint": "开启后同时保存到 AstrBot 服务端和手机，隐藏主要存储位置。"
       }
     },
-    "hint": "浏览采样、日记与感兴趣图片的保存策略。"
+    "hint": "按兴趣保存图片的开关、存储位置与两地都存策略；与信息流浏览独立。"
   },
   "auto": {
     "type": "object",

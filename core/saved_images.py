@@ -201,8 +201,8 @@ class SavedImages:
             return data, image_suffix(data)
 
     async def send_to_phone(self, image_id):
-        if not self.service.config.browse.auto_save_images:
-            raise PhoneControlError("图片保存已关闭，请开启 browse.auto_save_images")
+        if not self.service.config.image.auto_save_images:
+            raise PhoneControlError("图片保存已关闭，请在「图片保存」卡片开启 auto_save_images")
         async with self.lock:
             records = self.load()
             record = records.get(str(image_id))
@@ -232,7 +232,7 @@ class SavedImages:
         data = path.read_bytes()
         suffix = image_suffix(data)
         digest = hashlib.sha256(data).hexdigest()
-        config = self.service.config.browse
+        config = self.service.config.image
         async with self.lock:
             records = self.load()
             record = records.get(digest) or {
@@ -309,8 +309,8 @@ async def save_content_image(
     kind="image",
     tags=(),
 ):
-    if not service.config.browse.auto_save_images:
-        raise PhoneControlError("图片保存已关闭，可在 browse.auto_save_images 开启")
+    if not service.config.image.auto_save_images:
+        raise PhoneControlError("图片保存已关闭，可在「图片保存」卡片开启 auto_save_images")
     reason, description = str(reason).strip(), str(description).strip()
     if not reason or not description:
         raise PhoneControlError("保存前需填写图片内容描述与喜欢的具体理由")
@@ -350,8 +350,8 @@ async def save_content_image(
     return {
         **record,
         "saved_to": record["server_path"]
-        if service.config.browse.save_images_both
-        or service.config.browse.image_storage_location == "server"
+        if service.config.image.save_images_both
+        or service.config.image.image_storage_location == "server"
         else record["phone_path"],
         "note": "图片信息、来源与存储路径已入库；可用 phone_saved_images 查询或把服务端原图传到手机。",
     }
