@@ -1,4 +1,4 @@
-"""管理独立 Tailscale 用户态节点、ADB 转发与组网内抓包端口。"""
+"""管理独立 Tailscale/ZeroTier 用户态节点、ADB 转发与组网内抓包端口。"""
 
 import asyncio
 import contextlib

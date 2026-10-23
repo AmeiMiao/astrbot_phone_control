@@ -404,3 +404,36 @@ def test_mesh_stop_cleans_proxy_after_capture_process_already_exited(tmp_path):
         assert calls == ["restore_phone_proxy", "remove_overlay_listener"]
         assert manager.exposed_port == 0
     asyncio.run(run())
+
+
+def test_zerotier_accept_uses_exact_sdk_address_buffer_and_reports_invalid_arguments():
+    import ctypes
+    from core.mesh_zerotier_worker import SDK, Stream
+    native = SimpleNamespace()
+    calls = []
+    def accept(fd, address, length):
+        assert address is None and length is None
+        calls.append(("accept", fd))
+        return 9
+    def peername(fd, buffer, length, port):
+        calls.append(("peer", fd, length))
+        if length != 46:
+            return -3
+        peer = b"192.0.2.18\0"
+        ctypes.memmove(buffer, peer, len(peer))
+        return 0
+    native.zts_bsd_accept = accept
+    native.zts_getpeername = peername
+    sdk = SDK.__new__(SDK)
+    sdk.lib = native
+    listener = Stream(sdk, 7)
+    stream, peer = listener.accept()
+    assert peer == "192.0.2.18" and stream.fd == 9
+    assert calls == [("accept", 7), ("peer", 9, 46)]
+    with pytest.raises(OSError, match="code -3"):
+        sdk.check(-3)
+    calls.clear()
+    native.zts_bsd_accept = lambda *args: -2
+    with pytest.raises(OSError, match="code -2"):
+        listener.accept()
+    assert not calls

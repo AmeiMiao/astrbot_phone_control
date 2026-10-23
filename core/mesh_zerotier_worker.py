@@ -17,6 +17,9 @@ from pathlib import Path
 from .mesh import private_json
 
 
+IP_STRING_SIZE = 46
+
+
 class PollFd(c.Structure):
     _fields_ = [("fd", c.c_int), ("events", c.c_short), ("revents", c.c_short)]
 
@@ -38,10 +41,8 @@ class SDK:
             "zts_connect": ([c.c_int, c.c_char_p, c.c_ushort, c.c_int], c.c_int),
             "zts_bind": ([c.c_int, c.c_char_p, c.c_ushort], c.c_int),
             "zts_listen": ([c.c_int, c.c_int], c.c_int),
-            "zts_accept": (
-                [c.c_int, c.c_void_p, c.c_int, c.POINTER(c.c_ushort)],
-                c.c_int,
-            ),
+            "zts_bsd_accept": ([c.c_int, c.c_void_p, c.c_void_p], c.c_int),
+            "zts_getpeername": ([c.c_int, c.c_void_p, c.c_int, c.POINTER(c.c_ushort)], c.c_int),
             "zts_send": ([c.c_int, c.c_void_p, c.c_size_t, c.c_int], c.c_ssize_t),
             "zts_recv": ([c.c_int, c.c_void_p, c.c_size_t, c.c_int], c.c_ssize_t),
             "zts_close": ([c.c_int], c.c_int),
@@ -59,6 +60,8 @@ class SDK:
 
     def check(self, result):
         if result < 0:
+            if result != -1:
+                raise OSError(f"ZeroTier SDK operation failed (code {result})")
             error = c.c_int.in_dll(self.lib, "zts_errno").value
             raise OSError(error, "ZeroTier socket operation failed")
         return result
@@ -72,8 +75,8 @@ class SDK:
         return Stream(self, fd)
 
     def address(self, network):
-        buf = c.create_string_buffer(64)
-        if self.lib.zts_addr_get_str(network, 2, buf, 64) != 0:
+        buf = c.create_string_buffer(IP_STRING_SIZE)
+        if self.lib.zts_addr_get_str(network, 2, buf, IP_STRING_SIZE) != 0:
             return ""
         return buf.value.decode()
 
@@ -83,6 +86,23 @@ class Stream:
         self.sdk = sdk
         self.fd = fd
         self.lock = threading.Lock()
+
+    def accept(self):
+        with self.lock:
+            if self.fd < 0:
+                raise OSError("ZeroTier listener closed")
+            fd = self.sdk.check(self.sdk.lib.zts_bsd_accept(self.fd, None, None))
+        # 先确认 accept 成功，再按官方固定长度合约查询对端地址。
+        address = c.create_string_buffer(IP_STRING_SIZE)
+        port = c.c_ushort()
+        try:
+            self.sdk.check(self.sdk.lib.zts_getpeername(
+                fd, address, IP_STRING_SIZE, c.byref(port)
+            ))
+        except BaseException:
+            self.sdk.lib.zts_close(fd)
+            raise
+        return Stream(self.sdk, fd), address.value.decode()
 
     def recv(self, size):
         buf = c.create_string_buffer(size)
@@ -243,17 +263,20 @@ def run(config):
     listener = None
     proxy_target = None
     proxy_started = False
+    proxy_failure = []
 
     def proxy(active_listener, active_target):
         while not stopping.is_set() and active_listener.fd >= 0:
-            address = c.create_string_buffer(64)
-            port = c.c_ushort()
-            fd = sdk.lib.zts_accept(active_listener.fd, address, 64, c.byref(port))
-            if fd < 0:
-                stopping.wait(0.1)
+            try:
+                incoming, peer = active_listener.accept()
+            except BlockingIOError:
+                stopping.wait(0.05)
                 continue
-            incoming = Stream(sdk, fd)
-            peer = address.value.decode()
+            except OSError as exc:
+                if active_listener.fd >= 0:
+                    proxy_failure.append(str(exc))
+                    print("ZeroTier 代理监听失败：", str(exc), file=sys.stderr, flush=True)
+                return
             # 抓包入口只接受配置的手机节点，不向全部 ZeroTier 成员开放代理。
             if peer != config.get("phone_ip") or not capacity.acquire(blocking=False):
                 incoming.close()
@@ -275,6 +298,8 @@ def run(config):
 
     try:
         while not stopping.is_set():
+            if proxy_failure:
+                raise RuntimeError("ZeroTier 代理监听失败，请检查 SDK 与节点日志")
             online = bool(sdk.lib.zts_node_is_online())
             if online and not joined:
                 sdk.check(sdk.lib.zts_net_join(network))
@@ -299,6 +324,7 @@ def run(config):
                     sdk.lib.zts_bind(listener.fd, address.encode(), config["proxy_port"])
                 )
                 sdk.check(sdk.lib.zts_listen(listener.fd, 16))
+                sdk.check(sdk.lib.zts_set_blocking(listener.fd, 0))
                 threading.Thread(
                     target=proxy, args=(listener, proxy_target), daemon=True
                 ).start()
