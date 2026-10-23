@@ -6,6 +6,7 @@ import json
 import pytest
 
 from core.diary import DiaryError, PhoneDiary
+from core.errors import PhoneControlError
 from core.learning import LearningStore
 from core.semantic import SemanticDoc, SemanticIndex, build_index
 
@@ -134,3 +135,37 @@ def test_learning_delete_commits_index_marker_and_preserves_other_entries(tmp_pa
     )
     assert [e["id"] for e in LearningStore(tmp_path).entries()] == [second["id"]]
     assert index.deletions.read()["sources"] == [["learning", first["id"]]]
+
+
+def test_index_delete_preserves_archive_and_survives_cached_search_and_rebuild(tmp_path):
+    async def scenario():
+        source = tmp_path / "learning.jsonl"
+        source.write_text('{"id":"a","content":"保留原始记录"}\n')
+        before = source.read_bytes()
+        index = SemanticIndex(tmp_path / "semantic")
+        docs = [SemanticDoc("learning:a", "learning", "a", "一", "一", 1)]
+        await build_index(index, docs, embed=lambda texts: [[1, 0]], provider_id="p", model="m", dim=2)
+        cached = index.load_snapshot()
+        index.delete_document("learning:a")
+        assert not cached.search([1, 0])
+        assert source.read_bytes() == before
+        await build_index(SemanticIndex(index.root), docs, embed=lambda texts: [], provider_id="p", model="m", dim=2, force=True)
+        assert SemanticIndex(index.root).load_snapshot().count == 0
+        with pytest.raises(PhoneControlError, match="不存在"):
+            index.delete_document("learning:a")
+        assert source.read_bytes() == before
+    asyncio.run(scenario())
+
+
+def test_index_delete_marker_failure_keeps_record_searchable(tmp_path, monkeypatch):
+    async def scenario():
+        index = SemanticIndex(tmp_path / "semantic")
+        docs = [SemanticDoc("learning:a", "learning", "a", "一", "一", 1)]
+        await build_index(index, docs, embed=lambda texts: [[1, 0]], provider_id="p", model="m", dim=2)
+        def fail(value):
+            raise OSError("disk full")
+        monkeypatch.setattr(index.deletions, "_write", fail)
+        with pytest.raises(OSError):
+            index.delete_document("learning:a")
+        assert len(index.load_snapshot().search([1, 0])) == 1
+    asyncio.run(scenario())

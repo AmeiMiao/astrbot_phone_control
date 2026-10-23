@@ -18,7 +18,7 @@
         <nav class="nav">
           <button class="nav-item active" data-view="dashboard" type="button">监控面板</button>
           <button class="nav-item" data-view="records" type="button">浏览与学习</button>
-          <button class="nav-item" data-view="vectors" type="button">学习向量</button>
+          <button class="nav-item" data-view="vectors" type="button">记忆索引</button>
           <button class="nav-item" data-view="images" type="button">保存的图片</button>
           <button class="nav-item" data-view="migration" type="button">配置与数据迁移</button>
         </nav>
@@ -101,25 +101,25 @@
 
 
         <section id="view-vectors" class="view" hidden>
-          <header class="page-head"><div><h1>手机操控学习向量</h1>
+          <header class="page-head"><div><h1>记忆索引</h1>
             <p class="subtitle" id="vectors-subtitle" role="status">加载中…</p></div>
             <button id="vectors-refresh" class="btn ghost" type="button">刷新</button>
           </header>
           <div class="card learning-toolbar">
-            <select id="vectors-kind" aria-label="向量索引">
+            <select id="vectors-kind" aria-label="记忆索引">
               <option value="app">App 操控经验</option><option value="chat">聊天学习与浏览</option>
             </select>
             <select id="vectors-source" aria-label="向量来源"><option value="">全部来源</option>
               <option value="app_experience">App 经验</option><option value="learning">学习记录</option><option value="diary">浏览日志</option>
             </select>
-            <input id="vectors-query" type="search" placeholder="搜索内容、App 或记录编号" aria-label="搜索向量记录">
+            <input id="vectors-query" type="search" placeholder="搜索内容、App 或记录编号" aria-label="搜索记忆索引">
             <button id="vectors-search" class="btn primary" type="button">搜索</button>
           </div>
           <div id="vectors-stats" class="learning-stats"></div>
           <div id="vectors-list" class="learning-list"></div>
           <div class="head-actions"><button id="vectors-prev" class="btn ghost" type="button">上一页</button>
             <span id="vectors-page"></span><button id="vectors-next" class="btn ghost" type="button">下一页</button></div>
-          <p class="hint">查看当前索引中的正文与实际向量值；页面只读，搜索按正文关键词筛选。索引由对应功能的后台任务维护。</p>
+          <p class="hint">查看索引正文与实际向量值，搜索按正文关键词筛选。删除仅移除该条索引，原始记录保留；后台重建会保留删除结果。</p>
         </section>
 
         <section id="view-records" class="view" hidden>

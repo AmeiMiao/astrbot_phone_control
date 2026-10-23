@@ -35,3 +35,25 @@ def test_diary_delete_updates_source_and_index_rules(tmp_path, monkeypatch):
             await plugin.terminate()
 
     asyncio.run(scenario())
+
+
+def test_vector_delete_validates_kind_and_preserves_source(tmp_path, monkeypatch):
+    from core.semantic import SemanticDoc, build_index
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        values = {"id": "learning:a", "kind": "chat"}
+        class Body:
+            async def json(self):
+                return values
+        monkeypatch.setattr(plugin_main, "request", Body())
+        try:
+            await build_index(plugin.semantic_index, [SemanticDoc("learning:a", "learning", "a", "一", "一", 1)], embed=lambda texts: [[1, 0]], provider_id="p", model="m", dim=2)
+            result = _json(await plugin.dashboard_vector_delete())
+            assert result == {"deleted": "learning:a", "source_preserved": True}
+            assert plugin.semantic_index.load_snapshot().count == 0
+            assert (await plugin.dashboard_vector_delete()).status_code == 400
+            values["kind"] = "../other"
+            assert (await plugin.dashboard_vector_delete()).status_code == 400
+        finally:
+            await plugin.terminate()
+    asyncio.run(scenario())

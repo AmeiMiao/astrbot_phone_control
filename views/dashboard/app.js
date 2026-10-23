@@ -572,6 +572,10 @@
         offset: state.vectorsOffset, limit: 20,
       });
       if (requestId !== state.vectorsRequest) return;
+      if (!data.entries.length && data.total && state.vectorsOffset) {
+        state.vectorsOffset = Math.floor((data.total - 1) / data.limit) * data.limit;
+        return loadVectors();
+      }
       const manifest = data.manifest || {};
       const states = { ready: "索引可用", missing: "尚未建立索引", invalid: "索引文件不完整，请检查后台构建日志" };
       setText("vectors-subtitle", `${data.enabled ? "功能已开启" : "功能已关闭"} · ${states[data.state] || data.state}`);
@@ -588,7 +592,12 @@
         const values = document.createElement("pre"); values.className = "vector-values";
         values.textContent = JSON.stringify(entry.vector, null, 2);
         const meta = document.createElement("p"); meta.className = "learning-content"; meta.textContent = JSON.stringify(entry.meta);
-        details.append(summary, values); item.append(title, text, meta, details); list.append(item);
+        const remove = button("删除索引", async () => {
+          if (!await confirmAction("删除这条记忆索引？原始经验、学习记录或浏览日志保留；后台重建会保留删除结果。", "确认删除索引")) return;
+          await state.bridge.apiPost("dashboard/vectors/delete", { kind, id: entry.id });
+          await loadVectors();
+        });
+        details.append(summary, values); item.append(title, text, meta, details, remove); list.append(item);
       }
       if (!list.children.length) { const empty = document.createElement("p"); empty.className = "learning-empty"; empty.textContent = data.state === "ready" ? "没有符合条件的向量记录" : "开启相应学习功能并记录内容后，后台会建立索引"; list.append(empty); }
       $("vectors-prev").disabled = data.offset <= 0;

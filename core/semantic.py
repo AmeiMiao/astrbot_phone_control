@@ -616,6 +616,16 @@ class SemanticIndex:
         self.root = Path(root)
         self.deletions = IndexDeletions(self.root)
 
+    def delete_document(self, doc_id: str) -> None:
+        """删除可检索的向量记录，原始档案独立保留。"""
+        with self.deletions.lock:
+            snapshot = self.load_snapshot()
+            if snapshot is None or snapshot.doc_of(doc_id) is None:
+                raise PhoneControlError("索引记录不存在，请刷新列表")
+            value = self.deletions.read()
+            value["documents"].append(doc_id)
+            self.deletions._write(value)
+
     @property
     def manifest_path(self) -> Path:
         return self.root / MANIFEST_FILENAME

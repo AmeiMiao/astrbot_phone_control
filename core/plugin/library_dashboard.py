@@ -14,7 +14,8 @@ class LibraryDashboardMixin:
     def _library_dashboard_routes(self, base):
         return (
             (f"{base}/diary/delete", self.dashboard_diary_delete, ["POST"], "删除浏览日志"),
-            (f"{base}/vectors", self.dashboard_vectors, ["GET"], "手机学习向量"),
+            (f"{base}/vectors/delete", self.dashboard_vector_delete, ["POST"], "删除记忆索引"),
+            (f"{base}/vectors", self.dashboard_vectors, ["GET"], "手机记忆索引"),
             (
                 f"{base}/learning/delete",
                 self.dashboard_learning_delete,
@@ -41,6 +42,20 @@ class LibraryDashboardMixin:
                 "删除图片",
             ),
         )
+
+    async def dashboard_vector_delete(self):
+        try:
+            data = await self._library_request()
+            kind = data.get("kind")
+            if not isinstance(kind, str) or kind not in {"app", "chat"}:
+                return error_response("请选择有效的记忆索引", status_code=400)
+            index = self.app_recall_index if kind == "app" else self.semantic_index
+            await asyncio.to_thread(index.delete_document, data["id"])
+            return json_response({"deleted": data["id"], "source_preserved": True})
+        except PhoneControlError as exc:
+            return error_response(str(exc), status_code=400)
+        except OSError:
+            return error_response("索引删除未保存，请检查存储", status_code=500)
 
     async def dashboard_vectors(self):
         query = plugin_main_module().request.query
