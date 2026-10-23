@@ -245,7 +245,7 @@ class PhoneControlPlugin(
         tokens = raw.split()
         sub = tokens[0].lower() if tokens else ""
         if sub in self._HELP_SUBS:
-            await self._say(event, _HELP_TEXT)
+            await self._say_command(event, _HELP_TEXT, "help")
             return
         try:
             denied = check_admin_permission(event, self._config())

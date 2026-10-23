@@ -181,7 +181,7 @@ class CommandsMixin:
         """解析并执行 ``/phone`` 子指令。"""
         tokens = raw.split()
         if not tokens or tokens[0].lower() in {"help", "-h", "--help", "?", "？"}:
-            await self._say(event, _HELP_TEXT)
+            await self._say_command(event, _HELP_TEXT, "help")
             return
 
         config = self._config()
@@ -214,7 +214,7 @@ class CommandsMixin:
             await self._say(event, quota_error)
             return
         if not config.adb.configured and sub not in {"help", "diary", "quota", "stop", "learn", "traffic", "novelty"}:
-            await self._say(event, f"error: {UNCONFIGURED_MESSAGE}")
+            await self._say_command(event, f"error: {UNCONFIGURED_MESSAGE}", sub)
             return
         if sub == "status":
             status_text = await self.service.status_text()
@@ -226,7 +226,7 @@ class CommandsMixin:
             wireguard = getattr(self, "_wireguard", None)
             if wireguard is not None:
                 status_text += "\n- " + wireguard.brief_text()
-            await self._say(event, status_text)
+            await self._say_command(event, status_text, "status")
         elif sub == "connect":
             info = await self.service.connect()
             await self._say(
@@ -281,6 +281,25 @@ class CommandsMixin:
             await self._cmd_watch(event, rest)
         else:
             await self._say(event, f"未知子指令：{sub}\n" + _HELP_TEXT)
+
+    async def _say_command(self, event: AstrMessageEvent, text: str, sub: str) -> None:
+        """按 status/help 各自开关输出，渲染故障以文字说明。"""
+        settings = self._config().command
+        as_image = (sub == "status" and settings.status_as_image) or (
+            sub == "help" and settings.help_as_image
+        )
+        if not as_image:
+            await self._say(event, text)
+            return
+        try:
+            image_path = await self.text_to_image(text, return_url=False)
+            if not image_path:
+                raise ValueError("文字转图服务未返回图片")
+        except Exception as exc:  # noqa: BLE001 - 图片服务错误向用户明确说明
+            logger.warning("/phone %s 图片渲染失败：%s", sub, exc)
+            await self._say(event, "图片渲染失败，请检查 AstrBot 文字转图服务。\n" + text)
+            return
+        await event.send(MessageChain().file_image(str(image_path)))
 
     async def _say(self, event: AstrMessageEvent, text: str) -> None:
         """发送一条纯文本消息。"""

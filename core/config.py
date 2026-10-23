@@ -613,6 +613,14 @@ class PromptSettings:
 
 
 @dataclass(frozen=True)
+class CommandSettings:
+    """命令消息输出格式。"""
+
+    status_as_image: bool = True
+    help_as_image: bool = True
+
+
+@dataclass(frozen=True)
 class DebugSettings:
     """调试参数。"""
 
@@ -790,6 +798,7 @@ class PhoneConfig:
     prompt: PromptSettings = field(default_factory=PromptSettings)
     novelty: NoveltySettings = field(default_factory=NoveltySettings)
     recall: RecallSettings = field(default_factory=RecallSettings)
+    command: CommandSettings = field(default_factory=CommandSettings)
     debug: DebugSettings = field(default_factory=DebugSettings)
 
     @classmethod
@@ -1794,6 +1803,18 @@ class PhoneConfig:
             ),
         )
 
+        command_card = card("command")
+        command = CommandSettings(
+            status_as_image=_as_bool(
+                _pick(command_card, source, "status_as_image"), True,
+                "command.status_as_image", warn_fn,
+            ),
+            help_as_image=_as_bool(
+                _pick(command_card, source, "help_as_image"), True,
+                "command.help_as_image", warn_fn,
+            ),
+        )
+
         debug_card = card("debug")
         debug = DebugSettings(
             log_actions=_as_bool(
@@ -1908,5 +1929,6 @@ class PhoneConfig:
             prompt=prompt,
             novelty=novelty,
             recall=recall,
+            command=command,
             debug=debug,
         )

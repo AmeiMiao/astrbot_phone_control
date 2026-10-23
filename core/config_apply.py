@@ -30,6 +30,8 @@ from .config import PhoneConfig
 # 每次使用都实时读取的配置字段（保存后立即生效，无需重建组件）。
 LIVE_KEYS: frozenset[str] = frozenset(
     {
+        "command.status_as_image",
+        "command.help_as_image",
         "security.require_admin",
         "security.allowed_user_ids",
         "security.allow_shell_tool",

@@ -242,3 +242,5 @@ NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt
 - [完整使用手册](docs/使用手册.md)
 - [第三方组件与引用说明](THIRD_PARTY_NOTICES.md)
 - [许可证](LICENSE)
+
+命令输出：`command.status_as_image`、`command.help_as_image` 默认开启，分别控制 `/phone status` 与 `/phone help` 的图片输出。关闭对应开关后发送文字；图片使用 AstrBot 文字转图服务，渲染失败时提示并附上文字。
