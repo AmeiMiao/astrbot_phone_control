@@ -17,6 +17,7 @@ ADB 主机/端口默认为空，表示「未配置」：插件仍可正常加载
 from __future__ import annotations
 
 from .mesh_config import MeshSettings, mesh_settings
+from .network_config import runtime_cards
 
 import math
 from collections.abc import Callable, Mapping
@@ -1543,7 +1544,7 @@ class PhoneConfig:
             ).strip(),
         )
 
-        wireguard_card = card("wireguard")
+        wireguard_card, mesh_card = runtime_cards(source, warn_fn)
         wireguard_mode = _as_choice(
             _pick(wireguard_card, source, "mode"),
             DEFAULT_WIREGUARD_MODE,
@@ -1933,7 +1934,7 @@ class PhoneConfig:
             model=model,
             control=control,
             wireguard=wireguard,
-            mesh=mesh_settings(card("mesh"), warn_fn),
+            mesh=mesh_settings(mesh_card, warn_fn),
             prompt=prompt,
             novelty=novelty,
             recall=recall,

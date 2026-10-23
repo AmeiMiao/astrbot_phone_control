@@ -23,7 +23,7 @@ def setup(tmp_path, monkeypatch):
     p.raw_config["auto"].update(
         enabled=False, random_enabled=False, continuous_enabled=False
     )
-    p.raw_config["wireguard"]["enabled"] = False
+    p.raw_config["network"]["enabled"] = False
     p.raw_config["traffic"]["enabled"] = False
     source = parent / "astrbot_phone_control"
     source.mkdir()
@@ -153,7 +153,9 @@ def test_running_writer_guards_preserve_target(tmp_path, monkeypatch, condition)
                 )
             elif condition == "lookup_missing":
                 monkeypatch.setattr(p.context, "get_registered_star", None)
-            elif condition in {"auto", "wireguard", "traffic"}:
+            elif condition == "wireguard":
+                p.raw_config["network"].update(enabled=True, provider="wireguard")
+            elif condition in {"auto", "traffic"}:
                 p.raw_config[condition]["enabled"] = True
             elif condition == "busy":
                 p.device_gate._lease = object()

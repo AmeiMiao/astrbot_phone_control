@@ -162,6 +162,7 @@ from ..media import (
 )
 from ..platform_bins import ensure_bundled_executables
 from ..runtime_components import RuntimeComponents, ComponentError
+from ..network_config import migrate_network, normalize_network_patch
 from ..telemetry import MetricsStore
 from ..ui import dump_ui, render_ui
 from .shared import (
@@ -295,6 +296,10 @@ class BootstrapMixin:
         self._terminated = False
         self._live_instance_registered = False
         self.raw_config: Any = config if config is not None else {}
+        if migrate_network(self.raw_config):
+            save = getattr(self.raw_config, "save_config", None)
+            if callable(save):
+                save()
         # 旧版 memory.backend 一次性迁移为独立布尔开关（保持原选择）。
         if migrate_memory_config(self.raw_config):
             save = getattr(self.raw_config, "save_config", None)
@@ -433,7 +438,6 @@ class BootstrapMixin:
                 "serial": self.service.config.adb.serial,
             },
             config_patch=self._apply_config_patch,
-            blocking_reason=lambda: "请先关闭 Tailscale/ZeroTier 组网，再启用 WireGuard" if self.service.config.mesh.enabled else "",
         )
         self.service.wireguard = self._wireguard
         # 验证会话/人工接管控制器（先加载持久化状态，再启动调度器）。
@@ -1107,6 +1111,12 @@ class BootstrapMixin:
         # 浏览日志上限/保护轮次是实时读取配置，保存后立即按新上限清理一次。
         await self._cleanup_diary_limits()
 
+        if plan.mesh_changed or plan.wireguard_changed:
+            # 切换先回收旧连接与代理，缺少新组件时也保持旧服务关闭。
+            if plan.mesh_changed and (previous.mesh.enabled or self._mesh.running):
+                await self._mesh.stop()
+            if plan.wireguard_changed and (previous.wireguard.enabled or self._wireguard.running):
+                await self._wireguard.stop()
         if self._components.needs_prepare(current):
             notes.append("运行组件缺失：保存配置后请重新加载插件，组件将从官方来源准备")
             return
@@ -1284,6 +1294,7 @@ class BootstrapMixin:
         try:
             previous = self._config_snapshot()
             current = self._plain_config(self.raw_config)
+            patch = normalize_network_patch(current, patch)
             merged = self._deep_merge(current, patch)
             self._persist_config(merged)
             await self._apply_runtime_config(previous, result)

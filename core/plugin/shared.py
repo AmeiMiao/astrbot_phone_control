@@ -194,7 +194,7 @@ _HELP_TEXT = """手机操控插件指令：
 /phone stop [job_id|all]          停止本插件后台/持续刷任务，回桌面并清理后台
 /phone learn [关键词|条数]         查看 AI 在手机上学到的内容档案
 /phone traffic [status|tail [n]|on|off]  查看抓包状态/最近流量，或开关手机流量抓包
-/phone mesh [status|start|login|stop]  Tailscale/ZeroTier 接入状态与控制
+/phone network [status|start|login|stop]  当前所选组网服务的状态与控制（mesh 同义）
 /phone wg [status|start|stop|restart|config]  查看/开关 WireGuard 组网，config 显示导入用配置
 /phone verify [status|resume <id>|cancel <id>]  查看/恢复/取消验证等待（人工协助）
 /phone watch [秒数] [问题]        识别当前正在播放的视频/直播/音乐（声音转写+关键画面）

@@ -1144,7 +1144,7 @@ class WireGuardManager:
             return self.status()
         if not settings.enabled:
             return self._failure_result(
-                "WireGuard 未启用（wireguard.enabled=false）"
+                "WireGuard 未启用（请在组网配置中开启并选择 WireGuard）"
             )
         if self._unavailable_reason:
             return self._failure_result(
@@ -1312,7 +1312,7 @@ class WireGuardManager:
         """``/phone status`` 中的一行摘要。"""
         status = self.status()
         if not status["enabled"]:
-            return "WireGuard：未启用（wireguard.enabled=false）"
+            return "WireGuard：未启用（组网配置未选择或启用 WireGuard）"
         if status["running"] and not status["healthy"]:
             return (
                 "WireGuard：helper 运行中但状态异常"
@@ -1349,7 +1349,7 @@ class WireGuardManager:
                 f"auto_adb={'开' if status['auto_adb'] else '关'}）"
             )
         else:
-            lines.append("- 配置：已关闭（wireguard.enabled=false，可用 /phone wg start 开启）")
+            lines.append("- 配置：已关闭（可在组网配置选择 WireGuard，或用 /phone wg start 开启）")
         if status["running"] and status["healthy"]:
             age = status.get("status_age")
             lines.append(

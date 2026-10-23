@@ -56,6 +56,10 @@ def test_mesh_start_stop_commands_persist_enabled_state(tmp_path, monkeypatch):
 
     async def run():
         plugin = _make_plugin(tmp_path, monkeypatch)
+        for name in ("tailscale", "tailscaled"):
+            path = plugin._components.path(name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"manual-test-component")
         plugin._mesh.reconcile = AsyncMock(return_value={})
         plugin._mesh.start = AsyncMock(return_value={"ready": False})
         plugin._mesh.stop = AsyncMock()

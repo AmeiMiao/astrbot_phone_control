@@ -114,6 +114,10 @@ def prepare_migration(
     target = base / f"{target_name}_config.json"
     original, source_bytes = _read(source)
     current, target_bytes = _read(target, optional=True)
+    if "network" in schema:
+        from .network_config import migrate_network
+        migrate_network(original)
+        migrate_network(current)
     merged = copy.deepcopy(current)
     changed, kept = [], []
 

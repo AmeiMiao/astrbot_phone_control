@@ -1522,20 +1522,17 @@ def test_conf_schema_memory_and_wireguard_conditions():
     assert memory_items["bot_action_enabled"]["condition"] == {
         "companion_enabled": True
     }
-    wg_items = schema["wireguard"]["items"]
-    for key, item in wg_items.items():
-        if key == "enabled":
-            assert "condition" not in item
-            continue
-        assert item.get("condition", {}).get("enabled") is True, key
-    assert wg_items["server_endpoint"]["condition"] == {
-        "enabled": True,
-        "mode": "client",
-    }
-    assert wg_items["listen_port"]["condition"] == {
-        "enabled": True,
-        "mode": "server",
-    }
+    network = schema["network"]["items"]
+    assert "wireguard" not in schema and "mesh" not in schema
+    assert network["provider"]["options"] == ["wireguard", "tailscale", "zerotier"]
+    assert "condition" not in network["enabled"]
+    assert network["provider"]["condition"] == {"enabled": True}
+    for provider in ("wireguard", "tailscale", "zerotier"):
+        assert network[provider]["condition"] == {"enabled": True, "provider": provider}
+        assert "enabled" not in network[provider]["items"]
+    wg_items = network["wireguard"]["items"]
+    assert wg_items["server_endpoint"]["condition"] == {"mode": "client"}
+    assert wg_items["listen_port"]["condition"] == {"mode": "server"}
 
 
 def test_conf_schema_group_order_is_intentional():
@@ -1550,7 +1547,7 @@ def test_conf_schema_group_order_is_intentional():
     groups = list(schema)
     assert groups[:5] == ["adb", "security", "browse", "image", "auto"]
     assert groups.index("memory") < groups.index("recall") < groups.index("prompt")
-    assert groups.index("wireguard") > groups.index("perception")
+    assert groups.index("network") > groups.index("perception")
     assert groups[-1] == "debug"
     # 聊天语义找回未开启时隐藏其余配置项。
     recall_items = schema["recall"]["items"]

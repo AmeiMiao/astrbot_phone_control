@@ -5,7 +5,7 @@
 
 让 AstrBot 操作一台安卓模拟器：查看屏幕、浏览应用、理解图文与视频、记录学习，并按授权完成互动。
 
-**版本：`0.1.6.23`** · **AstrBot：`>=4.27.1,<5`** · **Python：`>=3.10`**
+**版本：`0.1.6.24`** · **AstrBot：`>=4.27.1,<5`** · **Python：`>=3.10`**
 
 > **使用风险**：使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失。请自行确认平台规则与操作授权，仅操作自己拥有或获授权的设备和账号。
 
@@ -106,7 +106,7 @@ MemoryCompanion、LivingMemory 使用独立同步开关。LivingMemory 写入复
 | 兴趣与记忆 | 内容新鲜感、本地保存、记忆插件同步、学习与经验召回 |
 | 提示词与命令输出 | 使用指南、经验注入、状态/帮助图片开关 |
 | 屏幕感知、控制后端 | UI、截图、实时屏幕、OCR、scrcpy 与 minitouch |
-| WireGuard、Tailscale / ZeroTier | 网络身份、节点地址、ADB 转发与组网抓包端口 |
+| 组网 | 一个开关与服务选择器；按所选 WireGuard / Tailscale / ZeroTier 显示参数 |
 | 流媒体、流量抓包 | 音频/关键帧 Provider、mitmproxy 路径、传输通道与 CA 信任方式 |
 | 验证与人工协助、调试 | 自动尝试与等待时限、通知目标、动作日志 |
 
@@ -120,23 +120,23 @@ MemoryCompanion、LivingMemory 使用独立同步开关。LivingMemory 写入复
 | Tailscale | 插件管理独立官方用户态节点，无宿主 DNS/路由变更 | 官方 Tailscale，加入同一 Tailnet | Auth Key 或登录链接、手机组网 IPv4、节点 ACL |
 | ZeroTier | 插件独立进程运行官方 Sockets SDK，无需 TUN/NET_ADMIN | 官方 ZeroTier，加入同一私有网络 | 16 位 Network ID、控制台成员授权、手机组网 IPv4 |
 
-Android 同时启用一种 VPN。启用 Tailscale/ZeroTier 时关闭插件 WireGuard；组网成员与访问端口在控制台授权。
+在「组网」开启开关并选择一种服务，保存后重载。对应参数位于 `network.wireguard`、`network.tailscale`、`network.zerotier`；切换保留各服务的参数与身份，关闭恢复原 ADB 目标。现有分离配置在加载前自动备份到配置文件旁的 `.network-backup` 文件并迁移。Android 同时启用一种 VPN，组网成员与访问端口在控制台授权。
 
 ### Tailscale / ZeroTier 设置
 
-1. 在「Tailscale / ZeroTier 组网」选择服务与独立设备名。
+1. 在「组网」开启开关，选择 Tailscale 或 ZeroTier，再填写对应参数。
 2. Tailscale 可填写 Auth Key，或留空后在组网页启动并打开登录链接；ZeroTier 填写 Network ID，启动后在控制台授权显示的 10 位节点 ID。
 3. 手机官方客户端加入同一网络，将手机的组网 IPv4 填入配置。Tailscale 使用 `100.64.0.0/10` 地址。
 4. 按需开启组网 ADB。无 root Android 配合 [Phone ADB Relay](helper/android-relay/README.md)（[APK](bin/android/phone-adb-relay.apk)）将 App UID 的 `15555` 转入本机 adbd；系统级 VPN 对端可直接填写实际 adbd 端口。
 5. 停止组网会关闭该开关并恢复原 ADB 目标，私有身份文件保留，重启可复用。
 
-启用对应功能并保存、重载后，缺失的 ADB、Tailscale CLI/daemon 会从官方来源下载到插件数据目录 `runtime/<系统-架构>/`。已有文件与 PATH 程序直接复用，手动路径优先；停用相关功能不会下载。下载过程在后台执行，概览接口的 `components` 和日志提供准备状态；失败后修正网络/路径并重载即可重试。组件缓存与组网身份均随插件数据保留。
+启用对应功能并保存、重载后，缺失的 ADB、Tailscale CLI/daemon 会从官方来源下载到插件数据目录 `runtime/<系统-架构>/`。已有文件与 PATH 程序直接复用，手动路径优先；停用相关功能不会下载。下载过程在后台执行，组网页、概览接口与日志提供准备状态；失败后修正网络/路径并重载即可重试。组件缓存与组网身份均随插件数据保留。
 
 | 组件 | 官方自动下载范围 | 手动方式 |
 | --- | --- | --- |
 | ADB | Linux x86_64、Windows x86/x86_64、macOS x86_64/arm64 | 填写 `adb.path`；Google 平台包保留配套文件 |
 | Tailscale CLI/daemon | Linux x86_64、x86、arm64、armv7、riscv64 | 填写两个程序路径；其他平台安装官方客户端并确认用户态参数兼容 |
-| ZeroTier SDK | 手动提供 | 填写 `mesh.zerotier_library`，要求架构和 SDK API 兼容 |
+| ZeroTier SDK | 手动提供 | 填写 `network.zerotier.zerotier_library`，要求架构和 SDK API 兼容 |
 
 ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/platform-tools) 读取校验信息；Tailscale 使用 [官方稳定源](https://pkgs.tailscale.com/stable/) 的 SHA256。程序经安全解压、格式/架构检查后原子写入，同一目录并发准备使用文件锁。详细来源及 ZeroTier 构建见 [用户态组网组件](helper/mesh/README.md)。
 
@@ -145,7 +145,7 @@ ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/pl
 | 配置 | 行为 |
 | --- | --- |
 | `traffic.transport=adb` | 手机经回环代理与对应 `adb reverse` 访问服务端 |
-| `traffic.transport=mesh` | 手机代理指向服务端组网 IPv4 与 `mesh.proxy_port`，经 Tailscale/ZeroTier 进入本地 mitmproxy |
+| `traffic.transport=mesh` | 手机代理指向服务端组网 IPv4 与 对应服务的 `proxy_port`，经 Tailscale/ZeroTier 进入本地 mitmproxy |
 | `traffic.ca_mode=system` | 通过 `adb root` 注入系统 CA |
 | `traffic.ca_mode=manual` | 从组网页下载公开 CA，由手机或 App 配置信任；无 root 可捕获 HTTP，HTTPS 需 App 信任此 CA |
 
@@ -163,7 +163,7 @@ ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/pl
 | `/phone play [tokens]` | 开始一轮静默玩手机 |
 | `/phone continuous on\|off\|status` | 持续浏览开关与状态 |
 | `/phone traffic [status\|tail\|on\|off]` | 抓包状态、近期流量与开关 |
-| `/phone mesh [status\|start\|login\|stop]` | Tailscale/ZeroTier 状态与接入控制 |
+| `/phone network [status\|start\|login\|stop]` | Tailscale/ZeroTier 状态与接入控制 |
 | `/phone wg [status\|start\|stop\|restart\|config]` | WireGuard 控制与配置输出 |
 | `/phone verify [status\|resume\|cancel <id>]` | 验证与人工协助 |
 | `/phone quota [audit [小时]]` | 额度与实际用量对账 |
@@ -186,7 +186,7 @@ ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/pl
 
 `/phone stop` 关闭手机任务、抓包、自主调度、随机/持续刷、实时屏幕和控制后端，返回桌面并清理后台。默认保留官方 WireGuard、Tailscale、ZeroTier、Phone ADB Relay，以及桌面和当前输入法。
 
-组网身份和运行开关通过组网页或 `/phone mesh stop` 管理。抓包、组网及解码进程使用心跳监护，手机端控制服务使用设备看门狗；失联后回收，重载时检查前任租约。
+组网身份和运行开关通过组网页或 `/phone network stop` 管理。抓包、组网及解码进程使用心跳监护，手机端控制服务使用设备看门狗；失联后回收，重载时检查前任租约。
 
 截图、日志、学习及图片保存在 `data/plugin_data/astrbot_phone_control_mirror/`。网络私钥与身份在私有数据目录保留，文件按私密权限保存；CA 下载只返回公开证书。
 

@@ -107,9 +107,9 @@ class MeshManager:
         async with self.lock:
             settings = self.settings
             if not settings.enabled:
-                raise MeshError("请先开启 mesh.enabled 并选择组网服务")
+                raise MeshError("请先开启 network.enabled 并选择 Tailscale 或 ZeroTier")
             if self.service.config.wireguard.enabled:
-                raise MeshError("请先关闭 WireGuard，再使用 Tailscale/ZeroTier 组网")
+                raise MeshError("当前选择 WireGuard，请在组网配置中选择 Tailscale 或 ZeroTier")
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,62}", settings.hostname):
                 raise MeshError("组网设备名称需为 1–63 位字母、数字或连字符")
             if settings.provider != "tailscale":
@@ -362,9 +362,9 @@ class MeshManager:
         async with self.lock:
             settings = self.settings
             if not settings.enabled:
-                raise MeshError("请先开启 mesh.enabled")
+                raise MeshError("请先开启 network.enabled 并选择 ZeroTier")
             if self.service.config.wireguard.enabled:
-                raise MeshError("请先关闭 WireGuard，再启动 ZeroTier")
+                raise MeshError("当前选择 WireGuard，请在组网配置中选择 ZeroTier")
             if not re.fullmatch(r"[0-9a-f]{16}", settings.zerotier_network_id):
                 raise MeshError("ZeroTier Network ID 需为 16 位十六进制")
             if not self.running:

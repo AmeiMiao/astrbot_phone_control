@@ -971,261 +971,241 @@
       }
     }
   },
-  "wireguard": {
-    "description": "WireGuard 组网",
-    "hint": "插件内置 userspace WireGuard helper（无需 NET_ADMIN/tun）：client=连接已有 WG 服务器；server=本插件当服务器，手机装 WireGuard App 接入。开启后插件启动时拉起 helper，可用 ADB over WG 经隧道访问手机（adb_local_port）。未开启时其余字段不显示。",
+  "network": {
     "type": "object",
+    "description": "组网",
+    "hint": "启用后选择 WireGuard、Tailscale 或 ZeroTier；每次运行一种服务，停用恢复原 ADB 目标。功能保存并重载时准备所需运行组件。",
     "items": {
       "enabled": {
         "type": "bool",
         "default": false,
-        "description": "启用 WireGuard",
-        "hint": "开启后插件启动时拉起 helper；关闭后停止 helper 并恢复原 ADB 目标。helper 缺失/配置不全时会明确报错且不启动子进程；开启后再按角色显示其余配置。"
-      },
-      "mode": {
-        "type": "string",
-        "default": "client",
-        "options": [
-          "client",
-          "server"
-        ],
-        "description": "角色",
-        "hint": "client=连接已有 WireGuard 服务器；server=本插件作为服务器，手机以 WireGuard 客户端接入。修改后保存即重启 helper。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "server_endpoint": {
-        "type": "string",
-        "default": "",
-        "description": "WG 服务器地址",
-        "hint": "仅 client 模式显示：要连接的 WireGuard 服务器 host:port（必填），如 192.168.250.50:51820。",
-        "condition": {
-          "enabled": true,
-          "mode": "client"
-        }
-      },
-      "server_public_key": {
-        "type": "string",
-        "default": "",
-        "description": "服务器公钥",
-        "hint": "仅 client 模式显示且必填：对端 WireGuard 服务器公钥（base64，32 字节）。",
-        "condition": {
-          "enabled": true,
-          "mode": "client"
-        }
-      },
-      "listen_port": {
-        "type": "int",
-        "default": 51820,
-        "description": "监听端口",
-        "hint": "仅 server 模式显示：监听 UDP 端口（需在容器/网关把该端口暴露给手机侧）。",
-        "condition": {
-          "enabled": true,
-          "mode": "server"
-        }
-      },
-      "public_endpoint": {
-        "type": "string",
-        "default": "",
-        "description": "公开地址",
-        "hint": "仅 server 模式显示且必填：手机侧可访问到本插件 WG server 的地址，如 192.168.250.50:51820；只填 host 时端口取 listen_port。",
-        "condition": {
-          "enabled": true,
-          "mode": "server"
-        }
-      },
-      "preshared_key": {
-        "type": "string",
-        "default": "",
-        "description": "预共享密钥",
-        "hint": "可选：与对端配置相同的 base64 PSK（32 字节）；留空不使用。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "interface_address": {
-        "type": "string",
-        "default": "",
-        "description": "本机 WG 地址",
-        "hint": "CIDR，留空按模式取默认：client=10.66.0.2/24，server=10.66.0.1/24；须为 IPv4。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "phone_wg_ip": {
-        "type": "string",
-        "default": "",
-        "description": "手机 WG 地址",
-        "hint": "手机在 WireGuard 网内的 IPv4 地址，也是 ADB over WG 转发目标；留空按模式取默认：client=10.66.0.3，server=10.66.0.2（须在本机网段内）。 官方 WG App 手机的 adbd 通常不可经隧道访问（VPN 按 UID 分流），见使用手册「已知限制」。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "adb_local_port": {
-        "type": "int",
-        "default": 15555,
-        "description": "ADB 隧道本地端口",
-        "hint": "helper 在容器 127.0.0.1 监听该端口并转发到手机 5555；0=不启用 ADB over WG。 手机官方 WireGuard App 场景下 adbd 回包受 Android VPN 按 UID 分流限制，ADB over WG 主要用于 Linux/容器或 root 全局 WG 对端（详见使用手册「已知限制」）。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "auto_adb": {
-        "type": "bool",
-        "default": false,
-        "description": "自动切换 ADB 目标",
-        "hint": "helper 健康后把 ADB 目标切到 127.0.0.1:<adb_local_port>，停止/异常/配置变化时恢复原目标。需 adb_local_port>0。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "adb_target_port": {
-        "description": "手机隧道内 ADB 入口端口",
-        "type": "int",
-        "default": 5555,
-        "hint": "官方 WireGuard App + Phone ADB Relay 填 15555；直接 adbd 填 5555。Relay 需监听手机 WG 地址并仅允许本插件 WG 地址。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "socks_port": {
-        "description": "通用 SOCKS5 TCP 代理本地端口",
-        "type": "int",
-        "default": 0,
-        "hint": "0 关闭；启用后监听 127.0.0.1，仅支持 peer AllowedIPs 内的 IPv4/IPv6 地址 CONNECT，不需逐个固定转发。",
-        "condition": {
-          "enabled": true
-        }
-      }
-    }
-  },
-  "mesh": {
-    "type": "object",
-    "description": "Tailscale / ZeroTier 组网",
-    "hint": "插件运行独立用户态节点；Android 选择一种 VPN 并与服务端加入同一网络。ADB 可使用手机 UID 中转，抓包可经组网代理地址传输。",
-    "items": {
-      "enabled": {
-        "type": "bool",
-        "default": false,
-        "description": "启用组网",
-        "hint": "与 WireGuard 互斥；关闭后恢复原 ADB 目标。"
+        "description": "启用组网"
       },
       "provider": {
         "type": "string",
         "default": "tailscale",
         "description": "组网服务",
-        "hint": "服务端由插件管理用户态节点。",
-        "condition": {
-          "enabled": true
-        },
         "options": [
+          "wireguard",
           "tailscale",
           "zerotier"
-        ]
-      },
-      "hostname": {
-        "type": "string",
-        "default": "astrbot-phone",
-        "description": "组网设备名称",
-        "hint": "1–63 位字母、数字和连字符。",
+        ],
         "condition": {
           "enabled": true
         }
       },
-      "tailscale_auth_key": {
-        "type": "string",
-        "default": "",
-        "description": "Tailscale Auth Key",
-        "hint": "可留空通过 /phone mesh login 的登录链接授权；填写后仅经私有文件交给官方客户端，状态和日志不展示密钥。",
+      "wireguard": {
+        "type": "object",
+        "description": "WireGuard 参数",
+        "condition": {
+          "enabled": true,
+          "provider": "wireguard"
+        },
+        "items": {
+          "mode": {
+            "type": "string",
+            "default": "client",
+            "options": [
+              "client",
+              "server"
+            ],
+            "description": "角色",
+            "hint": "client=连接已有 WireGuard 服务器；server=本插件作为服务器，手机以 WireGuard 客户端接入。修改后保存即重启 helper。"
+          },
+          "server_endpoint": {
+            "type": "string",
+            "default": "",
+            "description": "WG 服务器地址",
+            "hint": "仅 client 模式显示：要连接的 WireGuard 服务器 host:port（必填），如 192.168.250.50:51820。",
+            "condition": {
+              "mode": "client"
+            }
+          },
+          "server_public_key": {
+            "type": "string",
+            "default": "",
+            "description": "服务器公钥",
+            "hint": "仅 client 模式显示且必填：对端 WireGuard 服务器公钥（base64，32 字节）。",
+            "condition": {
+              "mode": "client"
+            }
+          },
+          "listen_port": {
+            "type": "int",
+            "default": 51820,
+            "description": "监听端口",
+            "hint": "仅 server 模式显示：监听 UDP 端口（需在容器/网关把该端口暴露给手机侧）。",
+            "condition": {
+              "mode": "server"
+            }
+          },
+          "public_endpoint": {
+            "type": "string",
+            "default": "",
+            "description": "公开地址",
+            "hint": "仅 server 模式显示且必填：手机侧可访问到本插件 WG server 的地址，如 192.168.250.50:51820；只填 host 时端口取 listen_port。",
+            "condition": {
+              "mode": "server"
+            }
+          },
+          "preshared_key": {
+            "type": "string",
+            "default": "",
+            "description": "预共享密钥",
+            "hint": "可选：与对端配置相同的 base64 PSK（32 字节）；留空不使用。"
+          },
+          "interface_address": {
+            "type": "string",
+            "default": "",
+            "description": "本机 WG 地址",
+            "hint": "CIDR，留空按模式取默认：client=10.66.0.2/24，server=10.66.0.1/24；须为 IPv4。"
+          },
+          "phone_wg_ip": {
+            "type": "string",
+            "default": "",
+            "description": "手机 WG 地址",
+            "hint": "手机在 WireGuard 网内的 IPv4 地址，也是 ADB over WG 转发目标；留空按模式取默认：client=10.66.0.3，server=10.66.0.2（须在本机网段内）。 官方 WG App 手机的 adbd 通常不可经隧道访问（VPN 按 UID 分流），见使用手册「已知限制」。"
+          },
+          "adb_local_port": {
+            "type": "int",
+            "default": 15555,
+            "description": "ADB 隧道本地端口",
+            "hint": "helper 在容器 127.0.0.1 监听该端口并转发到手机 5555；0=不启用 ADB over WG。 手机官方 WireGuard App 场景下 adbd 回包受 Android VPN 按 UID 分流限制，ADB over WG 主要用于 Linux/容器或 root 全局 WG 对端（详见使用手册「已知限制」）。"
+          },
+          "auto_adb": {
+            "type": "bool",
+            "default": false,
+            "description": "自动切换 ADB 目标",
+            "hint": "helper 健康后把 ADB 目标切到 127.0.0.1:<adb_local_port>，停止/异常/配置变化时恢复原目标。需 adb_local_port>0。"
+          },
+          "adb_target_port": {
+            "description": "手机隧道内 ADB 入口端口",
+            "type": "int",
+            "default": 5555,
+            "hint": "官方 WireGuard App + Phone ADB Relay 填 15555；直接 adbd 填 5555。Relay 需监听手机 WG 地址并仅允许本插件 WG 地址。"
+          },
+          "socks_port": {
+            "description": "通用 SOCKS5 TCP 代理本地端口",
+            "type": "int",
+            "default": 0,
+            "hint": "0 关闭；启用后监听 127.0.0.1，仅支持 peer AllowedIPs 内的 IPv4/IPv6 地址 CONNECT，不需逐个固定转发。"
+          }
+        }
+      },
+      "tailscale": {
+        "type": "object",
+        "description": "Tailscale 参数",
         "condition": {
           "enabled": true,
           "provider": "tailscale"
+        },
+        "items": {
+          "hostname": {
+            "type": "string",
+            "default": "astrbot-phone",
+            "description": "组网设备名称",
+            "hint": "1–63 位字母、数字和连字符。"
+          },
+          "tailscale_auth_key": {
+            "type": "string",
+            "default": "",
+            "description": "Tailscale Auth Key",
+            "hint": "可留空通过 /phone mesh login 的登录链接授权；填写后仅经私有文件交给官方客户端，状态和日志不展示密钥。"
+          },
+          "tailscale_path": {
+            "type": "string",
+            "default": "",
+            "description": "Tailscale CLI 路径",
+            "hint": "留空使用数据目录/PATH；缺失时从 Tailscale 官方下载当前 Linux 架构便携包。可填写手动路径，保存后重载。"
+          },
+          "tailscaled_path": {
+            "type": "string",
+            "default": "",
+            "description": "Tailscale 服务路径",
+            "hint": "留空使用数据目录/PATH；缺失时从 Tailscale 官方下载当前 Linux 架构便携包。可填写手动路径，保存后重载。"
+          },
+          "phone_ip": {
+            "type": "string",
+            "default": "",
+            "description": "手机组网 IPv4",
+            "hint": "手机官方客户端连接后显示的组网地址。"
+          },
+          "auto_adb": {
+            "type": "bool",
+            "default": false,
+            "description": "经组网连接 ADB",
+            "hint": "手机需运行 Phone ADB Relay UID 中转（通用于 Android VPN），默认转入 15555；电脑系统级 VPN 可直接填 adbd 端口。"
+          },
+          "adb_port": {
+            "type": "int",
+            "default": 15555,
+            "description": "手机 ADB/中转端口",
+            "hint": "组网中手机对外监听端口。"
+          },
+          "local_adb_port": {
+            "type": "int",
+            "default": 18855,
+            "description": "本地 ADB 转发端口",
+            "hint": "只监听 127.0.0.1；启动后自动切换，停止恢复原配置。"
+          },
+          "proxy_port": {
+            "type": "int",
+            "default": 18889,
+            "description": "组网抓包端口",
+            "hint": "组网内发布到本地抓包服务的 TCP 端口，由网络成员授权及 ACL 控制。"
+          }
         }
       },
-      "tailscale_path": {
-        "type": "string",
-        "default": "",
-        "description": "Tailscale CLI 路径",
-        "hint": "留空使用数据目录/PATH；缺失时从 Tailscale 官方下载当前 Linux 架构便携包。可填写手动路径，保存后重载。",
-        "condition": {
-          "enabled": true,
-          "provider": "tailscale"
-        }
-      },
-      "tailscaled_path": {
-        "type": "string",
-        "default": "",
-        "description": "Tailscale 服务路径",
-        "hint": "留空使用数据目录/PATH；缺失时从 Tailscale 官方下载当前 Linux 架构便携包。可填写手动路径，保存后重载。",
-        "condition": {
-          "enabled": true,
-          "provider": "tailscale"
-        }
-      },
-      "phone_ip": {
-        "type": "string",
-        "default": "",
-        "description": "手机组网 IPv4",
-        "hint": "手机官方客户端连接后显示的组网地址。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "auto_adb": {
-        "type": "bool",
-        "default": false,
-        "description": "经组网连接 ADB",
-        "hint": "手机需运行 Phone ADB Relay UID 中转（通用于 Android VPN），默认转入 15555；电脑系统级 VPN 可直接填 adbd 端口。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "adb_port": {
-        "type": "int",
-        "default": 15555,
-        "description": "手机 ADB/中转端口",
-        "hint": "组网中手机对外监听端口。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "local_adb_port": {
-        "type": "int",
-        "default": 18855,
-        "description": "本地 ADB 转发端口",
-        "hint": "只监听 127.0.0.1；启动后自动切换，停止恢复原配置。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "proxy_port": {
-        "type": "int",
-        "default": 18889,
-        "description": "组网抓包端口",
-        "hint": "组网内发布到本地抓包服务的 TCP 端口，由网络成员授权及 ACL 控制。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "zerotier_network_id": {
-        "type": "string",
-        "default": "",
-        "description": "ZeroTier Network ID",
-        "hint": "控制台私有网络的 16 位十六进制 ID；加入后在控制台授权页面显示的 10 位节点 ID。",
+      "zerotier": {
+        "type": "object",
+        "description": "ZeroTier 参数",
         "condition": {
           "enabled": true,
           "provider": "zerotier"
-        }
-      },
-      "zerotier_library": {
-        "type": "string",
-        "default": "",
-        "description": "ZeroTier Sockets SDK 路径",
-        "hint": "仅手动提供与宿主架构及 SDK API 兼容的动态库绝对路径；构建要求见 helper/mesh/README.md。",
-        "condition": {
-          "enabled": true,
-          "provider": "zerotier"
+        },
+        "items": {
+          "phone_ip": {
+            "type": "string",
+            "default": "",
+            "description": "手机组网 IPv4",
+            "hint": "手机官方客户端连接后显示的组网地址。"
+          },
+          "auto_adb": {
+            "type": "bool",
+            "default": false,
+            "description": "经组网连接 ADB",
+            "hint": "手机需运行 Phone ADB Relay UID 中转（通用于 Android VPN），默认转入 15555；电脑系统级 VPN 可直接填 adbd 端口。"
+          },
+          "adb_port": {
+            "type": "int",
+            "default": 15555,
+            "description": "手机 ADB/中转端口",
+            "hint": "组网中手机对外监听端口。"
+          },
+          "local_adb_port": {
+            "type": "int",
+            "default": 18855,
+            "description": "本地 ADB 转发端口",
+            "hint": "只监听 127.0.0.1；启动后自动切换，停止恢复原配置。"
+          },
+          "proxy_port": {
+            "type": "int",
+            "default": 18889,
+            "description": "组网抓包端口",
+            "hint": "组网内发布到本地抓包服务的 TCP 端口，由网络成员授权及 ACL 控制。"
+          },
+          "zerotier_network_id": {
+            "type": "string",
+            "default": "",
+            "description": "ZeroTier Network ID",
+            "hint": "控制台私有网络的 16 位十六进制 ID；加入后在控制台授权页面显示的 10 位节点 ID。"
+          },
+          "zerotier_library": {
+            "type": "string",
+            "default": "",
+            "description": "ZeroTier Sockets SDK 路径",
+            "hint": "仅手动提供与宿主架构及 SDK API 兼容的动态库绝对路径；构建要求见 helper/mesh/README.md。"
+          }
         }
       }
     }

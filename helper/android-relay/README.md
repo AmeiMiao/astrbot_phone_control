@@ -8,11 +8,11 @@ Android 8+ 手机组件，以普通 App UID 在 WireGuard、Tailscale 或 ZeroTi
 2. 手机开启网络 ADB（可由已授权 USB ADB 执行 `adb tcpip 5555`），确认 adbd 监听 5555。
 3. 官方 WireGuard/Tailscale/ZeroTier 客户端连接同一网络；应用分流中允许 `fun.acat.phonerelay`。
 4. 打开 Phone ADB Relay，填写手机组网 IPv4 地址和唯一允许的插件组网 IPv4 地址，点击启动。组件仅在 tun/wg 接口地址的 15555 端口监听，转发目标固定为手机 loopback adbd。
-5. WireGuard 设置 `wireguard.adb_target_port=15555`；Tailscale/ZeroTier 设置 `mesh.adb_port=15555`，分别开启对应 `auto_adb`。后台保留名单包含当前 VPN 客户端与 `fun.acat.phonerelay`。
+5. WireGuard 设置 `network.wireguard.adb_target_port=15555`；Tailscale/ZeroTier 设置所选服务的 `adb_port=15555`，分别开启对应 `auto_adb`。后台保留名单包含当前 VPN 客户端与 `fun.acat.phonerelay`。
 
 通知栏和界面的停止按钮立即关闭监听与活动连接。VPN 接口消失后服务停止；服务使用 `START_NOT_STICKY`，由用户重新启动。并发上限为 16 对连接，连接 ADB 的超时为 5 秒。Android 的 ADB 授权机制保持生效。
 
-Linux/root 全局 WireGuard 对端可在插件中选择其实际 adbd 端口。插件侧转发端口为独立的 `wireguard.adb_local_port`，手机组件入口固定为 15555。
+Linux/root 全局 WireGuard 对端可在插件中选择其实际 adbd 端口。插件侧转发端口为独立的 `network.wireguard.adb_local_port`，手机组件入口固定为 15555。
 
 ## 构建
 

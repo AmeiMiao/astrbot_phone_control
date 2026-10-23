@@ -19,9 +19,9 @@ class PhoneWireguardTool(_PhoneToolBase):
     description: str = (
         "WireGuard 组网管理（插件内置 userspace helper，无需 NET_ADMIN/tun）："
         "status=运行状态/健康/对端握手/转发连接；start/stop/restart=开启、停止或重启 "
-        "helper（幂等，会同步保存 wireguard.enabled）；config=导入用配置（client 模式"
+        "helper（幂等，会同步保存统一组网开关并选择 WireGuard）；config=导入用配置（client 模式"
         "显示服务器侧需添加的 Peer 片段，server 模式显示手机端完整 WireGuard 配置）。"
-        "ADB over WG 是否自动切换由配置 wireguard.auto_adb 决定；修改 host/端口/密钥等"
+        "ADB over WG 是否自动切换由配置 network.wireguard.auto_adb 决定；修改 host/端口/密钥等"
         "配置项请让用户在插件配置页保存（会热应用重启 helper）。"
     )
     parameters: dict = Field(

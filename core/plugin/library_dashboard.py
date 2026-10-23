@@ -217,9 +217,42 @@ class LibraryDashboardMixin:
             return error_response("删除图片失败，请检查存储", status_code=500)
 
 
+    async def _network_status(self):
+        from ..network_config import unified_network
+        provider = unified_network(self.raw_config).get("provider", "tailscale")
+        if provider == "wireguard":
+            status = self._wireguard.status()
+            result = {"provider": provider, "ready": status["ok"], "running": status["running"],
+                      "enabled": status["enabled"], "node_id": status["public_key"],
+                      "addresses": status["interface_addresses"], "adb_forward": status["adb_over_wg"],
+                      "error": status["error"] or status["health_reason"]}
+        else:
+            result = await self._mesh.status()
+        result["components"] = self._components.status()
+        return result
+
+    async def _network_control(self, action):
+        if action not in {"start", "stop", "login", "status"}:
+            raise PhoneControlError("组网操作需为 start、stop、login 或 status")
+        if action == "status":
+            return await self._network_status()
+        was_enabled = self.service.config.mesh.enabled or self.service.config.wireguard.enabled
+        await self._apply_config_patch({"network": {"enabled": action != "stop"}})
+        if action == "stop":
+            if not was_enabled:
+                await self._mesh.stop()
+                await self._wireguard.stop()
+        elif self._components.needs_prepare(self.service.config):
+            raise PhoneControlError("运行组件尚未就绪，请保存配置并重载插件；ZeroTier SDK 需手动提供路径")
+        elif self.service.config.wireguard.enabled:
+            await self._wireguard.start()
+        else:
+            await self._mesh.start()
+        return await self._network_status()
+
     async def dashboard_mesh(self):
         try:
-            return json_response(await self._mesh.status())
+            return json_response(await self._network_status())
         except (PhoneControlError, OSError, asyncio.TimeoutError):
             return error_response("组网状态读取失败，请检查组件与网络", status_code=500)
 
@@ -228,8 +261,7 @@ class LibraryDashboardMixin:
         if not isinstance(data, dict) or not isinstance(data.get("action"), str) or data["action"] not in {"start", "stop"}:
             return error_response("action 需为 start 或 stop", status_code=400)
         try:
-            await self._apply_config_patch({"mesh": {"enabled": data["action"] == "start"}})
-            result = await self._mesh.start() if data["action"] == "start" else await self._mesh.status()
+            result = await self._network_control(data["action"])
             return json_response(result)
         except (PhoneControlError, OSError, asyncio.TimeoutError):
             return error_response("组网操作未完成，请检查客户端路径、节点授权与网络配置", status_code=400)

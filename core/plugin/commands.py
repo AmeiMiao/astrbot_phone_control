@@ -193,22 +193,12 @@ class CommandsMixin:
 
         sub = tokens[0].lower()
         rest = tokens[1:]
-        if sub == "mesh":
+        if sub in {"mesh", "network"}:
             action = rest[0].lower() if rest else "status"
-            if action in {"start", "login"}:
-                if not self._config().mesh.enabled:
-                    await self._apply_config_patch({"mesh": {"enabled": True}})
-                result = await self._mesh.start()
-            elif action == "stop":
-                # 配置先关闭，使保活循环与停止命令一致。
-                await self._apply_config_patch({"mesh": {"enabled": False}})
-                await self._mesh.stop()
-                result = await self._mesh.status()
-            elif action == "status":
-                result = await self._mesh.status()
-            else:
-                await self._say(event, "用法：/phone mesh status|start|login|stop")
+            if action not in {"start", "login", "stop", "status"}:
+                await self._say(event, "用法：/phone network status|start|login|stop")
                 return
+            result = await self._network_control(action)
             await self._say(event, json.dumps(result, ensure_ascii=False, indent=2))
             return
 
