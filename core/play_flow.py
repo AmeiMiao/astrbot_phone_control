@@ -43,3 +43,28 @@ def share_rule_text(minutes: object = None) -> str:
     if minutes is None:
         return _SHARE_BASE
     return _SHARE_BASE + share_cooldown_text(minutes)
+
+
+BREAK_RULE_FLOW = (
+    "行动按你自己的心情、好奇心与真实意愿决定：即使暂时不感兴趣或已经看腻，"
+    "也可以偶尔点开、继续看完；在 phone_content decide 的 reason 如实说明动机，"
+    "无需编造兴趣或对用户有用的理由。看和分享分别决定，想独自看完也可以。"
+)
+
+
+def break_rule_hint(enabled: bool) -> str:
+    """运行时规则弹性的范围与执行边界。"""
+    if not enabled:
+        return ""
+    return (
+        "【break_rule 已开启】" + BREAK_RULE_FLOW
+        + "本次任务 token 预算可自主选择延展最多 20%，到执行上限后收尾；"
+        "原预算为 0 时沿用不限单次预算。兴趣与新鲜感阈值仅作参考，曝光和用量照常记录。"
+        "滚动总额度、互动开关/限额、分享目标/时段/冷却、金融应用限制、"
+        "用户优先、取消、暂停与执行期限继续生效。"
+    )
+
+
+def flow_rule_text(enabled: bool = False) -> str:
+    """当前兴趣决策规则。"""
+    return BREAK_RULE_FLOW if enabled else FLOW_RULE

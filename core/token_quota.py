@@ -176,14 +176,21 @@ class PlayBudget:
     session: str
     target_tokens: int
     spent_tokens: float = 0.0
+    break_rule: bool = False
+
+    @property
+    def limit_tokens(self) -> int:
+        """本次任务的执行上限；规则弹性提供向上取整的 20% 余量。"""
+        target = max(0, int(self.target_tokens))
+        return target + (target + 4) // 5 if self.break_rule else target
 
     @property
     def remaining_tokens(self) -> float:
-        return max(0.0, float(self.target_tokens) - self.spent_tokens)
+        return max(0.0, float(self.limit_tokens) - self.spent_tokens)
 
     @property
     def completed(self) -> bool:
-        return self.spent_tokens >= float(self.target_tokens)
+        return self.spent_tokens >= float(self.limit_tokens)
 
 
 class PlayBudgetRegistry:

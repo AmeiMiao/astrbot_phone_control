@@ -93,7 +93,7 @@ def _error(exc: BaseException) -> str:
     return f"error: {message}"
 
 
-def _novelty_bored_note(match: Any) -> str:
+def _novelty_bored_note(match: Any, *, break_rule: bool = False) -> str:
     """把「已看腻」的新鲜感匹配结果转成给模型的简短提示；未到阈值返回空串。"""
     if match is None or not getattr(match, "bored", False):
         return ""
@@ -103,7 +103,8 @@ def _novelty_bored_note(match: Any) -> str:
     subject = f"「{label}」" if label else "这类内容"
     return (
         f"新鲜感提示：{subject}你已看腻（疲劳 {fatigue:.0f}/100）；"
-        "之后降低同类内容的打开/停留概率，优先换主题或换 App。"
+        + ("break_rule 已开启，阈值仅作参考，可以按真实意愿继续看。" if break_rule
+           else "之后降低同类内容的打开/停留概率，优先换主题或换 App。")
     )
 
 
@@ -319,7 +320,7 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
 
     def _novelty_bored_note(self, match: Any) -> str:
         """新鲜的「已看腻」提示文本。"""
-        return _novelty_bored_note(match)
+        return _novelty_bored_note(match, break_rule=self.service.config.auto.break_rule)
 
     # ---- 操作前 App 经验召回 / 失败更新 ------------------------------
 

@@ -1082,3 +1082,30 @@ def test_tool_wrapper_recall_falls_back_to_local_archive_on_semantic_failure():
     text = result if isinstance(result, str) else str(result)
     assert "【App 使用经验（按当前 App/页面召回）】" in text
     assert "顶部是搜索入口" in text
+
+
+def test_break_rule_guard_stops_at_extended_budget_and_global_limit(tmp_path):
+    from core.service import PhoneService
+
+    raw = {"adb": {"host": "127.0.0.1", "port": 5555},
+           "auto": {"break_rule": False}}
+    service = PhoneService(raw_config=raw, adb=None, actions=None,
+                           diary=None, data_dir=tmp_path)
+    event = FakeEvent()
+    event.set_extra("cron_payload", {"play_task": True, "target_tokens": 10000})
+    context = FakeToolContext(event)
+    tool = _status_tool(service)
+    budget = service.ensure_play_budget(event)
+    budget.spent_tokens = 10000
+    with pytest.raises(tools_mod._ToolNotice, match="预算已完成"):
+        run(tool._guard(context))
+    raw["auto"]["break_rule"] = True
+    assert run(tool._guard(context)) is event
+    budget.spent_tokens = 12000
+    with pytest.raises(tools_mod._ToolNotice, match="预算已完成"):
+        run(tool._guard(context))
+    budget.spent_tokens = 10000
+    raw["quota"] = {"enabled": True, "max_tokens": 100}
+    service.record_tokens(100, session=event.unified_msg_origin)
+    with pytest.raises(tools_mod._ToolNotice, match="额度已用完"):
+        run(tool._guard(context))

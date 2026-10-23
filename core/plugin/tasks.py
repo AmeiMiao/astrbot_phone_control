@@ -618,6 +618,7 @@ class TasksMixin:
             ),
             share_hint=self.service.share_policy_hint(),
             novelty_hint=self.service.novelty_prompt(),
+            break_rule=self.service.config.auto.break_rule,
         )
         payload = {
             "session": "",
@@ -851,6 +852,7 @@ class TasksMixin:
                 recent_learning=recent_learning,
                 share_hint=self.service.share_policy_hint(),
                 novelty_hint=self.service.novelty_prompt(),
+                break_rule=self.service.config.auto.break_rule,
             )
         except TypeError:
             note = build_continuous_note(

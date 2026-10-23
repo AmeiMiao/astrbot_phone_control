@@ -570,6 +570,7 @@ class CommandsMixin:
             ),
             share_hint=self.service.share_policy_hint(),
             novelty_hint=self.service.novelty_prompt(),
+            break_rule=self.service.config.auto.break_rule,
         )
         payload = {
             "session": "",

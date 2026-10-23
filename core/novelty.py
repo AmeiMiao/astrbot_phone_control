@@ -769,7 +769,7 @@ class NoveltyStore:
         items.sort(key=lambda entry: (entry.fatigue, entry.last_seen), reverse=True)
         return items
 
-    def render_for_prompt(self, settings: NoveltySettings) -> str:
+    def render_for_prompt(self, settings: NoveltySettings, *, break_rule: bool = False) -> str:
         """渲染可注入提示词的新鲜感摘要（未启用/无符合条目返回空串）。
 
         只列出疲劳度 >= ``threshold*0.6`` 的条目（最多 ``inject_limit`` 条），
@@ -795,11 +795,13 @@ class NoveltyStore:
             if self._bored(settings, entry.fatigue):
                 lines.append(
                     f"- 「{label}」疲劳 {entry.fatigue:.0f}/100"
-                    "（已看腻：下次降低同类内容打开/停留概率，优先换主题或换 App）"
+                    + ("（已看腻：阈值仅作参考，可按真实意愿继续看）" if break_rule
+                     else "（已看腻：下次降低同类内容打开/停留概率，优先换主题或换 App）")
                 )
             else:
                 lines.append(
-                    f"- 「{label}」疲劳 {entry.fatigue:.0f}/100（接近阈值，适度减少）"
+                    f"- 「{label}」疲劳 {entry.fatigue:.0f}/100"
+                    + ("（接近阈值，供参考）" if break_rule else "（接近阈值，适度减少）")
                 )
         lines.append("一段时间不看会自然恢复新鲜感。")
         text = "\n".join(lines)

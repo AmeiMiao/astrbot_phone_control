@@ -338,7 +338,7 @@ class PhoneService:
         if not settings.enabled:
             return ""
         try:
-            return self.novelty.render_for_prompt(settings)
+            return self.novelty.render_for_prompt(settings, break_rule=self.config.auto.break_rule)
         except Exception as exc:  # noqa: BLE001 - 读取失败不影响提示词
             logger.warning("新鲜感状态读取失败：%s", exc)
             return ""
@@ -594,6 +594,7 @@ class PhoneService:
         budget = self.play_budgets.get(session)
         if budget is None or budget.target_tokens != target:
             budget = self.play_budgets.begin(session, target)
+        budget.break_rule = self.config.auto.break_rule
         return budget
 
     def record_tokens(

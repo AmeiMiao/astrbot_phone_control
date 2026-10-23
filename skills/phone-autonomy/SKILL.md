@@ -162,3 +162,8 @@ image.auto_save_images 开启时，图文 read 后按兴趣调用 phone_save_ima
 - 帖子分享使用 `content_type=post`：工具回到同一帖顶部确认后重新截图。回顶失败时先观察
   原因、关闭弹窗或手动回到顶部，不能把帖子中途截图当作完成结果。
 - 分享视频用 `content_type=video` 保留当前帧，其他已经确认的当前画面使用 `screen`。
+
+
+当运行时提示 `break_rule 已开启` 时，可偶尔按心情、好奇心或单纯想看继续低兴趣、
+已看腻的内容，`decide continue` 的 reason 如实记录动机。本次任务 token 预算可自主
+延展最多 20%，执行上限由工具检查；总额度、互动授权/限额、分享冷却和设备停止边界继续生效。

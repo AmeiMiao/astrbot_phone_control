@@ -235,7 +235,9 @@ class ContentTasks:
         return {
             "decision": decision,
             "permission_granted": False,
-            "note": "兴趣判断不执行点赞、收藏或发布；回复另申请互动名额",
+            "note": "兴趣判断不执行点赞、收藏或发布；回复另申请互动名额"
+            + ("；break_rule 已开启，可如实记录心情、好奇心或单纯想看作为续看原因"
+               if self.service.config.auto.break_rule else ""),
         }
 
     async def read(self, event, task_id="", seconds=0):

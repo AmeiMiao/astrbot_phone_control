@@ -470,6 +470,8 @@ class AutoSettings:
     random_interval_max: int = DEFAULT_RANDOM_INTERVAL_MAX
     random_probability: float = DEFAULT_RANDOM_PROBABILITY
     share_only_interesting: bool = True
+    break_rule: bool = False
+    """允许本次任务预算延展 20%，并按真实动机探索低兴趣或低新鲜感内容。"""
     continuous_enabled: bool = DEFAULT_CONTINUOUS_ENABLED
     continuous_gap_seconds: int = DEFAULT_CONTINUOUS_GAP_SECONDS
     continuous_target_tokens: int = DEFAULT_CONTINUOUS_TARGET_TOKENS
@@ -1433,6 +1435,12 @@ class PhoneConfig:
                 warn_fn,
                 minimum=0.0,
                 maximum=1.0,
+            ),
+            break_rule=_as_bool(
+                _pick(auto_card, source, "break_rule"),
+                False,
+                "auto.break_rule",
+                warn_fn,
             ),
             share_only_interesting=_as_bool(
                 _pick(auto_card, source, "share_only_interesting"),

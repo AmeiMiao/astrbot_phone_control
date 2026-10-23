@@ -16,7 +16,7 @@ from ..plugin_shared import (
 )
 from ..config import PhoneConfig
 from ..identity import PLUGIN_NAME
-from ..play_flow import FLOW_RULE, share_cooldown_text
+from ..play_flow import FLOW_RULE, flow_rule_text, break_rule_hint, share_cooldown_text
 from ..share_policy import share_window_text
 
 
@@ -130,7 +130,14 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
         mood = "心情：按陪伴插件注入的状态表达，不暴露数值。"
     else:
         mood = "心情：按人格与最近记忆推断，不编造数值。"
-    parts = [_GUIDANCE, mood]
+    enabled = bool(config and config.auto.break_rule)
+    guidance = _GUIDANCE.replace(FLOW_RULE, flow_rule_text(enabled))
+    if enabled:
+        guidance = guidance.replace(
+            "刷到同类内容时降低打开/停留概率，优先换主题或换 App",
+            "新鲜感阈值作参考，可按真实意愿继续看同类内容",
+        )
+    parts = [guidance, mood]
     if config is not None:
         auto = config.auto
         window = share_window_text(
@@ -140,7 +147,7 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
         )
         quiet = bool(auto.share_quiet_hours_enabled)
         parts.append(
-            "分享：" + FLOW_RULE
+            "分享：" + flow_rule_text(enabled)
             + "看和分享是两次独立判断（先决定看不看、看完再单独判断分不分享）；"
             "分享必须带链接或截图（链接优先：App 分享按钮，或从 phone_traffic 的"
             "「可分享链接」取 link；拿不到链接用 include_screenshot=true 截图），"
@@ -171,6 +178,8 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
             "设备 shell：" + ("已授权 phone_shell，仅在 Android 设备当前 ADB 权限下执行前台命令。"
                             if security.allow_shell_tool else "未授权 phone_shell。")
         )
+    if enabled:
+        parts.append(break_rule_hint(True))
     return "\n".join(parts)
 
 
