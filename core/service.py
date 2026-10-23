@@ -749,7 +749,7 @@ class PhoneService:
         ]
         lines.extend(self._backend_status_lines())
         lines.append(self.experiences.status_text())
-        images = config.browse
+        images = config.image
         destination = "两地" if images.save_images_both else {"server": "AstrBot 服务端", "phone": "手机"}[images.image_storage_location]
         lines.append(f"图片保存：{'开启' if images.auto_save_images else '关闭'}；存储位置：{destination}；phone_saved_images 可查询与传手机")
         if hasattr(self, "_contents"):
