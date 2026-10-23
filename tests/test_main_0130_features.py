@@ -517,6 +517,12 @@ def test_phone_learn_syncs_to_livingmemory(tmp_path, monkeypatch):
             tmp_path, monkeypatch, backend="livingmemory"
         )
         lm = FakeLivingMemoryPlugin()
+        lm.config_manager = {}
+        scope_module = types.ModuleType("test_livingmemory.core.memory_scope")
+        scope_module.is_event_memory_allowed = lambda config, event: True
+        scope_module.resolve_memory_scope = lambda config, event: "livingmemory:user:webchat:1"
+        monkeypatch.setitem(sys.modules, scope_module.__name__, scope_module)
+        monkeypatch.setattr(FakeLivingMemoryPlugin, "__module__", "test_livingmemory.main")
         monkeypatch.setattr(plugin, "_get_livingmemory_plugin", lambda: lm)
         try:
             learn_tool = _tools_ns["PhoneLearnTool"](service=plugin.service)
@@ -531,6 +537,8 @@ def test_phone_learn_syncs_to_livingmemory(tmp_path, monkeypatch):
             assert len(lm.engine.calls) == 1
             call = lm.engine.calls[0]
             assert "LivingMemory 同步测试" in call["content"]
+            assert call["session_id"] == "livingmemory:user:webchat:1"
+            assert call["metadata"]["phone_original_session_id"] == event.unified_msg_origin
             assert call["metadata"]["source_plugin"] == plugin_main.PLUGIN_NAME
             assert call["metadata"]["memory_type"] == "GENERAL"
             assert call["metadata"]["phone_memory_type"] == "phone_learning"

@@ -57,6 +57,7 @@ from ..interactions import (
     InteractionStore,
 )
 from ..learning import LearningError, LearningStore
+from ..livingmemory_scope import resolve_livingmemory_scope
 from ..novelty import NoveltyStore
 from ..live_screen import LiveScreenWatcher
 from ..memory_sync import (
@@ -495,18 +496,14 @@ class ObservabilityMixin(LibraryDashboardMixin):
 
     def _get_livingmemory_plugin(self) -> Any:
         """获取已加载的 astrbot_plugin_livingmemory 插件实例（未装返回 None）。"""
-        cached = getattr(self, "_livingmemory_plugin_cache", None)
-        if cached is not None:
-            return cached
         plugin = None
         try:
             lookup = getattr(self.context, "get_registered_star", None)
             metadata = lookup(LIVINGMEMORY_PLUGIN_NAME) if callable(lookup) else None
-            plugin = getattr(metadata, "star_cls", None)
-        except Exception as exc:  # noqa: BLE001 - 未安装/未加载时静默降级
+            if metadata is not None and getattr(metadata, "activated", True):
+                plugin = getattr(metadata, "star_cls", None)
+        except Exception as exc:  # noqa: BLE001 - 未安装/未加载时返回未就绪
             logger.debug("获取 LivingMemory 插件实例失败：%s", exc)
-        if plugin is not None:
-            self._livingmemory_plugin_cache = plugin
         return plugin
 
     async def _sync_memory_to_livingmemory(
@@ -524,12 +521,8 @@ class ObservabilityMixin(LibraryDashboardMixin):
         content = str(payload.get("content") or "")
         if not content:
             return False, "记忆内容为空"
-        session_id = ""
         try:
-            session_id = str(getattr(event, "unified_msg_origin", "") or "").strip()
-        except Exception:  # noqa: BLE001 - 鸭子类型事件
-            pass
-        try:
+            session_id = resolve_livingmemory_scope(plugin, event, payload)
             memory_id = await engine.add_memory(
                 content=content,
                 session_id=session_id or None,
@@ -541,6 +534,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
                     "tags": list(payload.get("tags") or []),
                     "phone_payload": dict(payload.get("payload") or {}),
                     "source": PLUGIN_NAME,
+                    "phone_original_session_id": str(getattr(event, "unified_msg_origin", "") or ""),
                 },
             )
         except Exception as exc:  # noqa: BLE001 - 写入异常如实报告

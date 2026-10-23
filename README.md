@@ -246,3 +246,5 @@ NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt
 命令输出：`command.status_as_image`、`command.help_as_image` 默认开启，分别控制 `/phone status` 与 `/phone help` 的图片输出。关闭对应开关后发送文字；图片使用 AstrBot 文字转图服务，渲染失败时提示并附上文字。
 
 Dashboard「学习向量」可切换 App 操控经验与聊天学习/浏览索引，查看模型、维度、更新时间、正文及实际向量；支持来源筛选、关键词搜索与分页。查看不会调用向量模型或启动设备。
+
+LivingMemory 同步按其当前访问规则、身份别名和记忆作用域写入：user 作用域随同一用户跨会话共享，session 及隔离会话按来源会话保存，global 按全局规则保存。用户发起的后台任务以发起人解析身份；规则接口未就绪或来源未获授权时会返回同步失败原因。
