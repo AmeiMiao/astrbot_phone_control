@@ -1,284 +1,215 @@
-# astrbot_phone_control_mirror
+# 手机操控 · astrbot_phone_control_mirror
 
-> **使用风险**：使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失；请自行确认平台规则与操作授权。
-
-[![GitHub](https://img.shields.io/badge/GitHub-acat-fun%2Fastrbot__phone__control-181717.svg)](https://github.com/acat778/astrbot_phone_control)
+[![GitHub](https://img.shields.io/badge/GitHub-acat778%2Fastrbot__phone__control-181717.svg)](https://github.com/acat778/astrbot_phone_control)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> 把一台安卓模拟器变成 AstrBot 的「手机」：远程 ADB / scrcpy 控制，让主 Agent 以自身人格
-> 浏览 App、理解内容、记录记忆，并按规则自主互动。
+让 AstrBot 操作一台安卓模拟器：查看屏幕、浏览应用、理解图文与视频、记录学习，并按授权完成互动。
 
-当前版本：`0.1.6` ｜ 适用 AstrBot：`>= 4.27.1, < 5` ｜ 主仓库：[GitHub](https://github.com/acat778/astrbot_phone_control) ｜ 许可证：[MIT](LICENSE)
+**版本：`0.1.6.21`** · **AstrBot：`>=4.27.1,<5`** · **Python：`>=3.10`**
 
----
+> **使用风险**：使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失。请自行确认平台规则与操作授权，仅操作自己拥有或获授权的设备和账号。
 
-## 简介
-
-`astrbot_phone_control` 是 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的手机操控插件。
-它通过远程 ADB（可选 scrcpy / minitouch 后端）操作一台安卓模拟器，把「看屏幕、点滑动、
-输入、打开 App、理解内容、记录记忆」封装成 36 个 LLM 工具，并提供 `/phone` 命令族、
-定时自主任务、监控与资料管理面板与配置热应用。
-
-插件不绑定具体 App：内置抖音 / B 站 / 小黑盒画像，其余任意已安装 App 用通用文本抽取兜底。
-AI 可以自主浏览、看视频、查收件箱、按规则评论/回复/发帖；插件只负责授权、限额、冷却、
-记账与安全边界，不写死任何 App 操作流程。
-
-## 特性
-
-- **连接常驻**：`control.scrcpy.keep_alive=true` 默认预热所选通道；首帧等待、断线恢复和实际回退原因可查，`/phone stop` 彻底停止。
-- **内容任务**：`phone_content` 管理单篇图文或视频，原图正文关联、8 秒试看与 20 秒续看、评论阅读和回复分别决定。素材正常执行时受保护，结束按截图时限清理，异常立即回收。
-- **经验自动归档**：有成功操作和后续页面证据时自动总结 App 使用经验，写入插件本地档案；待写重试与错误可在状态查看。
-- **设备操控**：ADB / scrcpy 控制，UI 树解析、快速截图、点击/滑动/输入/按键/App 启停、后台清理。
-- **自主玩手机**：定时自主浏览、随机玩手机、持续刷手机；行动由 AI 自己的兴趣驱动（中途不感兴趣可直接退出），分享/互动放在内容看完或玩完之后独立判断；用户任务优先抢占，轮次/预算/间隔可配。
-- **内容理解**：信息流卡片抽取、浏览日志（默认上限 500、自动清理并保护最近 3 轮任务的日志）、学习档案、App 使用经验；App 经验只保存插件本地档案，打开 App/读取屏幕后按当前 App、当前页面自动召回，操作失败会标记旧经验可能失效并提示覆盖更新。
-- **聊天语义找回**：学习档案与浏览日志建立插件本地向量索引；普通聊天按消息语义检索相关记忆并只注入本轮临时内容块，只读本地记忆、不连接手机；向量模型留空自动使用 AstrBot 默认 Embedding Provider。关闭记忆本地保存后该能力同步停用并隐藏配置。App 经验使用独立索引与独立向量模型配置，不进入聊天索引。
-- **记忆插件集成**：`memory.local_enabled` 控制是否保存到插件本地（默认开启，关闭后不写学习档案/浏览日志/聊天记忆）；可选同步 MemoryCompanion / LivingMemory（按独立开关选择，未选中时相关配置项自动隐藏）；自行唤醒学习不计入用户记忆，用户指定使用手机的学习计入发起用户信息，自行唤醒记忆可选记入「个人记忆-行动」。
-- **人机验证**：两阶段视觉求解（滑块/顺序点击/识图/拼图/答题），有限自动尝试 → 暂停手机并通知人工接管。
-- **互动能力**：点赞 / 收藏 / 主动评论 / 被动回复 / 发帖（默认关闭）由 AI 自主完成，插件只做许可、限额、冷却与记账。
-- **抓包 + 屏幕识别协同**：`phone_screen` 自动附带当前前台 App 的抓包页面内容（按前台 App /
-  最近操作 / 时效过滤），视觉信息用截图/OCR 兜底；`phone_traffic` 可查原始流量与分享链接。
-- **流媒体内容识别**：录制设备播放声音 + 关键画面描述，看懂视频/直播/音乐（需要 STT/视觉 Provider）。
-- **Token 对账**：按 AstrBot `provider_stats` 实际 usage 对账，滚动窗口额度可选（默认不限制）。
-- **WireGuard 组网**：插件内置 userspace WG helper（容器无需 `NET_ADMIN`/`/dev/net/tun`）：
-  `client` 连接已有 WG 服务器，或 `server` 让装了 WireGuard App 的手机接入；
-  `/phone wg config` 输出服务器 Peer 片段 / 手机端完整配置，可选 `auto_adb` 把 ADB 目标切到
-  WG 隧道。无 root Android 配合随包的 [Phone WG Relay](helper/android-relay/README.md)，
-  使用 App UID 中转 ADB；支持环回 SOCKS5 TCP 代理访问 WG 目标。
-- **按兴趣存图**：独立「图片保存」卡片控制（`image.auto_save_images` 默认关闭）；开启后可把喜欢的图文原图与表情包保存到 AstrBot 服务端、手机或两地，按内容去重并记录信息与路径，后续可检索及传到手机。
-- **静默分享**：操作过程不输出逐步解说，分享前整理为简短介绍，分享成功后静默收尾；看/分享分开判断，同一目标会话有可配置冷却（默认 30 分钟）避免刷屏。
-- **配置页组织**：按连接、权限、浏览、自主任务、记忆、提示词、感知、组网等分组排序；未开启的
-  关联项按条件隐藏（WireGuard 未开启只显示开关、未选中 MemoryCompanion 时不显示其专属项、
-  关闭记忆本地保存时隐藏聊天语义找回卡片）。
-- **安全与运维**：管理员/主人白名单、统一设备执行入口（授权/占用/暂停/取消代次/期限）、
-  Dashboard 监控与资料管理、抓包日志打码与轮转；WG 私钥落盘 0600。
+[快速开始](#快速开始) · [功能](#功能) · [配置](#配置) · [组网与抓包](#组网与抓包) · [常用命令](#常用命令) · [使用手册](docs/使用手册.md)
 
 ## 快速开始
 
 ### 环境要求
 
-- AstrBot `>= 4.27.1, < 5`（已在 4.29.1 验证）；
-- 一台开启 ADB 调试的安卓模拟器（或真机），AstrBot 容器可访问其 ADB 端口；
-- 插件随包提供 **Linux x86_64** 的 adb（官方 platform-tools 37.0.1，`bin/linux-x86_64/adb`）与
-  平台无关的 `bin/scrcpy-server-v5.0.1`，该平台上无需额外安装 adb/scrcpy。Linux ARM64、Windows、
-  macOS 等其他平台请把 `adb.path` 指向系统 adb（或保证 PATH 中有 adb）；`phone-wg` 可按
-  `helper/phone-wg` 源码自行编译后放到插件根目录 `bin/phone-wg`（详见使用手册）。
-- 非 Linux x86_64 宿主（如 Windows）：核心 ADB 控制（状态/UI 树/点击/输入/浏览/截图）在自备 adb 后可用；
-  依赖 Linux 进程监护或 `sh`/ffmpeg 管道的实时屏幕视频解码与抓包会降级或不可用，状态与日志会给出原因。
-- 可选：`mitmproxy`（抓包识别，需独立 venv 安装，见使用手册）、PyAV 或宿主机 `ffmpeg`
-  （scrcpy 视频镜像）、ADBKeyboard（中文输入）、minitouch（可选 touch 后端）。
-- 可选：WireGuard 组网使用插件自带 userspace helper（仅随包提供 Linux x86_64 的
-  `bin/linux-x86_64/phone-wg`）。Linux 无需 `NET_ADMIN`/`/dev/net/tun`；其他平台可按
-  `helper/phone-wg` 源码自行编译后放到插件根目录 `bin/phone-wg`（Windows 还需管理员权限并提供
-  WireGuard 官方 `wintun.dll`，不随插件分发）。密钥与 helper 配置写入插件数据目录 `wireguard/`，
-  文件 0600。详见 [第三方引用说明](THIRD_PARTY_NOTICES.md)。
-
-### 安装
-
-1. 将本目录放到 AstrBot 的 `data/plugins/astrbot_phone_control_mirror/`（目录名需与
-   `metadata.yaml` 的 `name` 一致），或在 AstrBot WebUI 上传插件包；
-2. ADB 地址与端口默认留空：插件可正常安装并加载为「未启用」状态（假开启），面板、配置与资料迁移可用，但不会连接设备或启动后台任务；
-3. 在「ADB 连接」中填写 AstrBot 所在环境可访问的主机与端口，保存后重载插件；日志出现「已加载：ADB <host>:<port>」表示已进入启用状态；
-4. 对机器人发送 `/phone status` 验证，再试 `/phone browse douyin 3`。
-
-ADB 为空时无需先准备设备即可安装、查看面板与导入资料；填写设备地址前，`/phone status` 与手机工具会给出可操作的未配置提示。
-
-### 从原插件迁移配置与持久化数据
-
-插件标识为 `astrbot_phone_control_mirror`，配置、数据和面板 API 按该标识独立存储。先停用原插件，再启用本插件，在监控面板打开「配置与数据迁移」，点击「预览原配置」，核对字段后「确认导入」。
-
-迁移读取配置目录中的 `astrbot_phone_control_config.json`，只补充本插件仍为默认值的字段，保留自定义值；确认时重新核对文件指纹，导入前备份本插件配置，成功后即时应用。预览仅显示字段名，原插件配置和数据保持完整。
-
-「预览持久化数据」可单独导入日记、聊天记忆、学习档案、App 经验、兴趣状态、互动/Token 用量/指标和内容任务历史、截图及保存的图片。记录按编号或内容去重，同一编号或 App/页面的冲突保留本插件当前值；图片路径自动调整，重名且不同内容的截图另存。可勾选补充缺失的 ADB/WireGuard 密钥，已有密钥成组保留。
-
-导入资料前先关闭本插件自主任务、WireGuard 与抓包，并等待手机任务结束。预览只显示文件名、数量和体积；源或目标变化时须重新预览。目标资料备份到同级 `astrbot_phone_control_mirror_migration-backups/<编号>/`，失败时恢复已写文件，成功后刷新内存。源文件保持完整；运行状态、任务预约与媒体缓存由各自模块管理。单文件上限 64 MiB、每边合计 512 MiB、10000 个文件。
-
-配置迁移、数据迁移分别位于 `core/config_migration.py`、`core/data_migration.py`，面板接口集中在 `core/plugin/config_migration.py`。
-
-### 示例
-
-```text
-用户：去小黑盒刷会儿，遇到 CS2 内容发我看看
-AI：调用 phone_open_app / phone_browse / phone_share_to_user 等工具完成任务并汇报
-
-用户：/phone task 去B站看三个科技视频并总结
-AI：转入后台静默执行，完成后主动汇报
-
-用户：/phone status
-AI：返回设备连接、前台 App、电量与分辨率
-```
-
-## 配置
-
-配置按卡片分组（详见 [使用手册 · 配置](docs/使用手册.md#配置) 与插件配置页）：
-
-| 卡片 | 作用 |
+| 项目 | 要求 |
 | --- | --- |
-| ADB 连接 | `host` / `port` 默认留空（未启用，假开启）；`path` 留空时 Linux x86_64 用随包 adb、其他平台用 PATH 中的 adb；`serial`/超时可调 |
-| 权限与安全 | 管理员/白名单/主人；浏览与任务结束清理；点赞收藏/评论/回复/发帖授权、设备 shell、后台保留策略 |
-| 信息流浏览 | 默认 App（留空=随机）、条数、滑动节奏、截图与日记开关 |
-| 图片保存 | 保存图片开关、主要存储位置、两地都存（独立卡片） |
-| 自主浏览 / 随机玩 / 持续刷 | 定时任务、随机间隔与概率、持续刷间隔/预算/偏好 App、分享时段与目标会话分享冷却 |
-| 自主任务模型 | 自主任务专用 Provider（用户对话不受影响） |
-| 自主任务 Token 额度 | 滚动窗口额度与单轮预算（默认不限制） |
-| 内容兴趣与新鲜感 | 同类内容疲劳度阈值/半衰期/相似度（0=关闭） |
-| 记忆存储 | 本地保存开关与学习档案同步去向（关闭本地保存时隐藏聊天语义找回） |
-| 提示词注入 | 使用指南、浏览日志、App 经验注入条数与 App 经验向量模型 |
-| 聊天语义找回 | 本地向量索引、按语义注入相关记忆（默认关闭） |
-| 屏幕感知 | UI 节点上限、dump/截图模式、实时屏幕、OCR/验证超时、感知来源 |
-| 控制/感知后端 | auto/adb/scrcpy；scrcpy 视频镜像参数；可选 minitouch |
-| WireGuard 组网 | enabled/mode(client/server)/listen_port/interface_address/server_endpoint(client)/public_endpoint(server)/server_public_key/PSK/phone_wg_ip/adb_local_port/auto_adb |
-| 流媒体内容识别 | 录音源、时长、关键帧、ASR/视觉 Provider |
-| 流量抓包识别 | 开关、端口、正文截断、保留窗口 |
-| 验证与人工协助 | 失败次数/总时限/单次时限/等待时限/通知目标 |
-| 调试 | 动作日志级别 |
+| 宿主 | AstrBot `>=4.27.1,<5`，Python 3.10+；完整功能以 Linux x86_64 为验证平台 |
+| 设备 | 开启 ADB 调试的安卓模拟器或真机，ADB 地址可从 AstrBot 所在环境访问 |
+| ADB / scrcpy | Linux x86_64 随包提供 adb 37.0.1 与平台无关的 scrcpy-server 5.0.1；其他宿主自备 adb 并填写 `adb.path` |
+| 视频与中文输入 | 可选 PyAV/ffmpeg、ADBKeyboard、minitouch；实时解码和抓包依赖相应宿主组件 |
+| 抓包 | 独立 venv 安装 mitmproxy，配置 `traffic.mitmdump_path`；系统 CA 模式需要 `adb root` |
+| 组网 | WireGuard、Tailscale、ZeroTier 三选一；ZeroTier 随包 SDK 要求 Linux x86_64、glibc ≥2.38 |
 
-配置保存后 AstrBot 会自动重载插件；`/phone` 命令补丁会立即热应用。
+### 安装与首次连接
 
-## 常用命令
+1. 在 AstrBot 安装插件，仓库地址为 `https://github.com/acat778/astrbot_phone_control`；也可上传插件 ZIP，或将插件放入 `data/plugins/astrbot_phone_control_mirror/`。
+2. 打开「ADB 连接」，填写可达的主机与端口，保存后重载插件。容器中的 `127.0.0.1` 指容器自身。
+3. 发送 `/phone status` 检查设备，再尝试 `/phone browse bilibili 3` 或 `/phone task 打开小黑盒并查看最新帖子`。
+4. 按需开启图片保存、记忆、互动和组网；先核对「权限与安全」中的主人、白名单及互动开关。
 
-```text
-/phone help                              查看帮助
-/phone status                            设备状态
-/phone browse [app] [条数]               浏览信息流并记入记忆
-/phone task <instruction>                多步任务转后台静默执行
-/phone tasks                             查看后台任务
-/phone continuous on|off|status          持续刷手机
-/phone play [tokens]                     立即静默玩手机一轮
-/phone traffic [status|tail|on|off]      抓包状态/最近流量/开关
-/phone wg [status|start|stop|restart|config]  WireGuard 组网状态/开关/导入用配置
-/phone verify [status|resume|cancel <id>] 验证与人工协助
-/phone quota [audit [小时]]              token 额度与对账
-/phone novelty [status|reset]            内容新鲜感状态
-/phone stop [job_id|all]                 停任务/抓包/随机与持续刷，回桌面强停应用
-```
+ADB 地址与端口留空时，插件可安装和加载，面板、配置及资料迁移可用；手机能力保持未启用，不启动设备后台任务。
 
-完整命令、36 个 LLM 工具说明与 Skill 手册见 [使用手册](docs/使用手册.md#llm-工具)。
+`/phone status` 与 `/phone help` 默认输出图片，分别由 `command.status_as_image`、`command.help_as_image` 控制。关闭后输出文字；图片渲染失败会提示并附上文字。
 
-## 子进程与停止行为
+## 功能
 
-`/phone stop` 会关闭抓包、自主浏览调度、随机与持续任务，停止实时屏幕和控制后端，并回桌面强停应用；后台保留名单内的应用、桌面和当前输入法保持运行，默认包含 WireGuard、Tailscale 和 Phone WG Relay。后续可用 `/phone traffic on` 或 `/phone continuous on` 显式开启相应能力。
-
-抓包、WireGuard 和解码管道由独立监护器管理，手机端 scrcpy、音频、minitouch 使用设备端看门狗。插件每 3 秒发送心跳，失联后最长约 18 秒回收。重载时按代码指纹识别前任租约，先释放资源再建立新会话。
-
-## App 使用经验
-
-App 经验只保存在插件本地 `plugin_data/astrbot_phone_control_mirror/app_memory.json`，不需要选择存储位置；「提示词注入」卡片开启后按 `app_memory_limit` 注入最近经验。打开 App 或读取屏幕后，插件按当前包名/前台页面自动召回相关经验（同一页面每轮只召回一次）；操作报错时把本轮召回经验累计失败，连续两次标记「可能已失效」，提示重新探索并用 `phone_app_remember` 覆盖更新，覆盖成功后清除标记。需要语义匹配时，在 `app_memory_embedding_provider_id` 选择 Embedding Provider（留空用默认），插件使用独立索引 `plugin_data/<插件标识>/semantic_app/`；未配置向量模型时按页面关键词与更新时间查找经验。
-
-## 安全与隐私
-
-- 默认 `require_admin=true`：仅 AstrBot 管理员、白名单用户或插件定时任务可操作手机；
-  `owner_ids` 非空时只认插件主人（管理员也不放行）。
-- `security.allow_shell_tool` 默认关闭；开启后 `phone_shell` 在 Android 设备当前 ADB 权限下单次执行命令，受设备门禁与超时约束，每路输出最多 8 KiB。
-- 互动默认关闭；点赞/收藏共用 `max_likes_per_session` 单轮上限，评论/回复/发帖按各自每日限额与冷却执行。互动均先申请名额、操作后记录结果；低层点击与输入依赖模型遵守该流程。
-- 抓包仅在本机模拟器上通过 mitmproxy 进行，日志正文截断、URL 敏感参数打码、日志轮转；
-  截图、日记、学习档案等数据均写入插件数据目录 `data/plugin_data/astrbot_phone_control_mirror/`。
-- 验证码、短信/邮箱验证码、人脸与实名认证等账号安全操作始终交由用户处理。
-- WireGuard 私钥与 helper 配置只写插件数据目录 `wireguard/`（keys.json / phone-wg.json，
-  0600），不写入日志；server 模式需自行把 UDP `listen_port` 暴露到手机可达的网络，
-  对端 `AllowedIPs` 按最小网段配置，公网部署建议配合防火墙与 PSK。
-
-## 目录结构
-
-```text
-main.py                插件入口：入口类 PhoneControlPlugin + AstrBot 命令/钩子处理器
-core/plugin/           插件运行逻辑 mixins（装配/生命周期、命令、任务、设备钩子、后端、监控、记忆、记账）
-core/service.py        能力门面 PhoneService（状态/UI/截图/浏览/日记/分享/抓包页面内容）
-core/verification_controller.py  验证会话控制器（尝试次数/总时限/人工接管/持久化）
-core/wireguard.py      WireGuard 组网：X25519 密钥、helper 配置/状态文件、子进程生命周期、ADB over WG
-core/tools/            36 个 LLM 工具实现（按域拆分）
-core/*.py              设备层与纯逻辑模块（ADB/UI/动作/配置/抓包/记忆/新鲜感等）
-skills/                AI 行为手册（自主浏览、互动、验证、媒体、整理）
-views/dashboard/       监控面板、学习记录与保存的图片管理页
-docs/使用手册.md        完整功能、配置、工具、命令与 FAQ
-bin/                   随包 Linux x86_64 的 adb、phone-wg 与 scrcpy-server（含第三方 NOTICE）
-```
-
-各模块职责详见 [使用手册 · 目录结构](docs/使用手册.md#目录结构)。
-
-## 开发与测试
-
-```bash
-# 纯逻辑单测（本机无 AstrBot 依赖时，test_main_* 等容器内用例会自动 skip）
-python3 -m pytest -q
-
-# 安装依赖（抓包可选）
-pip install -r requirements.txt
-```
-
-- 插件要求 Python 3.10+（AstrBot 4.29 运行环境）；
-- 完整测试与 UAT 验证需要在包含 AstrBot 依赖的容器内执行 `python3 -m pytest tests -q`；
-- 修改代码前请阅读仓库内开发约定（若存在），提交保持中文信息与 LF 行尾。
-
-## 常见问题
-
-- **未启用/连接失败**：ADB 地址与端口为空时插件保持未启用；`127.0.0.1` 指 AstrBot 所在环境，容器或远程模拟器请填写实际可达地址与端口后重载插件。
-- **中文输入无效**：需在模拟器安装并启用 ADBKeyboard（`com.android.adbkeyboard/.AdbIME`）。
-- **抓包没有内容**：确认模拟器可 `adb root`、容器已安装 mitmproxy；部分 App 证书固定/加密时只能回退截图识别。
-- **用量与 AstrBot 面板不一致**：`/phone quota` 只统计手机相关 run，面板统计全部请求；
-  实际值以 Agent run 结束后按 `provider_stats` 对账为准。
-
-更多问题见 [使用手册 · 常见问题](docs/使用手册.md#常见问题)。
-
-## 开源协议
-
-本项目采用 **MIT License** 开源，详见 [LICENSE](LICENSE)。
-
-> 版权声明：Copyright (c) 2026 ACAT。
-
-## 第三方组件与引用
-
-插件分发/依赖的第三方组件（scrcpy、Android platform-tools adb、minitouch、ADBKeyboard、
-mitmproxy、PyAV、ffmpeg、AstrBot、MemoryCompanion / LivingMemory 等）的版权、许可证与
-使用方式见 **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**。随插件分发的二进制
-NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt`。
-
-## 声明
-
-- 本项目与 Google、Genymobile、DeviceFarmer、AstrBot 及其维护者无隶属或背书关系；
-  相关商标归各自权利人所有。
-- 本插件仅用于操作使用者自己拥有或获授权使用的设备与账号；请遵守目标 App 的服务条款
-  与所在地法律法规。因使用本插件产生的账号、数据或法律风险由使用者自行承担。
-
-## 文档与仓库
-
-- [完整使用手册](docs/使用手册.md)
-- [第三方组件与引用说明](THIRD_PARTY_NOTICES.md)
-- [许可证](LICENSE)
-
-命令输出：`command.status_as_image`、`command.help_as_image` 默认开启，分别控制 `/phone status` 与 `/phone help` 的图片输出。关闭对应开关后发送文字；图片使用 AstrBot HTML 渲染服务与插件纯文字卡片模板，渲染失败时提示并附上文字。
-
-Dashboard「记忆索引」可切换 App 操控经验与聊天学习/浏览索引，查看模型、维度、更新时间、正文及实际向量；支持来源筛选、关键词搜索与分页。查看不会调用向量模型或启动设备。
-
-LivingMemory 同步按其当前访问规则、身份别名和记忆作用域写入：user 作用域随同一用户跨会话共享，session 及隔离会话按来源会话保存，global 按全局规则保存。用户发起的后台任务以发起人解析身份；规则接口未就绪或来源未获授权时会返回同步失败原因。
-
-Dashboard「浏览与学习」通过内容顶部标签切换浏览日志和学习记录。删除原始记录后关联检索索引立即失效；日志截图文件保留，已同步到其他记忆插件的副本由对应插件管理。
-
-「记忆索引」可删除单条向量索引，原始经验、学习记录与浏览日志保留。删除后该条向量不再参与语义检索，后台重建保持删除结果。原始档案的直接查询与管理独立进行。
-
-「记忆索引」的「相似关系图谱」按同一索引的向量余弦相似度连线，支持阈值/节点上限、搜索/来源筛选、缩放、拖动与节点详情；节点可删除索引。连线表示语义相近，不表示事实或因果；图谱查看不调用向量模型。
-
-
-### 发帖与回复配图
-
-开启图片保存后，`phone_saved_images` 支持按描述/标签查询服务器和手机本地保存图片（storage=server/phone/all）。Agent 按上下文决定是否配图；取得互动预约后用 prepare 提交图片编号、互动类型与语义理由，校验原图并准备到相册，再在 App 选图检查预览。无相关图片时使用文字；准备图片不发布、不计作互动成功。
-
+| 能力 | 说明 |
+| --- | --- |
+| 手机控制 | 36 个 `phone_*` 工具，支持状态、UI 树、截图、点击、滑动、输入、按键与后台清理；按场景选择 ADB、scrcpy、minitouch |
+| 内容理解 | 图文任务关联原图与正文，视频/直播结合播放音频、关键帧、STT 与视觉 Provider；看评论、回复、分享分别判断 |
+| 自主浏览 | 定时、随机和持续任务，按兴趣选择内容；用户任务优先，过程静默，结束简短汇报 |
+| 互动与配图 | 点赞、收藏、评论、被动回复、发帖分别授权并记账；按语义选用服务器或手机保存的图片 |
+| 记忆与经验 | 浏览日志、学习档案、App 使用经验、本地语义召回，可选同步 MemoryCompanion / LivingMemory |
+| 监控与管理 | Dashboard 查看运行指标、记录、图片、记忆索引与相似关系图谱，支持删除、筛选和资料迁移 |
+| 组网与抓包 | WireGuard、Tailscale、ZeroTier 接入；流量可通过 ADB reverse 或组网 IP 进入 mitmproxy |
+| 授权与用量 | 设备统一执行门禁、验证码人工接管、Token 额度及 AstrBot `provider_stats` 用量对账 |
 
 ### 应用类型与启动限制
 
-已安装第三方应用由模型根据包名、名称及安装版本识别类型。银行、支付钱包、证券、基金、保险、贷款、理财、加密资产交易等金融类应用拒绝打开；类型未知、置信度不足或识别失败时同样拒绝。普通工具、命令与信息流浏览共用启动校验，安装版本或设备变化后重新识别。识别使用「自主任务模型」指定 Provider，留空使用当前会话模型；分类只发送应用元数据，并计入模型用量。`phone_list_apps` 展示识别类型与是否允许打开。
+模型根据包名、名称和安装版本识别应用主要用途，`phone_list_apps` 展示类型及是否允许打开。
 
+- 银行、支付钱包、证券、基金、保险、贷款、理财、加密资产交易等金融类应用拒绝打开。
+- 类型未知、置信度不足或模型识别失败时拒绝启动。
+- 命令、工具和信息流浏览共用启动校验；设备、版本变化后重新识别。
+- 识别使用「自主任务模型」指定的 Provider，留空使用当前会话模型；仅发送应用元数据，识别计入模型用量。
 
-### Tailscale 用户态接入
+内置抖音、哔哩哔哩、小黑盒的浏览画像；其他获准启动的应用使用通用文本抽取与屏幕识别。
 
-在「Tailscale / ZeroTier 组网」选择 tailscale，填写独立设备名和 Auth Key，或留空密钥后在 Dashboard「组网接入」点击启动/登录并打开授权链接。Linux x86_64 随包提供官方 1.104.2 组件；其他宿主需填写兼容的客户端路径。节点身份保存在插件私有数据目录，运行不修改宿主 DNS 与路由。
+### 互动、保存图片与分享
 
-手机安装官方 Tailscale 并加入同一网络，将其 100.64.0.0/10 地址填入手机组网 IP；开启组网 ADB 后插件在回环转发并自动切换 ADB，关闭恢复原目标。Android 无 root 可使用 Phone WG Relay 将 VPN App UID 的 15555 端口中转到本机 adbd；系统级 VPN 对端可填写实际 adbd 端口。启用一种 VPN；使用 Tailscale/ZeroTier 时关闭 WireGuard。
+互动默认关闭。点赞/收藏共用单轮上限，评论、被动回复、发帖分别设置每日限额与冷却；先申请 `phone_interaction_gate`，完成后用 `phone_interaction_record` 记录真实结果。实际点击与输入由 Agent 根据界面执行。
 
-`/phone mesh status|start|login|stop` 可查询或控制。停止会关闭配置中的组网开关，身份文件保留，重新开启可复用登录。组网成员与访问端口由控制台授权/ACL 限制。
+开启 `image.auto_save_images` 后，可保存喜欢的原图和表情包到服务器、手机或两地，记录描述、标签、来源与哈希。发帖/回复按上下文决定是否配图：
 
+1. `phone_saved_images(action="search", storage="all")` 查询并阅读候选描述，也可按 `server`、`phone` 筛选。
+2. 获得对应互动预约后，用 `prepare` 提交图片编号、互动类型和语义理由。
+3. 在 App 中选择已核验的相册图片，检查预览与正文，再完成发布并记账。无相关图片时使用文字。
 
-### ZeroTier 用户态接入
+准备图片不执行发布、不计作互动成功。分享须带内容链接或截图；看与分享分别判断，同一目标会话支持分享冷却。
 
-组网服务选择 zerotier，填写控制台私有网络的 16 位 Network ID。点击 Dashboard 启动，复制显示的 10 位节点 ID，在 ZeroTier 控制台成员列表授权后刷新状态；手机官方客户端加入同一网络并授权。节点身份与 Tailscale 分开保存，切换服务会关闭前一节点和转发。
+### 记忆、经验与图谱
 
-Linux x86_64 随包 SDK 要求 glibc ≥ 2.38；其他环境可填写兼容的 ZeroTier Sockets SDK 动态库。SDK 工作进程提供用户态网络，不需要 TUN 或 NET_ADMIN。组网抓包入口仅接受配置的手机 IPv4，ADB SOCKS 仅连接配置的手机地址与端口。
+`memory.local_enabled` 控制本地学习、浏览与聊天记忆保存。App 经验保存在 `plugin_data/astrbot_phone_control_mirror/app_memory.json`，打开应用或读取屏幕后按当前 App/页面召回；操作失败会标记经验可能失效，重新探索后可覆盖更新。
+
+App 经验使用独立索引 `semantic_app/`，聊天学习与浏览使用 `semantic/`。向量模型留空时使用 AstrBot 默认 Embedding Provider。聊天语义召回只读本地索引，不连接设备；查看索引与图谱不调用向量模型。
+
+Dashboard 页面：
+
+| 页面 | 用途 |
+| --- | --- |
+| 监控面板 | 查看后端、截图、流量、互动与模型用量指标 |
+| 浏览与学习 | 内容顶部 Tab 切换浏览日志、学习记录，支持搜索与删除 |
+| 记忆索引 | 切换 App/聊天索引，查看模型、正文和实际向量；相似图谱支持筛选、缩放、拖动与节点详情 |
+| 组网接入 | 启动/停止节点、查看组网地址与授权状态、打开 Tailscale 登录链接、下载公开抓包 CA |
+| 保存的图片 | 查看、搜索、编辑图片语义及删除库记录 |
+| 配置与数据迁移 | 预览并导入原插件配置与持久化资料 |
+
+删除原始日志或学习记录后，关联索引立即失效，日志截图保留。删除「记忆索引」中的单条向量会保留原始档案，删除结果跨重载和后台重建持续生效。图谱连线表示同一向量空间内的余弦相似关系。
+
+MemoryCompanion、LivingMemory 使用独立同步开关。LivingMemory 写入复用其访问规则、身份别名和作用域：`user` 随同一用户跨会话共享，`session` 与隔离会话按来源保存，`global` 按全局规则处理。用户任务按发起人归属，自主学习与用户记忆分别管理；同步失败会返回原因。
+
+## 配置
+
+以 AstrBot 插件配置页及[使用手册](docs/使用手册.md#配置)为准；相关字段按开关条件显示。原生配置保存后重载插件，命令补丁即时应用。
+
+| 分组 | 主要内容 |
+| --- | --- |
+| ADB 连接 | 主机、端口、序列号、adb 路径与超时 |
+| 权限与安全 | 主人/管理员/白名单、设备 Shell、后台保留、互动许可/限额/冷却 |
+| 信息流浏览、图片保存 | 默认应用、条数、节奏、截图、日志保护轮次、图片保存位置 |
+| 自主浏览、随机/持续刷 | 定时、间隔、概率、偏好应用、单轮预算、分享时段与冷却 |
+| 自主任务模型、Token 额度 | Provider、滚动额度、预算与用量审计；额度默认不限制 |
+| 兴趣与记忆 | 内容新鲜感、本地保存、记忆插件同步、学习与经验召回 |
+| 提示词与命令输出 | 使用指南、经验注入、状态/帮助图片开关 |
+| 屏幕感知、控制后端 | UI、截图、实时屏幕、OCR、scrcpy 与 minitouch |
+| WireGuard、Tailscale / ZeroTier | 网络身份、节点地址、ADB 转发与组网抓包端口 |
+| 流媒体、流量抓包 | 音频/关键帧 Provider、mitmproxy 路径、传输通道与 CA 信任方式 |
+| 验证与人工协助、调试 | 自动尝试与等待时限、通知目标、动作日志 |
+
+## 组网与抓包
+
+### 选择接入方式
+
+| 方式 | 服务端 | 手机端 | 关键配置 |
+| --- | --- | --- | --- |
+| WireGuard | 插件内置用户态 helper，可作 client/server | 官方 WireGuard 客户端 | Peer/密钥、隧道地址、端口；`/phone wg config` 提供配置片段 |
+| Tailscale | 插件管理独立官方用户态节点，无宿主 DNS/路由变更 | 官方 Tailscale，加入同一 Tailnet | Auth Key 或登录链接、手机组网 IPv4、节点 ACL |
+| ZeroTier | 插件独立进程运行官方 Sockets SDK，无需 TUN/NET_ADMIN | 官方 ZeroTier，加入同一私有网络 | 16 位 Network ID、控制台成员授权、手机组网 IPv4 |
+
+Android 同时启用一种 VPN。启用 Tailscale/ZeroTier 时关闭插件 WireGuard；组网成员与访问端口在控制台授权。
+
+### Tailscale / ZeroTier 设置
+
+1. 在「Tailscale / ZeroTier 组网」选择服务与独立设备名。
+2. Tailscale 可填写 Auth Key，或留空后在组网页启动并打开登录链接；ZeroTier 填写 Network ID，启动后在控制台授权显示的 10 位节点 ID。
+3. 手机官方客户端加入同一网络，将手机的组网 IPv4 填入配置。Tailscale 使用 `100.64.0.0/10` 地址。
+4. 按需开启组网 ADB。无 root Android 配合 [Phone WG Relay](helper/android-relay/README.md) 将 App UID 的 `15555` 转入本机 adbd；系统级 VPN 对端可直接填写实际 adbd 端口。
+5. 停止组网会关闭该开关并恢复原 ADB 目标，私有身份文件保留，重启可复用。
+
+Linux x86_64 随包提供 Tailscale 1.104.2 和 ZeroTier SDK；ZeroTier SDK 要求 glibc ≥2.38。其他环境可配置兼容组件路径；构建与来源见 [用户态组网组件](helper/mesh/README.md)。
+
+### 抓包通道与证书
+
+| 配置 | 行为 |
+| --- | --- |
+| `traffic.transport=adb` | 手机经回环代理与对应 `adb reverse` 访问服务端 |
+| `traffic.transport=mesh` | 手机代理指向服务端组网 IPv4 与 `mesh.proxy_port`，经 Tailscale/ZeroTier 进入本地 mitmproxy |
+| `traffic.ca_mode=system` | 通过 `adb root` 注入系统 CA |
+| `traffic.ca_mode=manual` | 从组网页下载公开 CA，由手机或 App 配置信任；无 root 可捕获 HTTP，HTTPS 需 App 信任此 CA |
+
+mitmproxy 只监听本地回环。ZeroTier 抓包入口仅接受配置的手机 IP；Tailscale 访问由 Tailnet ACL 控制。组网中断会撤回手机代理；停止抓包恢复原代理，保留其他 reverse 和使用者后续改动。
+
+部分 App 使用证书固定或额外加密，无法由普通 CA 信任实现解密，此时使用屏幕/OCR 识别。流量日志做敏感参数打码、正文截断和轮转。
+
+## 常用命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `/phone help`、`/phone status` | 帮助与设备状态，可切换图片/文字 |
+| `/phone browse [app] [条数]` | 浏览信息流并记录理解 |
+| `/phone task <instruction>`、`/phone tasks` | 后台多步任务与列表 |
+| `/phone play [tokens]` | 开始一轮静默玩手机 |
+| `/phone continuous on\|off\|status` | 持续浏览开关与状态 |
+| `/phone traffic [status\|tail\|on\|off]` | 抓包状态、近期流量与开关 |
+| `/phone mesh [status\|start\|login\|stop]` | Tailscale/ZeroTier 状态与接入控制 |
+| `/phone wg [status\|start\|stop\|restart\|config]` | WireGuard 控制与配置输出 |
+| `/phone verify [status\|resume\|cancel <id>]` | 验证与人工协助 |
+| `/phone quota [audit [小时]]` | 额度与实际用量对账 |
+| `/phone novelty [status\|reset]` | 新鲜感状态 |
+| `/phone stop [job_id\|all]` | 停手机任务、抓包和自主循环，回桌面清理后台 |
+
+完整命令、工具与行为手册见[使用手册](docs/使用手册.md#llm-工具)。
+
+## 迁移、停止与数据
+
+### 从原插件导入
+
+先停用原插件，打开本插件 Dashboard「配置与数据迁移」，分别预览配置、资料，再确认导入。配置只补默认值，记录按编号或内容去重，冲突保留当前值；确认时核对指纹，目标先备份，失败恢复，成功刷新内存。
+
+可导入日志、学习、聊天记忆、App 经验、兴趣、互动/用量/指标、内容历史、截图和图片；可选择补充缺失密钥。源文件保持完整，运行状态、任务预约和媒体缓存由各自模块管理。
+
+导入前关闭自主任务、组网与抓包，等待手机空闲。单文件上限 64 MiB、每边 512 MiB、10000 个文件；详细范围与操作见[使用手册](docs/使用手册.md)。
+
+### 停止与保活
+
+`/phone stop` 关闭手机任务、抓包、自主调度、随机/持续刷、实时屏幕和控制后端，返回桌面并清理后台。默认保留官方 WireGuard、Tailscale、ZeroTier、Phone WG Relay，以及桌面和当前输入法。
+
+组网身份和运行开关通过组网页或 `/phone mesh stop` 管理。抓包、组网及解码进程使用心跳监护，手机端控制服务使用设备看门狗；失联后回收，重载时检查前任租约。
+
+截图、日志、学习及图片保存在 `data/plugin_data/astrbot_phone_control_mirror/`。网络私钥与身份在私有数据目录保留，文件按私密权限保存；CA 下载只返回公开证书。
+
+## 安全与常见问题
+
+- **权限**：默认仅管理员、白名单或定时任务可操作；`owner_ids` 非空时只认指定主人。
+- **设备 Shell**：默认关闭，启用后受设备门禁、超时与输出上限约束。
+- **验证码与身份操作**：短信/邮箱验证码、人脸及实名认证交使用者处理；自动验证尝试有次数与时限，失败暂停并通知。
+- **未启用/连接失败**：检查 ADB 主机、端口、网络可达性与调试授权；容器回环不是模拟器宿主。
+- **中文输入无效**：安装并启用 ADBKeyboard，或按工具反馈切换输入方式。
+- **组网等待授权**：在对应控制台批准节点，核对两端网络与手机 IP；不要同时开启多个 Android VPN。
+- **抓包为空**：核对传输通道、节点连通、代理端口与 CA 信任；系统 CA 需要 root，手动 CA 需要目标 App 接受证书。
+- **用量不一致**：插件统计手机相关运行，AstrBot 面板统计全部请求；以运行结束后 `provider_stats` 对账为准。
+
+## 开发与许可
+
+```bash
+pip install -r requirements.txt
+python3 -m pytest tests -q
+```
+
+纯逻辑测试可在本地运行；依赖真实 AstrBot 的用例在框架环境执行。可选抓包依赖与平台组件安装见使用手册。
+
+| 路径 | 内容 |
+| --- | --- |
+| `main.py`、`core/plugin/` | 入口、生命周期、命令、任务、监控与同步 |
+| `core/service.py`、`core/tools/` | 能力门面与 36 个工具 |
+| `core/app_policy.py` | 应用类型模型分类及启动限制 |
+| `core/mesh*.py`、`core/wireguard.py` | 用户态组网、TCP 转发与节点生命周期 |
+| `views/dashboard/` | 监控与资料管理页面 |
+| `helper/`、`bin/` | 组件源码、构建说明、随包二进制与许可 |
+| `skills/`、`docs/使用手册.md` | Agent 行为手册与完整使用说明 |
+
+插件本体采用 [MIT License](LICENSE)，Copyright © 2026 ACAT。随包及运行时第三方组件按各自许可证使用，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[Tailscale 许可](bin/linux-x86_64/TAILSCALE-LICENSE.txt)、[ZeroTier SDK 许可](bin/linux-x86_64/ZEROTIER-LICENSE.txt)。本项目与相关平台、应用或组件维护者无隶属或背书关系。
