@@ -494,3 +494,12 @@ canvas {
 .content-tabs button { color: var(--muted); background: transparent; border: 0; border-bottom: 3px solid transparent; padding: 12px 18px; font: inherit; cursor: pointer; }
 .content-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .content-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+
+.memory-graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; }
+#memory-graph { width: 100%; min-height: 420px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; touch-action: none; }
+#memory-graph circle { cursor: grab; }
+#memory-graph circle:focus { outline: none; stroke: #f59e0b; stroke-width: 5px; }
+#graph-details { max-height: 600px; overflow: auto; overflow-wrap: anywhere; }
+#graph-details h2 { font-size: 16px; }
+#graph-details p, #graph-details li { white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
+@media (max-width: 1000px) { .memory-graph-layout { grid-template-columns: minmax(0, 1fr); } #graph-details { max-height: 300px; } }

@@ -105,6 +105,10 @@
             <p class="subtitle" id="vectors-subtitle" role="status">加载中…</p></div>
             <button id="vectors-refresh" class="btn ghost" type="button">刷新</button>
           </header>
+          <div class="content-tabs" role="tablist" aria-label="记忆索引显示方式">
+            <button id="tab-vector-list" role="tab" aria-controls="vectors-table" aria-selected="true" tabindex="0" data-vector-mode="list" type="button">索引列表</button>
+            <button id="tab-vector-graph" role="tab" aria-controls="vectors-graph-panel" aria-selected="false" tabindex="-1" data-vector-mode="graph" type="button">相似关系图谱</button>
+          </div>
           <div class="card learning-toolbar">
             <select id="vectors-kind" aria-label="记忆索引">
               <option value="app">App 操控经验</option><option value="chat">聊天学习与浏览</option>
@@ -116,9 +120,26 @@
             <button id="vectors-search" class="btn primary" type="button">搜索</button>
           </div>
           <div id="vectors-stats" class="learning-stats"></div>
+          <div id="vectors-table" role="tabpanel" aria-labelledby="tab-vector-list">
           <div id="vectors-list" class="learning-list"></div>
           <div class="head-actions"><button id="vectors-prev" class="btn ghost" type="button">上一页</button>
             <span id="vectors-page"></span><button id="vectors-next" class="btn ghost" type="button">下一页</button></div>
+          </div>
+          <div id="vectors-graph-panel" role="tabpanel" aria-labelledby="tab-vector-graph" hidden>
+            <div class="card learning-toolbar">
+              <label>最低相似度 <input id="graph-threshold" type="range" min="0" max="1" step="0.05" value="0.45"><output id="graph-threshold-value">0.45</output></label>
+              <label>节点上限 <select id="graph-limit"><option value="30">30</option><option value="80" selected>80</option><option value="150">150</option></select></label>
+              <button id="graph-zoom-in" class="btn ghost" type="button" aria-label="放大图谱">放大</button>
+              <button id="graph-zoom-out" class="btn ghost" type="button" aria-label="缩小图谱">缩小</button>
+              <button id="graph-reset" class="btn ghost" type="button">重置视图</button>
+            </div>
+            <p id="graph-status" role="status"></p>
+            <div class="memory-graph-layout">
+              <svg id="memory-graph" viewBox="0 0 1000 600" role="group" aria-label="记忆相似关系图谱"></svg>
+              <aside id="graph-details" class="card"><p>选择节点查看原文及相似关系。</p></aside>
+            </div>
+            <p class="hint">连线表示向量余弦相似度达到阈值，不表示事实或因果关系。每个节点选取三个最相似近邻；仅在同一个索引内比较。可拖动节点、拖动空白区域平移，滚轮缩放。</p>
+          </div>
           <p class="hint">查看索引正文与实际向量值，搜索按正文关键词筛选。删除仅移除该条索引，原始记录保留；后台重建会保留删除结果。</p>
         </section>
 
@@ -235,6 +256,7 @@
         </section>
       </main>
     </div>
+    <script src="./graph.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

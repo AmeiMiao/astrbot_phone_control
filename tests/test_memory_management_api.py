@@ -57,3 +57,24 @@ def test_vector_delete_validates_kind_and_preserves_source(tmp_path, monkeypatch
         finally:
             await plugin.terminate()
     asyncio.run(scenario())
+
+
+def test_graph_api_filters_and_rejects_invalid_parameters(tmp_path, monkeypatch):
+    from core.semantic import SemanticDoc, build_index
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        query = {"kind": "chat", "min_score": "0.7"}
+        monkeypatch.setattr(plugin_main, "request", SimpleNamespace(query=query))
+        try:
+            await build_index(plugin.semantic_index, [SemanticDoc("a", "learning", "a", "一", "一", 1), SemanticDoc("b", "diary", "b", "二", "二", 2)], embed=lambda texts: [[1, 0], [.8, .6]], provider_id="p", model="m", dim=2)
+            graph = _json(await plugin.dashboard_vector_graph())
+            assert len(graph["nodes"]) == 2 and len(graph["edges"]) == 1
+            plugin.semantic_index.delete_document("a")
+            graph = _json(await plugin.dashboard_vector_graph())
+            assert len(graph["nodes"]) == 1 and not graph["edges"]
+            for value in ["nan", "-1", "bad"]:
+                query["min_score"] = value
+                assert (await plugin.dashboard_vector_graph()).status_code == 400
+        finally:
+            await plugin.terminate()
+    asyncio.run(scenario())

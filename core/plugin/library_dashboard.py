@@ -3,7 +3,7 @@
 import asyncio
 import base64
 
-from ..vector_dashboard import vector_page
+from ..vector_dashboard import vector_graph, vector_page
 
 from ..errors import PhoneControlError
 from ..saved_images import image_library
@@ -14,6 +14,7 @@ class LibraryDashboardMixin:
     def _library_dashboard_routes(self, base):
         return (
             (f"{base}/diary/delete", self.dashboard_diary_delete, ["POST"], "删除浏览日志"),
+            (f"{base}/vectors/graph", self.dashboard_vector_graph, ["GET"], "记忆相似关系图谱"),
             (f"{base}/vectors/delete", self.dashboard_vector_delete, ["POST"], "删除记忆索引"),
             (f"{base}/vectors", self.dashboard_vectors, ["GET"], "手机记忆索引"),
             (
@@ -42,6 +43,28 @@ class LibraryDashboardMixin:
                 "删除图片",
             ),
         )
+
+    async def dashboard_vector_graph(self):
+        query = plugin_main_module().request.query
+        kind = str(query.get("kind", "app") or "app")
+        if kind not in {"app", "chat"}:
+            return error_response("请选择有效的记忆索引", status_code=400)
+        index = self.app_recall_index if kind == "app" else self.semantic_index
+        try:
+            payload = await asyncio.to_thread(
+                vector_graph, index, query=query.get("query", ""), source=query.get("source", ""),
+                limit=int(query.get("limit", 80)), min_score=float(query.get("min_score", 0.45)),
+            )
+        except (TypeError, ValueError) as exc:
+            return error_response(f"图谱参数无效：{exc}", status_code=400)
+        except PhoneControlError as exc:
+            return error_response(str(exc), status_code=400)
+        config = self._config()
+        payload["kind"] = kind
+        payload["enabled"] = config.prompt.app_memory_enabled if kind == "app" else (
+            config.memory.local_enabled and config.recall.enabled
+        )
+        return json_response(payload)
 
     async def dashboard_vector_delete(self):
         try:

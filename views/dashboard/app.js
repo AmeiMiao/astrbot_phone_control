@@ -13,6 +13,8 @@
     overview: null,
     series: { screenshots: [], llm: [], buckets: [] },
     timers: [],
+    vectorMode: "list",
+    graphView: null,
     vectorsOffset: 0,
     vectorsRequest: 0,
     imagesOffset: 0,
@@ -567,12 +569,14 @@
     const requestId = ++state.vectorsRequest;
     const kind = $("vectors-kind").value;
     try {
-      const data = await apiGet("dashboard/vectors", {
+      const graph = state.vectorMode === "graph";
+      const data = await apiGet(graph ? "dashboard/vectors/graph" : "dashboard/vectors", {
         kind, query: $("vectors-query").value, source: $("vectors-source").value,
-        offset: state.vectorsOffset, limit: 20,
+        offset: state.vectorsOffset, limit: graph ? Number($("graph-limit").value) : 20,
+        min_score: Number($("graph-threshold").value),
       });
       if (requestId !== state.vectorsRequest) return;
-      if (!data.entries.length && data.total && state.vectorsOffset) {
+      if (!graph && !data.entries.length && data.total && state.vectorsOffset) {
         state.vectorsOffset = Math.floor((data.total - 1) / data.limit) * data.limit;
         return loadVectors();
       }
@@ -581,6 +585,7 @@
       setText("vectors-subtitle", `${data.enabled ? "功能已开启" : "功能已关闭"} · ${states[data.state] || data.state}`);
       setText("vectors-stats", data.state === "ready"
         ? `${manifest.count} 条 · ${manifest.dim} 维 · ${manifest.provider_id} / ${manifest.model} · 更新 ${fmtDateTime(manifest.updated_at)}` : "暂无可读取的向量");
+      if (graph) { renderMemoryGraph(data, kind); return; }
       const list = $("vectors-list"); list.replaceChildren();
       for (const entry of data.entries || []) {
         const item = document.createElement("article"); item.className = "learning-item";
@@ -593,9 +598,7 @@
         values.textContent = JSON.stringify(entry.vector, null, 2);
         const meta = document.createElement("p"); meta.className = "learning-content"; meta.textContent = JSON.stringify(entry.meta);
         const remove = button("删除索引", async () => {
-          if (!await confirmAction("删除这条记忆索引？原始经验、学习记录或浏览日志保留；后台重建会保留删除结果。", "确认删除索引")) return;
-          await state.bridge.apiPost("dashboard/vectors/delete", { kind, id: entry.id });
-          await loadVectors();
+          await deleteVector(kind, entry.id);
         });
         details.append(summary, values); item.append(title, text, meta, details, remove); list.append(item);
       }
@@ -607,8 +610,47 @@
       if (requestId !== state.vectorsRequest) return;
       setText("vectors-subtitle", `向量加载失败：${err.message || err}`);
       $("vectors-list").replaceChildren(); setText("vectors-stats", "");
+      state.graphView?.destroy(); state.graphView = null;
+      $("memory-graph").replaceChildren(); setText("graph-status", "图谱加载失败");
+      $("graph-details").replaceChildren();
       $("vectors-prev").disabled = true; $("vectors-next").disabled = true;
     }
+  }
+
+  async function deleteVector(kind, id) {
+    if (!await confirmAction("删除这条记忆索引？原始经验、学习记录或浏览日志保留；后台重建会保留删除结果。", "确认删除索引")) return;
+    await state.bridge.apiPost("dashboard/vectors/delete", { kind, id });
+    await loadVectors();
+  }
+
+  function switchVectorMode(mode) {
+    state.vectorMode = mode;
+    document.querySelectorAll("[data-vector-mode]").forEach(tab => {
+      const active = tab.dataset.vectorMode === mode;
+      tab.setAttribute("aria-selected", String(active)); tab.tabIndex = active ? 0 : -1;
+    });
+    $("vectors-table").hidden = mode !== "list";
+    $("vectors-graph-panel").hidden = mode !== "graph";
+    loadVectors();
+  }
+
+  function renderMemoryGraph(data, kind) {
+    state.graphView?.destroy(); state.graphView = null;
+    $("graph-details").replaceChildren();
+    setText("graph-status", `显示 ${data.nodes.length} / ${data.total} 条记录 · ${data.edges.length} 条相似连线${data.truncated ? " · 按更新时间选取最新记录" : ""}`);
+    if (!data.nodes.length) { $("memory-graph").replaceChildren(); setText("graph-details", "暂无符合条件的索引记录。"); return; }
+    state.graphView = window.PhoneMemoryGraph.render($("memory-graph"), data, node => {
+      const details = $("graph-details"); details.replaceChildren();
+      const title = document.createElement("h2"); title.textContent = node.label;
+      const text = document.createElement("p"); text.textContent = node.text;
+      const info = document.createElement("p"); info.textContent = `${node.source} · ${fmtDateTime(node.ts)}`;
+      const links = document.createElement("ul");
+      for (const edge of data.edges.filter(e => e.source === node.id || e.target === node.id)) {
+        const other = data.nodes.find(n => n.id === (edge.source === node.id ? edge.target : edge.source));
+        const line = document.createElement("li"); line.textContent = `${other?.label || "记录"} · 相似度 ${Number(edge.score).toFixed(3)}`; links.append(line);
+      }
+      details.append(title, info, text, links, button("删除索引", () => deleteVector(kind, node.id)));
+    });
   }
 
   // ---------------- 学习记录 ----------------
@@ -998,6 +1040,21 @@
       state.diaryOffset += Number($("diary-limit")?.value || 20);
       loadDiary();
     });
+    const vectorTabs = [...document.querySelectorAll("[data-vector-mode]")];
+    vectorTabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => switchVectorMode(tab.dataset.vectorMode));
+      tab.addEventListener("keydown", event => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? vectorTabs.length - 1 : 1 - index;
+        vectorTabs[next].focus(); switchVectorMode(vectorTabs[next].dataset.vectorMode);
+      });
+    });
+    $("graph-threshold").addEventListener("input", () => setText("graph-threshold-value", Number($("graph-threshold").value).toFixed(2)));
+    $("graph-threshold").addEventListener("change", loadVectors);
+    $("graph-limit").addEventListener("change", loadVectors);
+    $("graph-zoom-in").addEventListener("click", () => state.graphView?.zoom(1.2));
+    $("graph-zoom-out").addEventListener("click", () => state.graphView?.zoom(1 / 1.2));
+    $("graph-reset").addEventListener("click", () => state.graphView?.reset());
     const searchVectors = () => { state.vectorsOffset = 0; loadVectors(); };
     $("vectors-refresh").addEventListener("click", loadVectors);
     $("vectors-search").addEventListener("click", searchVectors);
