@@ -12,6 +12,8 @@
     overview: null,
     series: { screenshots: [], llm: [], buckets: [] },
     timers: [],
+    vectorsOffset: 0,
+    vectorsRequest: 0,
     imagesOffset: 0,
     imagesRequest: 0,
     diaryOffset: 0,
@@ -96,6 +98,7 @@
     $("view-dashboard").hidden = view !== "dashboard";
     $("view-diary").hidden = view !== "diary";
     $("view-learning").hidden = view !== "learning";
+    $("view-vectors").hidden = view !== "vectors";
     $("view-images").hidden = view !== "images";
     $("view-migration").hidden = view !== "migration";
     if (view === "dashboard") {
@@ -106,6 +109,7 @@
       stopPolls();
       if (view === "diary") loadDiary();
       if (view === "learning") loadLearning();
+      if (view === "vectors") loadVectors();
       if (view === "images") loadImages();
     }
   }
@@ -539,6 +543,45 @@
     if (next) next.disabled = offset + limit >= total;
   }
 
+  async function loadVectors() {
+    const requestId = ++state.vectorsRequest;
+    const kind = $("vectors-kind").value;
+    try {
+      const data = await apiGet("dashboard/vectors", {
+        kind, query: $("vectors-query").value, source: $("vectors-source").value,
+        offset: state.vectorsOffset, limit: 20,
+      });
+      if (requestId !== state.vectorsRequest) return;
+      const manifest = data.manifest || {};
+      const states = { ready: "索引可用", missing: "尚未建立索引", invalid: "索引文件不完整，请检查后台构建日志" };
+      setText("vectors-subtitle", `${data.enabled ? "功能已开启" : "功能已关闭"} · ${states[data.state] || data.state}`);
+      setText("vectors-stats", data.state === "ready"
+        ? `${manifest.count} 条 · ${manifest.dim} 维 · ${manifest.provider_id} / ${manifest.model} · 更新 ${fmtDateTime(manifest.updated_at)}` : "暂无可读取的向量");
+      const list = $("vectors-list"); list.replaceChildren();
+      for (const entry of data.entries || []) {
+        const item = document.createElement("article"); item.className = "learning-item";
+        const title = document.createElement("div"); title.className = "learning-source";
+        title.textContent = `${entry.source} · ${entry.id} · ${fmtDateTime(entry.ts)}`;
+        const text = document.createElement("p"); text.className = "learning-content"; text.textContent = entry.text;
+        const details = document.createElement("details");
+        const summary = document.createElement("summary"); summary.textContent = `查看 ${entry.dim} 维向量 · 范数 ${Number(entry.norm).toFixed(4)}`;
+        const values = document.createElement("pre"); values.className = "vector-values";
+        values.textContent = JSON.stringify(entry.vector, null, 2);
+        const meta = document.createElement("p"); meta.className = "learning-content"; meta.textContent = JSON.stringify(entry.meta);
+        details.append(summary, values); item.append(title, text, meta, details); list.append(item);
+      }
+      if (!list.children.length) { const empty = document.createElement("p"); empty.className = "learning-empty"; empty.textContent = data.state === "ready" ? "没有符合条件的向量记录" : "开启相应学习功能并记录内容后，后台会建立索引"; list.append(empty); }
+      $("vectors-prev").disabled = data.offset <= 0;
+      $("vectors-next").disabled = data.offset + data.limit >= data.total;
+      setText("vectors-page", `共 ${data.total} 条 · 第 ${Math.floor(data.offset / data.limit) + 1} 页`);
+    } catch (err) {
+      if (requestId !== state.vectorsRequest) return;
+      setText("vectors-subtitle", `向量加载失败：${err.message || err}`);
+      $("vectors-list").replaceChildren(); setText("vectors-stats", "");
+      $("vectors-prev").disabled = true; $("vectors-next").disabled = true;
+    }
+  }
+
   // ---------------- 学习记录 ----------------
   async function loadLearning() {
     if (document.hidden) return;
@@ -915,6 +958,14 @@
       state.diaryOffset += Number($("diary-limit")?.value || 20);
       loadDiary();
     });
+    const searchVectors = () => { state.vectorsOffset = 0; loadVectors(); };
+    $("vectors-refresh").addEventListener("click", loadVectors);
+    $("vectors-search").addEventListener("click", searchVectors);
+    $("vectors-kind").addEventListener("change", searchVectors);
+    $("vectors-source").addEventListener("change", searchVectors);
+    $("vectors-query").addEventListener("keydown", e => { if (e.key === "Enter") searchVectors(); });
+    $("vectors-prev").addEventListener("click", () => { state.vectorsOffset = Math.max(0, state.vectorsOffset - 20); loadVectors(); });
+    $("vectors-next").addEventListener("click", () => { state.vectorsOffset += 20; loadVectors(); });
     $("btn-learning-refresh").addEventListener("click", loadLearning);
     $("btn-learning-search").addEventListener("click", loadLearning);
     $("learning-query").addEventListener("keydown", (event) => {
@@ -936,6 +987,8 @@
         loadDiary();
       } else if (state.view === "learning") {
         loadLearning();
+      } else if (state.view === "vectors") {
+        loadVectors();
       } else if (state.view === "images") {
         loadImages();
       }

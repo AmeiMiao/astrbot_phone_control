@@ -244,3 +244,5 @@ NOTICE 保留在 `bin/scrcpy-server-NOTICE.txt` 与 `bin/linux-x86_64/NOTICE.txt
 - [许可证](LICENSE)
 
 命令输出：`command.status_as_image`、`command.help_as_image` 默认开启，分别控制 `/phone status` 与 `/phone help` 的图片输出。关闭对应开关后发送文字；图片使用 AstrBot 文字转图服务，渲染失败时提示并附上文字。
+
+Dashboard「学习向量」可切换 App 操控经验与聊天学习/浏览索引，查看模型、维度、更新时间、正文及实际向量；支持来源筛选、关键词搜索与分页。查看不会调用向量模型或启动设备。

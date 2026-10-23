@@ -1,6 +1,9 @@
 """Dashboard 图片库与学习档案管理；访问权限由 AstrBot 面板统一认证。"""
 
+import asyncio
 import base64
+
+from ..vector_dashboard import vector_page
 
 from ..errors import PhoneControlError
 from ..saved_images import image_library
@@ -10,6 +13,7 @@ from .compat import error_response, json_response, plugin_main_module
 class LibraryDashboardMixin:
     def _library_dashboard_routes(self, base):
         return (
+            (f"{base}/vectors", self.dashboard_vectors, ["GET"], "手机学习向量"),
             (
                 f"{base}/learning/delete",
                 self.dashboard_learning_delete,
@@ -36,6 +40,27 @@ class LibraryDashboardMixin:
                 "删除图片",
             ),
         )
+
+    async def dashboard_vectors(self):
+        query = plugin_main_module().request.query
+        kind = str(query.get("kind", "app") or "app")
+        if kind not in {"app", "chat"}:
+            return error_response("请选择 App 操控经验或聊天学习索引", status_code=400)
+        index = self.app_recall_index if kind == "app" else self.semantic_index
+        try:
+            payload = await asyncio.to_thread(
+                vector_page, index, query=query.get("query", ""),
+                source=str(query.get("source", "") or ""),
+                offset=int(query.get("offset", 0)), limit=int(query.get("limit", 20)),
+            )
+        except (TypeError, ValueError):
+            return error_response("分页参数需要整数", status_code=400)
+        config = self._config()
+        payload["kind"] = kind
+        payload["enabled"] = bool(config.prompt.app_memory_enabled) if kind == "app" else bool(
+            config.memory.local_enabled and config.recall.enabled
+        )
+        return json_response(payload)
 
     async def _library_request(self):
         data = await plugin_main_module().request.json()

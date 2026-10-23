@@ -485,3 +485,5 @@ canvas {
 .confirm-dialog::backdrop { background: rgb(0 0 0 / 40%); }
 .confirm-dialog p { line-height: 1.7; margin: 0 0 20px; }
 .library-error { padding: 12px; border: 1px solid var(--red); color: var(--red); border-radius: 8px; overflow-wrap: anywhere; }
+
+.vector-values { max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
