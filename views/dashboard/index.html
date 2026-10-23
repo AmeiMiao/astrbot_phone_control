@@ -19,6 +19,7 @@
           <button class="nav-item active" data-view="dashboard" type="button">监控面板</button>
           <button class="nav-item" data-view="records" type="button">浏览与学习</button>
           <button class="nav-item" data-view="vectors" type="button">记忆索引</button>
+          <button class="nav-item" data-view="mesh" type="button">组网接入</button>
           <button class="nav-item" data-view="images" type="button">保存的图片</button>
           <button class="nav-item" data-view="migration" type="button">配置与数据迁移</button>
         </nav>
@@ -142,6 +143,11 @@
             <p class="hint">连线表示向量余弦相似度达到阈值，不表示事实或因果关系。每个节点选取三个最相似近邻；仅在同一个索引内比较。可拖动节点、拖动空白区域平移，滚轮缩放。</p>
           </div>
           <p class="hint">查看索引正文与实际向量值，搜索按正文关键词筛选。删除仅移除该条索引，原始记录保留；后台重建会保留删除结果。</p>
+        </section>
+
+        <section id="view-mesh" class="view" hidden>
+          <header class="page-head"><div><h1>组网接入</h1><p class="subtitle">Tailscale / ZeroTier · 手机与插件加入同一网络</p></div><button id="mesh-refresh" class="btn ghost" type="button">刷新</button></header>
+          <div class="card"><p>先在插件配置的「Tailscale / ZeroTier 组网」选择服务并填写登录信息。手机安装对应官方客户端，连接同一网络；Android 同时启用一种 VPN。</p><p>ADB 转发使用手机组网 IP；无 root Android 可运行 Phone WG Relay 中转。抓包通过服务端组网 IP 与抓包端口连接，请在网络控制台限制授权成员与端口。</p><div class="head-actions"><button id="mesh-start" class="btn primary" type="button">启动 / 登录</button><button id="mesh-stop" class="btn ghost" type="button">停止组网</button><a id="mesh-login" class="btn" target="_blank" rel="noopener noreferrer" hidden>打开 Tailscale 登录授权</a></div><pre id="mesh-status" class="vector-values" role="status">等待查询</pre></div>
         </section>
 
         <section id="view-records" class="view" hidden>

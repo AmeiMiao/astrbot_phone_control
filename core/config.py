@@ -16,6 +16,8 @@ ADB 主机/端口默认为空，表示「未配置」：插件仍可正常加载
 
 from __future__ import annotations
 
+from .mesh_config import MeshSettings, mesh_settings
+
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -795,6 +797,7 @@ class PhoneConfig:
     )
     control: ControlSettings = field(default_factory=ControlSettings)
     wireguard: WireGuardSettings = field(default_factory=WireGuardSettings)
+    mesh: MeshSettings = field(default_factory=MeshSettings)
     prompt: PromptSettings = field(default_factory=PromptSettings)
     novelty: NoveltySettings = field(default_factory=NoveltySettings)
     recall: RecallSettings = field(default_factory=RecallSettings)
@@ -1926,6 +1929,7 @@ class PhoneConfig:
             model=model,
             control=control,
             wireguard=wireguard,
+            mesh=mesh_settings(card("mesh"), warn_fn),
             prompt=prompt,
             novelty=novelty,
             recall=recall,

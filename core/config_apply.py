@@ -181,6 +181,17 @@ RECONCILE_KEYS: frozenset[str] = frozenset(
         "auto.random_interval_max",
         "auto.random_probability",
         "auto.continuous_enabled",
+        "mesh.enabled",
+        "mesh.provider",
+        "mesh.hostname",
+        "mesh.tailscale_auth_key",
+        "mesh.tailscale_path",
+        "mesh.tailscaled_path",
+        "mesh.phone_ip",
+        "mesh.auto_adb",
+        "mesh.adb_port",
+        "mesh.local_adb_port",
+        "mesh.proxy_port",
         "wireguard.enabled",
         "wireguard.mode",
         "wireguard.listen_port",
@@ -249,6 +260,7 @@ class ConfigApplyPlan:
     random_changed: bool = False
     continuous_action: str = ACTION_NONE
     live_screen_action: str = ACTION_NONE
+    mesh_changed: bool = False
     wireguard_changed: bool = False
     wireguard_action: str = ACTION_NONE
     notes: tuple[str, ...] = ()
@@ -257,7 +269,8 @@ class ConfigApplyPlan:
     def changed(self) -> bool:
         """是否包含任何需要重建/重启的动作。"""
         return bool(
-            self.adb_changed
+            self.mesh_changed
+            or self.adb_changed
             or self.backends_changed
             or self.scheduler_changed
             or self.random_changed
@@ -377,6 +390,7 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
         random_changed=random_changed,
         continuous_action=continuous_action,
         live_screen_action=live_screen_action,
+        mesh_changed=previous.mesh != current.mesh,
         wireguard_changed=wireguard_changed,
         wireguard_action=wireguard_action,
         notes=tuple(notes),

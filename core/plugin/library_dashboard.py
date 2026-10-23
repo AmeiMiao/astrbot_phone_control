@@ -13,6 +13,8 @@ from .compat import error_response, json_response, plugin_main_module
 class LibraryDashboardMixin:
     def _library_dashboard_routes(self, base):
         return (
+            (f"{base}/mesh", self.dashboard_mesh, ["GET"], "组网状态"),
+            (f"{base}/mesh/action", self.dashboard_mesh_action, ["POST"], "组网接入操作"),
             (f"{base}/diary/delete", self.dashboard_diary_delete, ["POST"], "删除浏览日志"),
             (f"{base}/vectors/graph", self.dashboard_vector_graph, ["GET"], "记忆相似关系图谱"),
             (f"{base}/vectors/delete", self.dashboard_vector_delete, ["POST"], "删除记忆索引"),
@@ -212,3 +214,21 @@ class LibraryDashboardMixin:
             return error_response(str(exc), status_code=400)
         except OSError:
             return error_response("删除图片失败，请检查存储", status_code=500)
+
+
+    async def dashboard_mesh(self):
+        try:
+            return json_response(await self._mesh.status())
+        except (PhoneControlError, OSError, asyncio.TimeoutError):
+            return error_response("组网状态读取失败，请检查组件与网络", status_code=500)
+
+    async def dashboard_mesh_action(self):
+        data = await plugin_main_module().request.json()
+        if not isinstance(data, dict) or not isinstance(data.get("action"), str) or data["action"] not in {"start", "stop"}:
+            return error_response("action 需为 start 或 stop", status_code=400)
+        try:
+            await self._apply_config_patch({"mesh": {"enabled": data["action"] == "start"}})
+            result = await self._mesh.start() if data["action"] == "start" else await self._mesh.status()
+            return json_response(result)
+        except (PhoneControlError, OSError, asyncio.TimeoutError):
+            return error_response("组网操作未完成，请检查客户端路径、节点授权与网络配置", status_code=400)

@@ -1,0 +1,361 @@
+"""管理独立 Tailscale 用户态节点、ADB 转发与组网内抓包端口。"""
+
+import asyncio
+import contextlib
+import ipaddress
+import json
+import os
+import platform
+import re
+from pathlib import Path
+
+from .errors import PhoneControlError
+from .process_lease import guarded_command, start_heartbeat, stop_heartbeat
+from .plugin_shared import ensure_executable
+
+
+class MeshError(PhoneControlError):
+    pass
+
+
+def private_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_suffix(".tmp")
+    with os.fdopen(
+        os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w"
+    ) as f:
+        json.dump(value, f, ensure_ascii=False)
+    temporary.replace(path)
+
+
+async def run_command(argv, timeout=15):
+    process = await asyncio.create_subprocess_exec(
+        *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+
+    async def read(stream):
+        result = bytearray()
+        while chunk := await stream.read(4096):
+            if len(result) + len(chunk) > 1024 * 1024:
+                raise MeshError("组网命令输出超过限制")
+            result.extend(chunk)
+        return result.decode(errors="replace")
+
+    try:
+        async with asyncio.timeout(timeout):
+            out, error = await asyncio.gather(
+                read(process.stdout), read(process.stderr)
+            )
+            await process.wait()
+            return process.returncode, out, error
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+
+
+class MeshManager:
+    def __init__(self, service):
+        self.service = service
+        self.root = service.data_dir / "mesh"
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.root.chmod(0o700)
+        self.process = None
+        self.heartbeat = None
+        self.log = None
+        self.server = None
+        self.connections = set()
+        self.lock = asyncio.Lock()
+        self.socks_port = 0
+        self.exposed_port = 0
+        self.adb_original = None
+        self.last_error = ""
+        self._cli = ""
+        self._signature = None
+        self._login_attempted = False
+
+    @property
+    def settings(self):
+        return self.service.config.mesh
+
+    @property
+    def running(self):
+        return self.process is not None and self.process.returncode is None
+
+    def binary(self, name, configured):
+        path = (
+            Path(configured).expanduser()
+            if configured
+            else Path(__file__).resolve().parents[1] / "bin/linux-x86_64" / name
+        )
+        if not configured and (
+            platform.system() != "Linux"
+            or platform.machine().lower() not in {"x86_64", "amd64"}
+        ):
+            raise MeshError(f"当前平台请配置 mesh.{name}_path")
+        if not path.is_file():
+            raise MeshError(f"缺少组网组件 {name}，请配置其可执行文件绝对路径")
+        ensure_executable(path)
+        return str(path.resolve())
+
+    async def cli(self, *args, timeout=15):
+        return await run_command(
+            [self._cli, "--socket=" + str(self.root / "tailscale.sock"), *args], timeout
+        )
+
+    async def start(self):
+        async with self.lock:
+            settings = self.settings
+            if not settings.enabled:
+                raise MeshError("请先开启 mesh.enabled 并选择组网服务")
+            if self.service.config.wireguard.enabled:
+                raise MeshError("请先关闭 WireGuard，再使用 Tailscale/ZeroTier 组网")
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,62}", settings.hostname):
+                raise MeshError("组网设备名称需为 1–63 位字母、数字或连字符")
+            if settings.provider != "tailscale":
+                raise MeshError("未知组网服务")
+            if not self.running:
+                self._cli = self.binary("tailscale", settings.tailscale_path)
+                daemon = self.binary("tailscaled", settings.tailscaled_path)
+                # 仅在本机回环开放 SOCKS，不修改宿主路由或 DNS。
+                reserve = await asyncio.start_server(
+                    lambda r, w: w.close(), "127.0.0.1", 0
+                )
+                self.socks_port = reserve.sockets[0].getsockname()[1]
+                reserve.close()
+                await reserve.wait_closed()
+                self.log = (self.root / "tailscaled.log").open("ab")
+                os.chmod(self.root / "tailscaled.log", 0o600)
+                self.process = await asyncio.create_subprocess_exec(
+                    *guarded_command(
+                        [
+                            daemon,
+                            "--tun=userspace-networking",
+                            "--socket=" + str(self.root / "tailscale.sock"),
+                            "--state=" + str(self.root / "tailscale.state"),
+                            "--socks5-server=127.0.0.1:" + str(self.socks_port),
+                            "--port=0",
+                        ],
+                        self.root / "process.lock",
+                    ),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=self.log,
+                    stderr=asyncio.subprocess.STDOUT,
+                    env={**os.environ, "HOME": str(self.root)},
+                )
+                self.heartbeat = start_heartbeat(self.process)
+                for _ in range(40):
+                    if not self.running:
+                        raise MeshError("Tailscale 节点启动失败，请检查组件与本机网络")
+                    if (self.root / "tailscale.sock").exists():
+                        break
+                    await asyncio.sleep(0.1)
+                self._login_attempted = False
+            if not self._login_attempted:
+                args = [
+                    "up",
+                    "--hostname=" + settings.hostname,
+                    "--accept-dns=false",
+                    "--accept-routes=false",
+                    "--timeout=5s",
+                ]
+                keyfile = self.root / "auth.key"
+                if settings.tailscale_auth_key:
+                    with os.fdopen(
+                        os.open(keyfile, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600),
+                        "w",
+                    ) as f:
+                        f.write(settings.tailscale_auth_key)
+                    args.append("--auth-key=file:" + str(keyfile))
+                try:
+                    rc, _, error = await self.cli(*args, timeout=12)
+                    self._login_attempted = True
+                    self.last_error = "Tailscale 等待登录或节点授权" if rc else ""
+                    # 密钥只通过私有文件传入；错误正文不进入插件日志或状态。
+                    if rc and settings.tailscale_auth_key:
+                        self.last_error = (
+                            "Tailscale 登录未完成，请检查 Auth Key、设备审批或网络连接"
+                        )
+                finally:
+                    keyfile.unlink(missing_ok=True)
+            self._signature = settings
+        result = await self.status()
+        if result["ready"] and settings.auto_adb:
+            await self.start_adb()
+        return result
+
+    async def status(self):
+        result = {
+            "provider": self.settings.provider,
+            "running": self.running,
+            "ready": False,
+            "addresses": [],
+            "auth_url": "",
+            "error": self.last_error,
+            "adb_forward": self.server is not None,
+            "proxy_port": self.exposed_port,
+        }
+        if not self.running:
+            return result
+        rc, text, _ = await self.cli("status", "--json")
+        if rc:
+            result["error"] = "组网状态读取失败"
+            return result
+        try:
+            data = json.loads(text)
+        except ValueError as exc:
+            raise MeshError("组网状态数据无效") from exc
+        result.update(
+            state=data.get("BackendState", ""),
+            addresses=data.get("TailscaleIPs") or [],
+            auth_url=data.get("AuthURL") or "",
+            node_id=(data.get("Self") or {}).get("ID", ""),
+        )
+        result["ready"] = result["state"] == "Running" and bool(result["addresses"])
+        if result["ready"]:
+            result["error"] = ""
+        return result
+
+    async def connect(self, host, port):
+        address = ipaddress.IPv4Address(host)
+        if address not in ipaddress.ip_network("100.64.0.0/10"):
+            raise MeshError("Tailscale 手机地址需位于 100.64.0.0/10 组网网段")
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.socks_port)
+        try:
+            writer.write(b"\x05\x01\x00")
+            await writer.drain()
+            if await asyncio.wait_for(reader.readexactly(2), 10) != b"\x05\x00":
+                raise MeshError("组网 SOCKS 握手失败")
+            writer.write(
+                b"\x05\x01\x00\x01" + address.packed + int(port).to_bytes(2, "big")
+            )
+            await writer.drain()
+            reply = await asyncio.wait_for(reader.readexactly(4), 15)
+            if reply[:2] != b"\x05\x00":
+                raise MeshError("组网目标无法连接，请检查节点授权、手机 IP 与端口")
+            lengths = {1: 4, 4: 16}
+            length = lengths.get(reply[3])
+            if reply[3] == 3:
+                length = (await reader.readexactly(1))[0]
+            if length is None:
+                raise MeshError("组网 SOCKS 响应无效")
+            await reader.readexactly(length + 2)
+            return reader, writer
+        except BaseException:
+            writer.close()
+            await writer.wait_closed()
+            raise
+
+    async def forward(self, reader, writer):
+        task = asyncio.current_task()
+        self.connections.add(task)
+        remote_writer = None
+        try:
+            remote_reader, remote_writer = await self.connect(
+                self.settings.phone_ip, self.settings.adb_port
+            )
+
+            async def copy(src, dst):
+                while data := await src.read(65536):
+                    dst.write(data)
+                    await dst.drain()
+                with contextlib.suppress(OSError, NotImplementedError):
+                    dst.write_eof()
+
+            await asyncio.gather(
+                copy(reader, remote_writer), copy(remote_reader, writer)
+            )
+        except (OSError, asyncio.IncompleteReadError, MeshError, asyncio.TimeoutError):
+            self.last_error = "ADB 组网连接中断，请检查手机节点和 UID 中转服务"
+        finally:
+            for stream in [writer, remote_writer]:
+                if stream is not None:
+                    stream.close()
+                    with contextlib.suppress(OSError):
+                        await stream.wait_closed()
+            self.connections.discard(task)
+
+    async def start_adb(self):
+        ip = ipaddress.IPv4Address(self.settings.phone_ip)
+        if ip.is_loopback or ip.is_unspecified or ip.is_multicast:
+            raise MeshError("请填写手机的有效组网 IPv4 地址")
+        if self.server is not None:
+            return
+        self.server = await asyncio.start_server(
+            self.forward, "127.0.0.1", self.settings.local_adb_port
+        )
+        adb = self.service.adb
+        self.adb_original = (
+            adb._host,
+            adb._port,
+            adb.serial if adb._serial_explicit else "",
+        )
+        try:
+            await adb.reconfigure(
+                host="127.0.0.1", port=self.settings.local_adb_port, serial=""
+            )
+            await adb.ensure_ready()
+        except BaseException:
+            self.server.close()
+            await self.server.wait_closed()
+            self.server = None
+            host, port, serial = self.adb_original
+            self.adb_original = None
+            await adb.reconfigure(host=host, port=port, serial=serial)
+            raise
+
+    async def expose_proxy(self, local_port):
+        status = await self.status()
+        if not status["ready"]:
+            raise MeshError("组网节点尚未就绪，无法经组网抓包")
+        port = self.settings.proxy_port
+        rc, _, _ = await self.cli(
+            "serve", "--bg", "--tcp=" + str(port), "tcp://127.0.0.1:" + str(local_port)
+        )
+        if rc:
+            raise MeshError("组网代理端口发布失败，请检查 Tailscale Serve 授权与 ACL")
+        self.exposed_port = port
+        ip = next((a for a in status["addresses"] if ":" not in a), "")
+        if not ip:
+            raise MeshError("组网节点没有 IPv4 地址")
+        return f"{ip}:{port}"
+
+    async def stop(self):
+        async with self.lock:
+            if self.server is not None:
+                self.server.close()
+                await self.server.wait_closed()
+                self.server = None
+            tasks = list(self.connections)
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            if self.adb_original is not None:
+                host, port, serial = self.adb_original
+                self.adb_original = None
+                await self.service.adb.reconfigure(host=host, port=port, serial=serial)
+            if self.running:
+                self.process.terminate()
+                try:
+                    await asyncio.wait_for(self.process.wait(), 5)
+                except asyncio.TimeoutError:
+                    self.process.kill()
+                    await self.process.wait()
+            await stop_heartbeat(self.heartbeat)
+            self.heartbeat = None
+            self.process = None
+            if self.log:
+                self.log.close()
+                self.log = None
+            self.exposed_port = 0
+            self._signature = None
+
+    async def reconcile(self):
+        if self.running and self._signature != self.settings:
+            await self.stop()
+        if self.settings.enabled:
+            return await self.start()
+        if self.running:
+            await self.stop()
+        return await self.status()

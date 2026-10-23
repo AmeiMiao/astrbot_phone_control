@@ -392,6 +392,10 @@ class BootstrapMixin:
             telemetry=self.telemetry,
         )
         self.service.app_context = self.context
+        from ..mesh import MeshManager
+        self._mesh = MeshManager(self.service)
+        self.service.mesh = self._mesh
+        self._mesh_task = None
         self.service.task_provider_hook = self._apply_task_provider_preference
         # 流媒体内容识别：设备播放音频采集（scrcpy 音频通道，按需启动独立 server）。
         self._media_capture = MediaAudioCapture(
@@ -627,6 +631,7 @@ class BootstrapMixin:
         except Exception as exc:  # noqa: BLE001 - 抓包失败不能阻塞插件启用
             logger.warning("抓包启动失败：%s", exc)
         self._start_traffic_keepalive()
+        self._start_mesh_keepalive()
         try:
             await asyncio.wait_for(self._ensure_wireguard_started(), timeout=30)
         except asyncio.TimeoutError:
@@ -774,6 +779,13 @@ class BootstrapMixin:
                 await traffic_task
             except asyncio.CancelledError:
                 pass
+        mesh_task = getattr(self, "_mesh_task", None)
+        if mesh_task is not None:
+            mesh_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await mesh_task
+        if getattr(self, "_mesh", None) is not None:
+            await self._mesh.stop()
         try:
             await self._traffic.stop()
         except Exception as exc:  # noqa: BLE001 - 抓包清理失败不影响停用
@@ -976,6 +988,7 @@ class BootstrapMixin:
             "_scrcpy_warmup_task",
             "_traffic_keepalive_task",
             "_wireguard_keepalive_task",
+            "_mesh_task",
         ):
             task = getattr(self, attr, None)
             setattr(self, attr, None)
@@ -1010,6 +1023,7 @@ class BootstrapMixin:
             logger.warning("停止抓包失败：%s", exc)
         try:
             await self._wireguard.stop()
+            await self._mesh.stop()
         except Exception as exc:  # noqa: BLE001
             logger.warning("停止 WireGuard 失败：%s", exc)
         self._random_stop.set()
@@ -1061,6 +1075,10 @@ class BootstrapMixin:
             notes.append("App 经验召回索引已按新配置排队刷新")
         # 浏览日志上限/保护轮次是实时读取配置，保存后立即按新上限清理一次。
         await self._cleanup_diary_limits()
+
+        if plan.mesh_changed:
+            await self._mesh.reconcile()
+            notes.append("组网配置已应用")
 
         # 0) ADB 未配置（假开启）：只允许实时读取类配置生效，设备相关组件保持停止。
         if not current.adb.configured:

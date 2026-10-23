@@ -22319,3 +22319,11 @@ proprietary programs.  If your program is a subroutine library, you may
 consider it more useful to permit linking proprietary applications with the
 library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.
+
+Tailscale / tailscaled
+Version: 1.104.2 (Linux amd64)
+Upstream: https://tailscale.com/
+Source: https://github.com/tailscale/tailscale/tree/v1.104.2
+Archive: https://pkgs.tailscale.com/stable/tailscale_1.104.2_amd64.tgz
+Archive SHA256: 512f613ed7d04fc7282f7dc5bd76aa105aae28168fbb9357eb749ebcbc29f0ae
+License: BSD-3-Clause (TAILSCALE-LICENSE.txt); upstream binaries include their dependency notices.

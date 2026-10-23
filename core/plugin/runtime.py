@@ -747,3 +747,18 @@ class RuntimeMixin:
             )
         except Exception as exc:  # noqa: BLE001 - 预热失败不影响页面
             logger.debug("Dashboard scrcpy 预热失败：%s", exc)
+
+
+    def _start_mesh_keepalive(self):
+        if getattr(self, "_mesh_task", None) is not None:
+            return
+        async def loop():
+            while not getattr(self, "_terminated", False):
+                try:
+                    await self._mesh.reconcile()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    self._mesh.last_error = "组网启动或连接失败，请通过 /phone mesh status 检查配置及授权"
+                await asyncio.sleep(15)
+        self._mesh_task = asyncio.create_task(loop(), name=f"{PLUGIN_NAME}_mesh_keepalive")

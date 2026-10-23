@@ -193,6 +193,23 @@ class CommandsMixin:
 
         sub = tokens[0].lower()
         rest = tokens[1:]
+        if sub == "mesh":
+            action = rest[0].lower() if rest else "status"
+            if action in {"start", "login"}:
+                result = await self._mesh.start()
+            elif action == "stop":
+                await self._mesh.stop()
+                # 停止命令关闭配置，保活循环按配置保持停止。
+                await self._apply_config_patch({"mesh": {"enabled": False}})
+                result = await self._mesh.status()
+            elif action == "status":
+                result = await self._mesh.status()
+            else:
+                await self._say(event, "用法：/phone mesh status|start|login|stop")
+                return
+            await self._say(event, json.dumps(result, ensure_ascii=False, indent=2))
+            return
+
         if self._verification.paused and sub not in {
             "verify",
             "status",

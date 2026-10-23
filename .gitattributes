@@ -20,3 +20,6 @@ bin/linux-x86_64/NOTICE.txt -diff -text
 # scrcpy server 为 APK 二进制，禁止文本换行处理
 bin/scrcpy-server-v5.0.1 binary
 *.jar binary
+
+bin/*/tailscale binary
+bin/*/tailscaled binary

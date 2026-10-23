@@ -103,6 +103,7 @@
     $("view-vectors").hidden = view !== "vectors";
     $("view-images").hidden = view !== "images";
     $("view-migration").hidden = view !== "migration";
+    $("view-mesh").hidden = view !== "mesh";
     if (view === "dashboard") {
       schedulePolls();
       refreshOverview();
@@ -112,6 +113,7 @@
       if (view === "records") switchRecordTab(state.recordTab);
       if (view === "vectors") loadVectors();
       if (view === "images") loadImages();
+      if (view === "mesh") loadMesh();
     }
   }
 
@@ -808,6 +810,16 @@
     });
   }
 
+  async function loadMesh() {
+    try { renderMesh(await apiGet("dashboard/mesh")); }
+    catch (error) { setText("mesh-status", `组网状态读取失败：${error.message || error}`); }
+  }
+  function renderMesh(data) {
+    setText("mesh-status", `${data.provider} · ${data.ready ? "已连接" : data.running ? "等待连接/授权" : "已停止"}\n节点：${data.node_id || "—"}\n组网地址：${(data.addresses || []).join("、") || "—"}\nADB 转发：${data.adb_forward ? "已启动" : "未启动"}\n抓包端口：${data.proxy_port || "未发布"}${data.error ? "\n" + data.error : ""}`);
+    const link = $("mesh-login"); link.hidden = true; link.removeAttribute("href");
+    try { const url = new URL(data.auth_url); if (url.protocol === "https:" && ["login.tailscale.com", "controlplane.tailscale.com"].includes(url.hostname)) { link.href = url.href; link.hidden = false; } } catch {}
+  }
+
   // ---------------- 图片库 ----------------
   async function loadImages() {
     const requestId = ++state.imagesRequest;
@@ -997,6 +1009,15 @@
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => switchView(btn.dataset.view));
     });
+    $("mesh-refresh").addEventListener("click", loadMesh);
+    for (const action of ["start", "stop"]) {
+      $("mesh-" + action).addEventListener("click", async () => {
+        const button = $("mesh-" + action); button.disabled = true;
+        try { renderMesh(await state.bridge.apiPost("dashboard/mesh/action", { action })); }
+        catch (error) { setText("mesh-status", `组网操作失败：${error.message || error}`); }
+        finally { button.disabled = false; }
+      });
+    }
     $("btn-data-migration-preview").addEventListener("click", previewDataMigration);
     $("btn-data-migration-apply").addEventListener("click", applyDataMigration);
     $("data-migration-keys").addEventListener("change", invalidateDataMigration);

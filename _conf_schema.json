@@ -1099,6 +1099,112 @@
       }
     }
   },
+  "mesh": {
+    "type": "object",
+    "description": "Tailscale / ZeroTier 组网",
+    "hint": "插件运行独立用户态节点；Android 选择一种 VPN 并与服务端加入同一网络。ADB 可使用手机 UID 中转，抓包可经组网代理地址传输。",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "启用组网",
+        "hint": "与 WireGuard 互斥；关闭后恢复原 ADB 目标。"
+      },
+      "provider": {
+        "type": "string",
+        "default": "tailscale",
+        "description": "组网服务",
+        "hint": "服务端由插件管理用户态节点。",
+        "condition": {
+          "enabled": true
+        },
+        "options": [
+          "tailscale"
+        ]
+      },
+      "hostname": {
+        "type": "string",
+        "default": "astrbot-phone",
+        "description": "组网设备名称",
+        "hint": "1–63 位字母、数字和连字符。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "tailscale_auth_key": {
+        "type": "string",
+        "default": "",
+        "description": "Tailscale Auth Key",
+        "hint": "可留空通过 /phone mesh login 的登录链接授权；填写后仅经私有文件交给官方客户端，状态和日志不展示密钥。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "tailscale_path": {
+        "type": "string",
+        "default": "",
+        "description": "Tailscale CLI 路径",
+        "hint": "Linux x86_64 留空使用随包组件；其他平台填写官方客户端绝对路径。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "tailscaled_path": {
+        "type": "string",
+        "default": "",
+        "description": "Tailscale 服务路径",
+        "hint": "Linux x86_64 留空使用随包组件；其他平台填写官方 tailscaled 绝对路径。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "phone_ip": {
+        "type": "string",
+        "default": "",
+        "description": "手机组网 IPv4",
+        "hint": "手机官方客户端连接后显示的组网地址。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "auto_adb": {
+        "type": "bool",
+        "default": false,
+        "description": "经组网连接 ADB",
+        "hint": "手机需运行 Phone WG Relay UID 中转（通用于 Android VPN），默认转入 15555；电脑系统级 VPN 可直接填 adbd 端口。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "adb_port": {
+        "type": "int",
+        "default": 15555,
+        "description": "手机 ADB/中转端口",
+        "hint": "组网中手机对外监听端口。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "local_adb_port": {
+        "type": "int",
+        "default": 18855,
+        "description": "本地 ADB 转发端口",
+        "hint": "只监听 127.0.0.1；启动后自动切换，停止恢复原配置。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "proxy_port": {
+        "type": "int",
+        "default": 18889,
+        "description": "组网抓包端口",
+        "hint": "组网内发布到本地抓包服务的 TCP 端口，由网络成员授权及 ACL 控制。",
+        "condition": {
+          "enabled": true
+        }
+      }
+    }
+  },
   "media": {
     "type": "object",
     "description": "流媒体内容识别",
