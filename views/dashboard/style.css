@@ -503,3 +503,5 @@ canvas {
 #graph-details h2 { font-size: 16px; }
 #graph-details p, #graph-details li { white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
 @media (max-width: 1000px) { .memory-graph-layout { grid-template-columns: minmax(0, 1fr); } #graph-details { max-height: 300px; } }
+
+.risk-notice { margin: 0 0 16px; padding: 12px 16px; border: 1px solid #f4d18c; border-radius: 10px; color: #80550d; background: #fff9eb; font-size: 13px; line-height: 1.7; }

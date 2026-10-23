@@ -1,5 +1,7 @@
 # astrbot_phone_control_mirror
 
+> **使用风险**：使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失；请自行确认平台规则与操作授权。
+
 [![GitHub](https://img.shields.io/badge/GitHub-acat-fun%2Fastrbot__phone__control-181717.svg)](https://github.com/acat778/astrbot_phone_control)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 

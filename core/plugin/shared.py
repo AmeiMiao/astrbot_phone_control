@@ -175,6 +175,8 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
 
 
 _HELP_TEXT = """手机操控插件指令：
+使用风险：使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失；请自行确认平台规则与操作授权。
+
 /phone help           查看本帮助
 /phone status         查看设备连接、前台 App、电量与分辨率
 /phone connect        重新连接 ADB 设备
