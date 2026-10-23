@@ -63,14 +63,14 @@ class PhoneSaveImageTool(_PhoneToolBase):
 @dataclass
 class PhoneSavedImagesTool(_PhoneToolBase):
     name: str = "phone_saved_images"
-    description: str = "查询已存图片/表情包的描述、标签、来源和路径；action=to_phone 可用图片编号把服务端原图传到手机相册，哈希与索引核验。图片库独立于内容任务保存。"
+    description: str = "按语义查询已存图片/表情包，storage 可筛选服务端或手机本地。发帖/回复先判断是否需要配图，仅相关时 search 并阅读描述，申请 phone_interaction_gate 后 prepare（image_id、kind、reason）准备相册图片，再在 App 选图核对预览。prepare 不发布、不消耗预约；无合适图片用文字。to_phone 单独准备图片。需开启图片保存，原图与设备哈希核验。"
     parameters: dict = Field(
         default_factory=lambda: {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["search", "to_phone"],
+                    "enum": ["search", "to_phone", "prepare"],
                     "default": "search",
                 },
                 "query": {
@@ -81,6 +81,12 @@ class PhoneSavedImagesTool(_PhoneToolBase):
                     "type": "string",
                     "description": "查询结果中的完整图片编号。",
                 },
+                "storage": {
+                    "type": "string", "enum": ["auto", "all", "server", "phone"],
+                    "default": "auto", "description": "server=服务器原图；phone=手机本地；auto/all=搜索全部、准备时自动选择。",
+                },
+                "kind": {"type": "string", "enum": ["post", "comment", "passive_reply"]},
+                "reason": {"type": "string", "description": "prepare 必填：图片内容与本次发帖/回复语义的关系，无关时不要配图。"},
                 "limit": {
                     "type": "integer",
                     "default": 10,
@@ -95,16 +101,25 @@ class PhoneSavedImagesTool(_PhoneToolBase):
     @_wrap_call
     async def call(self, context, **kwargs):
         action = str(kwargs.get("action") or "search")
+        storage = str(kwargs.get("storage") or "auto")
         if action == "search":
             await self._guard_light(context)
             result = image_library(self.service).find(
-                kwargs.get("query") or "", kwargs.get("limit") or 10
+                kwargs.get("query") or "", kwargs.get("limit") or 10,
+                "all" if storage == "auto" else storage,
             )
         elif action == "to_phone":
             await self._guard(context)
             result = await image_library(self.service).send_to_phone(
-                str(kwargs.get("image_id") or "")
+                str(kwargs.get("image_id") or ""), "auto" if storage == "all" else storage
+            )
+        elif action == "prepare":
+            event = await self._guard(context)
+            result = await image_library(self.service).prepare_for_interaction(
+                event, str(kwargs.get("image_id") or ""),
+                kind=str(kwargs.get("kind") or ""), reason=kwargs.get("reason") or "",
+                storage="auto" if storage == "all" else storage,
             )
         else:
-            raise ValueError("action 需为 search 或 to_phone")
+            raise ValueError("action 需为 search、to_phone 或 prepare")
         return json.dumps(result, ensure_ascii=False)

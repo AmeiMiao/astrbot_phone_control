@@ -38,6 +38,15 @@ description: 点赞/收藏/主动评论/被动回复/发帖的行为手册（只
 - 遇到验证码/滑块/顺序点击：用 `phone_bypass_verify`（详见 `phone-verification` 手册），
   不要反复 dump 或连续点击。
 
+## 发帖与回复配图
+
+开启 `image.auto_save_images` 后，可选用已保存的服务器原图或当前手机本地图片。先理解正文和上下文，只有图片能补充表达时才配图，不为每次互动自动附图。
+
+1. 用 `phone_saved_images(action="search", query="主题/表情含义", storage="all")` 查询，阅读图片描述、标签与来源；server/phone 可分别筛选保存位置。无相关图片时使用文字。
+2. 通过对应的 `phone_interaction_gate` 取得当前轮次预约。
+3. 用 `phone_saved_images(action="prepare", image_id="完整编号", kind="post/comment/passive_reply", reason="这张图片与本次内容的具体关系", storage="auto")` 准备图片。服务器原图经哈希核验后传手机；手机本地原图核对设备、受控路径、哈希与媒体索引。可显式选择 server/phone。
+4. 根据当前 App 的实际界面点击添加图片，在系统相册选择返回路径对应的图片，并检查预览与正文是否匹配。准备结果仅表示图片可选；核对后再发布，完成后用 `phone_interaction_record` 记录真实结果。放弃或失败同样释放预约。
+
 ## 点赞与收藏
 
 先理解当前内容，再分别决定是否点赞或收藏。使用 `phone_interaction_gate(kind="like"/"favorite")`

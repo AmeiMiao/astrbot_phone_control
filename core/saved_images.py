@@ -83,6 +83,10 @@ class SavedImages:
             actual = await service.adb.shell(f"sha256sum {shlex.quote(destination)}")
             if not actual.startswith(digest + " "):
                 raise PhoneControlError("手机端文件校验失败，未确认保存成功")
+        return await self.scan_phone(destination)
+
+    async def scan_phone(self, destination):
+        service = self.service
         service.guard_device("save_image")
         await service.adb.shell(
             "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "
@@ -99,7 +103,9 @@ class SavedImages:
             await asyncio.sleep(0.25)
         raise PhoneControlError("图片已写入手机，但相册索引未确认；请检查设备媒体服务")
 
-    def find(self, query="", limit=10):
+    def find(self, query="", limit=10, storage="all"):
+        if storage not in {"all", "server", "phone"}:
+            raise PhoneControlError("storage 需为 all、server 或 phone")
         needle = str(query).strip().lower()
         records = sorted(
             self.load().values(), key=lambda x: x.get("updated_at", 0), reverse=True
@@ -107,7 +113,8 @@ class SavedImages:
         return [
             r
             for r in records
-            if not needle or needle in json.dumps(r, ensure_ascii=False).lower()
+            if (storage == "all" or r.get(storage + "_path"))
+            and (not needle or needle in json.dumps(r, ensure_ascii=False).lower())
         ][: max(1, min(int(limit), 30))]
 
     def local_path(self, record):
@@ -200,21 +207,41 @@ class SavedImages:
                 raise PhoneControlError("服务端原图校验失败")
             return data, image_suffix(data)
 
-    async def send_to_phone(self, image_id):
+    async def send_to_phone(self, image_id, storage="auto"):
         if not self.service.config.image.auto_save_images:
             raise PhoneControlError("图片保存已关闭，请在「图片保存」卡片开启 auto_save_images")
+        if storage not in {"auto", "server", "phone"}:
+            raise PhoneControlError("storage 需为 auto、server 或 phone")
         async with self.lock:
             records = self.load()
             record = records.get(str(image_id))
             if record is None:
                 raise PhoneControlError("图片编号不存在，请先查询图片库")
-            path = Path(record.get("server_path") or "").resolve()
-            if path.parent != (self.root / "files").resolve() or not path.is_file():
-                raise PhoneControlError("这张图片没有可用的服务端原图")
-            if hashlib.sha256(path.read_bytes()).hexdigest() != record["sha256"]:
-                raise PhoneControlError("服务端原图校验失败")
+            selected = ("server" if record.get("server_path") else "phone") if storage == "auto" else storage
             try:
-                record["phone_path"] = await self.to_phone(path, record["sha256"])
+                if selected == "server":
+                    path = self.local_path(record)
+                    if not path.is_file() or path.stat().st_size > MAX_IMAGE_BYTES:
+                        raise PhoneControlError("服务端原图不可用")
+                    if hashlib.sha256(path.read_bytes()).hexdigest() != record["sha256"]:
+                        raise PhoneControlError("服务端原图校验失败")
+                    record["phone_path"] = await self.to_phone(path, record["sha256"])
+                else:
+                    digest = str(record.get("sha256") or "")
+                    destination = str(record.get("phone_path") or "")
+                    expected = r"/storage/emulated/[0-9]+/Pictures/AstrBot/" + re.escape(digest) + r"\.(?:png|jpg|gif|webp)"
+                    if not re.fullmatch(r"[0-9a-f]{64}", digest) or not re.fullmatch(expected, destination):
+                        raise PhoneControlError("手机原图路径不可用")
+                    if not record.get("phone_device") or record["phone_device"] != self.service.adb.serial:
+                        raise PhoneControlError("请连接保存这张图片时使用的手机")
+                    self.service.guard_device("save_image")
+                    actual = await self.service.adb.shell(f"sha256sum {shlex.quote(destination)}")
+                    self.service.guard_device("save_image")
+                    if record["phone_device"] != self.service.adb.serial:
+                        raise PhoneControlError("手机设备已切换，请重新查询图片")
+                    if not actual.startswith(digest + " "):
+                        raise PhoneControlError("手机原图校验失败")
+                    record["phone_path"] = await self.scan_phone(destination)
                 record["last_error"] = ""
             except PhoneControlError as exc:
                 record["last_error"] = str(exc)
@@ -226,7 +253,26 @@ class SavedImages:
             )
             record["updated_at"] = time.time()
             self.write(records)
-            return record
+            return dict(record, source_storage=selected)
+
+    async def prepare_for_interaction(self, event, image_id, *, kind, reason, storage="auto"):
+        """准备当前已授权互动的配图，实际选图与发布由 Agent 操作 App。"""
+        from .interactions import KIND_ALLOW_KEYS, interaction_run
+
+        if kind not in {"post", "comment", "passive_reply"}:
+            raise PhoneControlError("kind 需为 post、comment 或 passive_reply")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+            raise PhoneControlError("请用 1–500 字说明图片与本次发帖/回复语义的关系")
+        allow_key = KIND_ALLOW_KEYS[kind].split(".")[-1]
+        if not getattr(self.service.config.security, allow_key):
+            raise PhoneControlError(f"请先开启 security.{allow_key}")
+        session = str(getattr(event, "unified_msg_origin", "") or "")
+        reservation = self.service.interactions.get_reservation(session, kind)
+        if reservation is None or reservation.run != interaction_run(event):
+            raise PhoneControlError("请先通过 phone_interaction_gate 申请本轮对应互动名额")
+        record = await self.send_to_phone(image_id, storage)
+        return dict(record, prepared_only=True, selection_reason=reason.strip(),
+                    next_step="在当前 App 发帖/回复界面选择此图片并核对预览，再按语义决定发布；完成后 phone_interaction_record 记账。")
 
     async def save(self, event, task, path, *, index, description, reason, kind, tags):
         data = path.read_bytes()
