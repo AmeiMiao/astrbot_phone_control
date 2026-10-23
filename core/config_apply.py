@@ -183,6 +183,8 @@ RECONCILE_KEYS: frozenset[str] = frozenset(
         "auto.continuous_enabled",
         "mesh.enabled",
         "mesh.provider",
+        "mesh.zerotier_network_id",
+        "mesh.zerotier_library",
         "mesh.hostname",
         "mesh.tailscale_auth_key",
         "mesh.tailscale_path",

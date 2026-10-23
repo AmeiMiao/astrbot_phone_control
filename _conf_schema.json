@@ -165,10 +165,11 @@
         "default": [
           "com.wireguard.android",
           "com.tailscale.ipn",
-          "fun.acat.phonerelay"
+          "fun.acat.phonerelay",
+          "com.zerotier.one"
         ],
         "description": "后台清理保留名单",
-        "hint": "填写需要常驻的完整包名。组网时保留 WireGuard、Tailscale 和 Phone WG Relay；停止手机、任务收尾和抓包初始化均保留名单内应用。"
+        "hint": "填写需要常驻的完整包名。组网时保留 WireGuard、Tailscale、ZeroTier、Tailscale 和 Phone WG Relay；停止手机、任务收尾和抓包初始化均保留名单内应用。"
       }
     },
     "hint": "使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失；请自行确认平台规则与操作授权。"
@@ -1119,7 +1120,8 @@
           "enabled": true
         },
         "options": [
-          "tailscale"
+          "tailscale",
+          "zerotier"
         ]
       },
       "hostname": {
@@ -1137,7 +1139,8 @@
         "description": "Tailscale Auth Key",
         "hint": "可留空通过 /phone mesh login 的登录链接授权；填写后仅经私有文件交给官方客户端，状态和日志不展示密钥。",
         "condition": {
-          "enabled": true
+          "enabled": true,
+          "provider": "tailscale"
         }
       },
       "tailscale_path": {
@@ -1146,7 +1149,8 @@
         "description": "Tailscale CLI 路径",
         "hint": "Linux x86_64 留空使用随包组件；其他平台填写官方客户端绝对路径。",
         "condition": {
-          "enabled": true
+          "enabled": true,
+          "provider": "tailscale"
         }
       },
       "tailscaled_path": {
@@ -1155,7 +1159,8 @@
         "description": "Tailscale 服务路径",
         "hint": "Linux x86_64 留空使用随包组件；其他平台填写官方 tailscaled 绝对路径。",
         "condition": {
-          "enabled": true
+          "enabled": true,
+          "provider": "tailscale"
         }
       },
       "phone_ip": {
@@ -1201,6 +1206,26 @@
         "hint": "组网内发布到本地抓包服务的 TCP 端口，由网络成员授权及 ACL 控制。",
         "condition": {
           "enabled": true
+        }
+      },
+      "zerotier_network_id": {
+        "type": "string",
+        "default": "",
+        "description": "ZeroTier Network ID",
+        "hint": "控制台私有网络的 16 位十六进制 ID；加入后在控制台授权页面显示的 10 位节点 ID。",
+        "condition": {
+          "enabled": true,
+          "provider": "zerotier"
+        }
+      },
+      "zerotier_library": {
+        "type": "string",
+        "default": "",
+        "description": "ZeroTier Sockets SDK 路径",
+        "hint": "Linux x86_64 留空使用随包 libzt.so（glibc ≥ 2.38）；其他平台填写对应官方 SDK 动态库路径。无需 TUN 或 NET_ADMIN。",
+        "condition": {
+          "enabled": true,
+          "provider": "zerotier"
         }
       }
     }

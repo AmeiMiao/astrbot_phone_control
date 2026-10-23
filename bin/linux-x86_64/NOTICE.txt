@@ -22327,3 +22327,9 @@ Source: https://github.com/tailscale/tailscale/tree/v1.104.2
 Archive: https://pkgs.tailscale.com/stable/tailscale_1.104.2_amd64.tgz
 Archive SHA256: 512f613ed7d04fc7282f7dc5bd76aa105aae28168fbb9357eb749ebcbc29f0ae
 License: BSD-3-Clause (TAILSCALE-LICENSE.txt); upstream binaries include their dependency notices.
+
+ZeroTier Sockets SDK (libzt.so)
+Source: https://github.com/zerotier/libzt/tree/a707ea6ae0910efdc1125d04758c411e2e9ea4f9
+Build: helper/mesh/build-zerotier.sh
+Platform: Linux x86_64, glibc >= 2.38
+License: ZEROTIER-LICENSE.txt and zerotier-licenses/

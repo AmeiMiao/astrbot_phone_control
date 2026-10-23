@@ -156,3 +156,76 @@ def test_stop_restores_original_adb_target(tmp_path):
         assert not m.running
 
     asyncio.run(run())
+
+
+def test_zerotier_invalid_network_and_stale_status_are_not_ready(tmp_path):
+    async def run():
+        s = service(
+            tmp_path,
+            enabled=True,
+            provider="zerotier",
+            zerotier_network_id="not-a-network",
+        )
+        m = MeshManager(s)
+        with pytest.raises(MeshError, match="Network ID"):
+            await m.start()
+        s.config = PhoneConfig.from_mapping(
+            {
+                "mesh": {
+                    "enabled": True,
+                    "provider": "zerotier",
+                    "zerotier_network_id": "0123456789abcdef",
+                }
+            }
+        )
+        m.process = SimpleNamespace(returncode=None)
+        private_json(
+            m.root / "zerotier-status.json",
+            dict(network_id="other-network", updated_at=0, ready=True),
+        )
+        result = await m.status()
+        assert not result["ready"] and result["error"]
+
+    asyncio.run(run())
+
+
+def test_bundled_zerotier_sdk_exports_required_native_api():
+    import platform
+    from pathlib import Path
+    from core.mesh_zerotier_worker import SDK
+
+    if platform.system() != "Linux" or platform.machine().lower() not in {
+        "x86_64",
+        "amd64",
+    }:
+        pytest.skip("Linux x86_64 bundled artifact")
+    library = Path(__file__).resolve().parents[1] / "bin/linux-x86_64/libzt.so"
+    sdk = SDK(library)
+    assert sdk.lib.zts_node_start.argtypes == []
+    assert len(sdk.lib.zts_connect.argtypes) == 4
+
+
+def test_zerotier_stream_handles_partial_native_send():
+    import ctypes
+    from core.mesh_zerotier_worker import Stream
+
+    captured = []
+
+    def send(fd, buffer, size, flags):
+        n = min(size, 2)
+        captured.append(ctypes.string_at(buffer, n))
+        return n
+
+    class Native:
+        zts_send = staticmethod(send)
+
+        @staticmethod
+        def zts_close(fd):
+            return 0
+
+    sdk = SimpleNamespace(lib=Native(), check=lambda n: n)
+    stream = Stream(sdk, 7)
+    stream.sendall(b"original-image-data")
+    stream.close()
+    stream.close()
+    assert b"".join(captured) == b"original-image-data"

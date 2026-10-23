@@ -275,3 +275,10 @@ Dashboard「浏览与学习」通过内容顶部标签切换浏览日志和学�
 手机安装官方 Tailscale 并加入同一网络，将其 100.64.0.0/10 地址填入手机组网 IP；开启组网 ADB 后插件在回环转发并自动切换 ADB，关闭恢复原目标。Android 无 root 可使用 Phone WG Relay 将 VPN App UID 的 15555 端口中转到本机 adbd；系统级 VPN 对端可填写实际 adbd 端口。启用一种 VPN；使用 Tailscale/ZeroTier 时关闭 WireGuard。
 
 `/phone mesh status|start|login|stop` 可查询或控制。停止会关闭配置中的组网开关，身份文件保留，重新开启可复用登录。组网成员与访问端口由控制台授权/ACL 限制。
+
+
+### ZeroTier 用户态接入
+
+组网服务选择 zerotier，填写控制台私有网络的 16 位 Network ID。点击 Dashboard 启动，复制显示的 10 位节点 ID，在 ZeroTier 控制台成员列表授权后刷新状态；手机官方客户端加入同一网络并授权。节点身份与 Tailscale 分开保存，切换服务会关闭前一节点和转发。
+
+Linux x86_64 随包 SDK 要求 glibc ≥ 2.38；其他环境可填写兼容的 ZeroTier Sockets SDK 动态库。SDK 工作进程提供用户态网络，不需要 TUN 或 NET_ADMIN。组网抓包入口仅接受配置的手机 IPv4，ADB SOCKS 仅连接配置的手机地址与端口。

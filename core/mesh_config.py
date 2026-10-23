@@ -11,6 +11,8 @@ class MeshSettings:
     tailscale_auth_key: str = ""
     tailscale_path: str = ""
     tailscaled_path: str = ""
+    zerotier_network_id: str = ""
+    zerotier_library: str = ""
     phone_ip: str = ""
     auto_adb: bool = False
     adb_port: int = 15555

@@ -7,6 +7,8 @@ import json
 import os
 import platform
 import re
+import sys
+import time
 from pathlib import Path
 
 from .errors import PhoneControlError
@@ -104,6 +106,10 @@ class MeshManager:
         )
 
     async def start(self):
+        if self.running and self._signature != self.settings:
+            await self.stop()
+        if self.settings.provider == "zerotier":
+            return await self.start_zerotier()
         async with self.lock:
             settings = self.settings
             if not settings.enabled:
@@ -197,6 +203,23 @@ class MeshManager:
         }
         if not self.running:
             return result
+        if self.settings.provider == "zerotier":
+            path = self.root / "zerotier-status.json"
+            if not path.exists():
+                result["state"] = "Waiting"
+                return result
+            try:
+                value = json.loads(path.read_text())
+                if (
+                    time.time() - value.get("updated_at", 0) > 10
+                    or value.get("network_id") != self.settings.zerotier_network_id
+                ):
+                    raise ValueError("stale status")
+            except (OSError, ValueError, TypeError):
+                result["error"] = "ZeroTier 状态未更新，请检查节点日志"
+                return result
+            result.update(value, adb_forward=self.server is not None)
+            return result
         rc, text, _ = await self.cli("status", "--json")
         if rc:
             result["error"] = "组网状态读取失败"
@@ -218,7 +241,10 @@ class MeshManager:
 
     async def connect(self, host, port):
         address = ipaddress.IPv4Address(host)
-        if address not in ipaddress.ip_network("100.64.0.0/10"):
+        if (
+            self.settings.provider == "tailscale"
+            and address not in ipaddress.ip_network("100.64.0.0/10")
+        ):
             raise MeshError("Tailscale 手机地址需位于 100.64.0.0/10 组网网段")
         reader, writer = await asyncio.open_connection("127.0.0.1", self.socks_port)
         try:
@@ -309,6 +335,20 @@ class MeshManager:
         if not status["ready"]:
             raise MeshError("组网节点尚未就绪，无法经组网抓包")
         port = self.settings.proxy_port
+        if self.settings.provider == "zerotier":
+            if not self.settings.phone_ip:
+                raise MeshError("ZeroTier 抓包需先填写已授权手机的组网 IPv4")
+            private_json(
+                self.root / "zerotier-control.json",
+                {"proxy_local_port": int(local_port)},
+            )
+            for _ in range(30):
+                current = await self.status()
+                if current.get("proxy_port") == port:
+                    self.exposed_port = port
+                    return current["addresses"][0] + ":" + str(port)
+                await asyncio.sleep(0.1)
+            raise MeshError("ZeroTier 抓包端口未就绪，请检查节点状态")
         rc, _, _ = await self.cli(
             "serve", "--bg", "--tcp=" + str(port), "tcp://127.0.0.1:" + str(local_port)
         )
@@ -319,6 +359,99 @@ class MeshManager:
         if not ip:
             raise MeshError("组网节点没有 IPv4 地址")
         return f"{ip}:{port}"
+
+    async def start_zerotier(self):
+        async with self.lock:
+            settings = self.settings
+            if not settings.enabled:
+                raise MeshError("请先开启 mesh.enabled")
+            if self.service.config.wireguard.enabled:
+                raise MeshError("请先关闭 WireGuard，再启动 ZeroTier")
+            if not re.fullmatch(r"[0-9a-f]{16}", settings.zerotier_network_id):
+                raise MeshError("ZeroTier Network ID 需为 16 位十六进制")
+            if not self.running:
+                library = (
+                    Path(settings.zerotier_library).expanduser()
+                    if settings.zerotier_library
+                    else Path(__file__).resolve().parents[1]
+                    / "bin/linux-x86_64/libzt.so"
+                )
+                if not library.is_file():
+                    raise MeshError("缺少 ZeroTier Sockets SDK，请配置动态库路径")
+                if not settings.zerotier_library and (
+                    platform.system() != "Linux"
+                    or platform.machine().lower() not in {"x86_64", "amd64"}
+                ):
+                    raise MeshError("当前平台请配置兼容的 ZeroTier Sockets SDK 动态库")
+                reserve = await asyncio.start_server(
+                    lambda r, w: w.close(), "127.0.0.1", 0
+                )
+                self.socks_port = reserve.sockets[0].getsockname()[1]
+                reserve.close()
+                await reserve.wait_closed()
+                state = self.root / "zerotier"
+                state.mkdir(exist_ok=True, mode=0o700)
+                status_path = self.root / "zerotier-status.json"
+                status_path.unlink(missing_ok=True)
+                private_json(self.root / "zerotier-control.json", {})
+                config_path = self.root / "zerotier-worker.json"
+                private_json(
+                    config_path,
+                    dict(
+                        library=str(library.resolve()),
+                        state_dir=str(state),
+                        network_id=settings.zerotier_network_id,
+                        socks_port=self.socks_port,
+                        phone_ip=settings.phone_ip,
+                        adb_port=settings.adb_port,
+                        proxy_port=settings.proxy_port,
+                        control_path=str(self.root / "zerotier-control.json"),
+                        status_path=str(status_path),
+                    ),
+                )
+                self.log = (self.root / "zerotier.log").open("ab")
+                os.chmod(self.root / "zerotier.log", 0o600)
+                package_root = str(Path(__file__).resolve().parents[1])
+                self.process = await asyncio.create_subprocess_exec(
+                    *guarded_command(
+                        [
+                            sys.executable,
+                            "-m",
+                            "core.mesh_zerotier_worker",
+                            "--config",
+                            str(config_path),
+                        ],
+                        self.root / "zerotier-process.lock",
+                    ),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=self.log,
+                    stderr=asyncio.subprocess.STDOUT,
+                    cwd=package_root,
+                    env={**os.environ, "PYTHONPATH": package_root},
+                )
+                self.heartbeat = start_heartbeat(self.process)
+                for _ in range(30):
+                    if not self.running:
+                        raise MeshError(
+                            "ZeroTier 用户态组件启动失败，请检查 SDK 架构与运行库（随包要求 glibc ≥ 2.38）"
+                        )
+                    if status_path.exists():
+                        break
+                    await asyncio.sleep(0.1)
+                self._signature = settings
+        result = await self.status()
+        if result["ready"] and settings.auto_adb:
+            await self.start_adb()
+        return result
+
+    async def hide_proxy(self):
+        if self.settings.provider == "zerotier":
+            private_json(self.root / "zerotier-control.json", {})
+        elif self.running and self.exposed_port:
+            rc, _, _ = await self.cli("serve", "--tcp=" + str(self.exposed_port), "off")
+            if rc:
+                raise MeshError("Tailscale 抓包端口关闭失败")
+        self.exposed_port = 0
 
     async def stop(self):
         async with self.lock:
