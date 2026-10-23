@@ -1,5 +1,6 @@
 """Dashboard 图片库与学习档案管理；访问权限由 AstrBot 面板统一认证。"""
 
+import time
 import asyncio
 import base64
 
@@ -222,10 +223,17 @@ class LibraryDashboardMixin:
         provider = unified_network(self.raw_config).get("provider", "tailscale")
         if provider == "wireguard":
             status = self._wireguard.status()
-            result = {"provider": provider, "ready": status["ok"], "running": status["running"],
-                      "enabled": status["enabled"], "node_id": status["public_key"],
-                      "addresses": status["interface_addresses"], "adb_forward": status["adb_over_wg"],
-                      "error": status["error"] or status["health_reason"]}
+            recent_handshake = 0 <= time.time() - status["last_handshake_unix"] <= 180
+            result = {
+                "provider": provider,
+                "ready": bool(status["ok"] and recent_handshake),
+                "running": status["running"],
+                "enabled": status["enabled"],
+                "node_id": status["public_key"],
+                "addresses": status["interface_addresses"],
+                "adb_forward": status["adb_over_wg"],
+                "error": status["error"] or status["health_reason"],
+            }
         else:
             result = await self._mesh.status()
         result["components"] = self._components.status()

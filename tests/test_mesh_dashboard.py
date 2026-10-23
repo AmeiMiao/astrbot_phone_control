@@ -77,3 +77,34 @@ def test_mesh_start_stop_commands_persist_enabled_state(tmp_path, monkeypatch):
             await plugin.terminate()
 
     asyncio.run(run())
+
+
+def test_wireguard_dashboard_requires_recent_peer_handshake(tmp_path, monkeypatch):
+    import time
+
+    async def run():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        plugin.raw_config["network"] = {"enabled": True, "provider": "wireguard"}
+        status = {
+            "ok": True,
+            "running": True,
+            "enabled": True,
+            "public_key": "public",
+            "interface_addresses": ["10.0.0.1/24"],
+            "adb_over_wg": False,
+            "error": "",
+            "health_reason": "",
+            "last_handshake_unix": 0,
+        }
+        monkeypatch.setattr(plugin._wireguard, "status", lambda: status)
+        try:
+            result = _json(await plugin.dashboard_mesh())
+            assert result["running"] and not result["ready"]
+            status["last_handshake_unix"] = time.time() - 30
+            assert _json(await plugin.dashboard_mesh())["ready"]
+            status["last_handshake_unix"] = time.time() - 600
+            assert not _json(await plugin.dashboard_mesh())["ready"]
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(run())
