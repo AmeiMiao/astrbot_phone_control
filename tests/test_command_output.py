@@ -28,7 +28,7 @@ def test_command_output_switch(tmp_path, monkeypatch, sub, as_image):
             assert type(chain[0]).__name__ == ("Image" if as_image else "Plain")
             assert render.await_count == int(as_image)
             if as_image:
-                render.assert_awaited_once_with("手机帮助 <测试>  \n下一行", return_url=False)
+                render.assert_awaited_once_with("手机帮助 &lt;测试&gt;  \n下一行", return_url=False)
         finally:
             await plugin.terminate()
     asyncio.run(scenario())

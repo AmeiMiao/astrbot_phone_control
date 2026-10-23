@@ -9,6 +9,7 @@ import re
 import time
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -292,7 +293,7 @@ class CommandsMixin:
             await self._say(event, text)
             return
         try:
-            image_path = await self.text_to_image(text.replace("\n", "  \n"), return_url=False)
+            image_path = await self.text_to_image(escape(text, quote=False).replace("\n", "  \n"), return_url=False)
             if not image_path:
                 raise ValueError("文字转图服务未返回图片")
         except Exception as exc:  # noqa: BLE001 - 图片服务错误向用户明确说明
