@@ -43,13 +43,13 @@ async def run_command(argv, timeout=15):
             result.extend(chunk)
         return result.decode(errors="replace")
 
+    async def collect():
+        out, error = await asyncio.gather(read(process.stdout), read(process.stderr))
+        await process.wait()
+        return process.returncode, out, error
+
     try:
-        async with asyncio.timeout(timeout):
-            out, error = await asyncio.gather(
-                read(process.stdout), read(process.stderr)
-            )
-            await process.wait()
-            return process.returncode, out, error
+        return await asyncio.wait_for(collect(), timeout)
     finally:
         if process.returncode is None:
             process.kill()

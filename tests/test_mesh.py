@@ -229,3 +229,24 @@ def test_zerotier_stream_handles_partial_native_send():
     stream.close()
     stream.close()
     assert b"".join(captured) == b"original-image-data"
+
+
+def test_mesh_commands_are_bounded_and_compatible_with_python_310():
+    import sys
+    from core.mesh import run_command
+
+    async def run():
+        code, out, error = await run_command(
+            [
+                sys.executable,
+                "-c",
+                'import sys; print("ok"); print("diagnostic",file=sys.stderr)',
+            ]
+        )
+        assert code == 0 and out.strip() == "ok" and error.strip() == "diagnostic"
+        with pytest.raises(asyncio.TimeoutError):
+            await run_command(
+                [sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.05
+            )
+
+    asyncio.run(run())
