@@ -44,7 +44,6 @@
       </aside>
 
       <main class="main">
-        <p class="risk-notice" role="note"><strong>使用风险</strong>：使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失；请自行确认平台规则与操作授权。</p>
         <p id="library-error" class="library-error" role="alert" tabindex="-1" hidden></p>
         <section id="view-dashboard" class="view">
           <header class="page-head">
@@ -146,8 +145,8 @@
         </section>
 
         <section id="view-mesh" class="view" hidden>
-          <header class="page-head"><div><h1>组网接入</h1><p class="subtitle">Tailscale / ZeroTier · 手机与插件加入同一网络</p></div><button id="mesh-refresh" class="btn ghost" type="button">刷新</button></header>
-          <div class="card"><p>先在插件配置的「Tailscale / ZeroTier 组网」选择服务并填写登录信息。手机安装对应官方客户端，连接同一网络；Android 同时启用一种 VPN。</p><p>ADB 转发使用手机组网 IP；无 root Android 可运行 Phone ADB Relay 中转。抓包通过服务端组网 IP 与抓包端口连接，请在网络控制台限制授权成员与端口。</p><div class="head-actions"><button id="mesh-start" class="btn primary" type="button">启动 / 登录</button><button id="mesh-stop" class="btn ghost" type="button">停止组网</button><button id="mesh-ca" class="btn ghost" type="button">下载抓包 CA</button><a id="mesh-login" class="btn" target="_blank" rel="noopener noreferrer" hidden>打开 Tailscale 登录授权</a></div><p class="hint">抓包卡片选择 mesh 后，通过服务端组网地址传输。无 root 可选择 manual 信任方式并下载 CA，由手机或 App 自行信任；HTTPS 需 App 接受该 CA。</p><pre id="mesh-status" class="vector-values" role="status">等待查询</pre></div>
+          <header class="page-head"><div><h1>组网接入</h1><p class="subtitle">WireGuard / Tailscale / ZeroTier · 手机与插件加入同一网络</p></div><button id="mesh-refresh" class="btn ghost" type="button">刷新</button></header>
+          <div class="card"><p>先在插件配置的「组网」开启开关，选择服务并填写参数。手机安装对应官方客户端，连接同一网络；Android 同时启用一种 VPN。</p><p>ADB 转发使用手机组网 IP；无 root Android 可运行 Phone ADB Relay 中转。抓包通过服务端组网 IP 与抓包端口连接，请在网络控制台限制授权成员与端口。</p><div class="head-actions"><button id="mesh-start" class="btn primary" type="button">启动 / 登录</button><button id="mesh-stop" class="btn ghost" type="button">停止组网</button><button id="mesh-ca" class="btn ghost" type="button">下载抓包 CA</button><a id="mesh-login" class="btn" target="_blank" rel="noopener noreferrer" hidden>打开 Tailscale 登录授权</a></div><p class="hint">Tailscale/ZeroTier 的抓包卡片选择 mesh 后，通过服务端组网地址传输；WireGuard 使用 adb 反向转发。无 root 可选择 manual 信任方式并下载 CA，由手机或 App 自行信任；HTTPS 需 App 接受该 CA。</p><pre id="mesh-status" class="vector-values" role="status">等待查询</pre></div>
         </section>
 
         <section id="view-records" class="view" hidden>

@@ -815,7 +815,8 @@
     catch (error) { setText("mesh-status", `组网状态读取失败：${error.message || error}`); }
   }
   function renderMesh(data) {
-    setText("mesh-status", `${data.provider} · ${data.ready ? "已连接" : data.running ? "等待连接/授权" : "已停止"}\n节点：${data.node_id || "—"}\n组网地址：${(data.addresses || []).join("、") || "—"}\nADB 转发：${data.adb_forward ? "已启动" : "未启动"}\n抓包端口：${data.proxy_port || "未发布"}${data.error ? "\n" + data.error : ""}`);
+    const components = Object.entries(data.components || {}).map(([name, item]) => `${name}：${item.state}${item.message ? "（" + item.message + "）" : ""}`).join("\n");
+    setText("mesh-status", `${data.provider} · ${data.ready ? "已连接" : data.running ? "等待连接/授权" : "已停止"}\n节点：${data.node_id || "—"}\n组网地址：${(data.addresses || []).join("、") || "—"}\nADB 转发：${data.adb_forward ? "已启动" : "未启动"}\n抓包端口：${data.proxy_port || "未发布"}${data.error ? "\n" + data.error : ""}${components ? "\n运行组件：\n" + components : ""}`);
     const link = $("mesh-login"); link.hidden = true; link.removeAttribute("href");
     try { const url = new URL(data.auth_url); if (url.protocol === "https:" && ["login.tailscale.com", "controlplane.tailscale.com"].includes(url.hostname)) { link.href = url.href; link.hidden = false; } } catch {}
   }
