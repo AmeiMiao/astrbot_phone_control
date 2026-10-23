@@ -71,7 +71,7 @@ _PHONE_CONTROL_TOOLS = frozenset(
 
 
 _GUIDANCE = (
-    "【手机操控能力】36 个 phone_* 工具；先 phone_skill 读手册。\n"
+    "【手机操控能力】36 个 phone_* 工具；先 phone_skill 读手册。\n应用安全：先 phone_list_apps 查看模型识别类型；金融类应用拒绝打开，类型未确认或模型失败也拒绝。打开应用必须用 phone_open_app/phone_browse，不得改用桌面图标、深链或 shell 绕过分类。\n"
     "回复：默认 1–2 句、≤80 字；任务结果只给 1–3 个要点，不复述过程/工具输出"
     "（用户要求详情除外）。\n"
     "存图：开关开启后图文 read 按兴趣 phone_save_image，填写描述/标签/理由，按配置存服务端/手机/两地；phone_saved_images 可查询服务端/手机本地图片；发帖/回复按语义决定是否配图，相关时 search 阅读描述、gate 预约，再 prepare(kind/reason) 并在 App 选图核对预览，无合适图片用文字。保存与分享独立。\n"

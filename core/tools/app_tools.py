@@ -24,7 +24,7 @@ class PhoneOpenAppTool(_PhoneToolBase):
 
     name: str = "phone_open_app"
     description: str = (
-        "打开手机上的任意已安装 App。app 可传 App 名称（中文标签/别名，如 微信、"
+        "按安装元数据经模型分类后打开应用；金融类、未知类型或分类失败拒绝打开。app 可传 App 名称（中文标签/别名，如 微信、"
         "小红书、bilibili）或 Android 包名；不限定预置 App，不确定装了什么可以先调用 "
         "phone_list_apps，或回桌面用 phone_screen 看图标。"
     )
@@ -119,7 +119,7 @@ class PhoneListAppsTool(_PhoneToolBase):
 
     name: str = "phone_list_apps"
     description: str = (
-        "列出手机已安装的第三方 App（包名 + 可读中文名，排除系统 App）。"
+        "列出手机已安装第三方 App 的包名、名称和模型识别类型；金融类拒绝打开，未知或识别失败同样拒绝。"
         "用于决定接下来打开/浏览哪个 App：可从列表里按自己的喜好选一个开始，"
         "不限于预置 App；也可以用中文名/包名直接 phone_open_app 或 phone_browse。"
     )
@@ -144,7 +144,12 @@ class PhoneListAppsTool(_PhoneToolBase):
         lines = [f"已安装第三方 App（{len(packages)} 个，按包名排序）："]
         for package in packages:
             label = app_label_for_package(package)
-            lines.append(f"- {label}（{package}）" if label else f"- {package}")
+            name = f"{label}（{package}）" if label else package
+            try:
+                kind = await self.service.app_policy.classify(package)
+                lines.append(f"- {name}：{kind['category_label']} · {'允许打开' if kind['allowed'] else '拒绝打开'}；{kind['reason']}")
+            except PhoneControlError as exc:
+                lines.append(f"- {name}：未确认 · 拒绝打开；{exc}")
         lines.append("")
         lines.append(
             "可从中按自己的喜好选一个开始，不限于预置 App；打开或浏览时直接给上面的中文名或包名即可。"

@@ -226,6 +226,11 @@ class PhoneService:
         self.learning = LearningStore(self.data_dir)
         # 由插件装配：AstrBot Star Context（OCR/后台任务）、实时屏幕 watcher 与后端管理器。
         self.app_context: Any = None
+        from .app_policy import AppPolicy
+
+        self.app_policy = AppPolicy(self)
+        if self.actions is not None:
+            self.actions.app_open_guard = self.app_policy.require_allowed
         self.live_screen: Any = None
         self.backends: Any = None
         # UI 快照缓存：text/desc 定位优先复用最近一次快照（模型刚看过屏幕时

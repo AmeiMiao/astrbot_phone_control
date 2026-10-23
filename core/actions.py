@@ -118,6 +118,7 @@ class DeviceActions:
         self._logger = logger
         # 设备门禁回调：公开属性，插件可在构造动作层之后晚绑定；None 表示不校验。
         self.guard: GuardFn | None = guard
+        self.app_open_guard = None
         self._screen_size: tuple[int, int] | None = None
         self._adbkeyboard_available: bool | None = None
         # 截图性能/正确性相关状态
@@ -384,6 +385,9 @@ class DeviceActions:
         await self._adb.ensure_ready()
         if not await self.is_installed(name):
             raise AppNotInstalledError(f"应用未安装：{name}")
+        if self.app_open_guard is not None:
+            await self.app_open_guard(name)
+            await self._guard_check("open_app")
         try:
             output = await self._adb.shell(
                 f"monkey -p {name} -c android.intent.category.LAUNCHER 1"
