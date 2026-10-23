@@ -754,6 +754,7 @@ class WireGuardManager:
         adb: Any = None,
         adb_target_provider: Callable[[], Mapping[str, Any]] | None = None,
         config_patch: Callable[..., Any] | None = None,
+        blocking_reason: Callable[[], str] | None = None,
         helper_path: str | Path | None = None,
         status_max_age_seconds: float | None = None,
         startup_timeout_seconds: float | None = None,
@@ -778,6 +779,7 @@ class WireGuardManager:
         self._adb = adb
         self._adb_target_provider = adb_target_provider
         self._config_patch = config_patch
+        self._blocking_reason = blocking_reason
         self._status_max_age = float(
             STATUS_MAX_AGE_SECONDS
             if status_max_age_seconds is None
@@ -1134,6 +1136,9 @@ class WireGuardManager:
                 )
 
     async def _start_locked(self) -> dict[str, Any]:
+        if self._blocking_reason and (reason := self._blocking_reason()):
+            self._last_error = reason
+            return self._failure_result(reason)
         settings = self._settings()
         if self.running:
             return self.status()
@@ -1566,6 +1571,8 @@ class WireGuardManager:
                     f"error: 未知动作 {action!r}，可用 status/start/stop/restart/config"
                 ),
             }
+        if name in {"start", "restart"} and self._blocking_reason and (reason := self._blocking_reason()):
+            return {"ok": False, "action": name, "text": "error: " + reason}
         settings = self._settings()
         if name in {"start", "restart"} and not settings.enabled:
             await self._persist_enabled(True)

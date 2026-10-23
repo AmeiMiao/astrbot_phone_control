@@ -22332,4 +22332,5 @@ ZeroTier Sockets SDK (libzt.so)
 Source: https://github.com/zerotier/libzt/tree/a707ea6ae0910efdc1125d04758c411e2e9ea4f9
 Build: helper/mesh/build-zerotier.sh
 Platform: Linux x86_64, glibc >= 2.38
+Build configuration: SDK virtual-interface MTU 1280; see helper/mesh/zerotier-mtu.patch.
 License: ZEROTIER-LICENSE.txt and zerotier-licenses/

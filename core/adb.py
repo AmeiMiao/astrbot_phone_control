@@ -26,6 +26,7 @@ from .errors import (
     AdbCommandError,
     AdbConnectError,
     AdbNotConfiguredError,
+    AdbTimeoutError,
     DeviceOfflineError,
     PhoneControlError,
 )
@@ -614,7 +615,7 @@ class AdbClient:
                 await asyncio.wait_for(proc.communicate(), timeout=2.0)
             except (TimeoutError, ProcessLookupError):
                 pass
-            raise AdbCommandError(
+            raise AdbTimeoutError(
                 f"ADB 命令超时（{effective_timeout:.1f}s）",
                 command=_argv_text(argv),
                 detail="超时后已终止 adb 子进程",
@@ -758,13 +759,19 @@ class AdbClient:
             last_detail = ""
             online = False
             while True:
-                rc, stdout, stderr = await self._run_adb(
-                    [str(self._adb_path), "connect", self._serial],
-                    timeout=min(10.0, self._connect_timeout),
-                )
-                message = (_decode(stdout) + " " + _decode(stderr)).strip()
-                if message:
-                    last_detail = message
+                remaining = deadline - asyncio.get_running_loop().time()
+                try:
+                    rc, stdout, stderr = await self._run_adb(
+                        [str(self._adb_path), "connect", self._serial],
+                        timeout=max(0.05, min(10.0, remaining)),
+                    )
+                except AdbTimeoutError as exc:
+                    # 子进程回收后，ADB server 的握手仍可能在总连接窗口内完成。
+                    last_detail = str(exc)
+                else:
+                    message = (_decode(stdout) + " " + _decode(stderr)).strip()
+                    if message:
+                        last_detail = message
                 # 不用 connect 的输出判定成败（不同 adb 版本返回码不一致），统一以 devices 为准
                 online = await self._is_online_raw()
                 if online:

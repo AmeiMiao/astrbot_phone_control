@@ -27,14 +27,14 @@ public final class MainActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(32, 32, 32, 32);
         TextView help = new TextView(this);
-        help.setText("先连接 WireGuard 并开启系统网络调试。中转使用普通 App UID，监听隧道地址:15555，仅接受下方控制端，目标固定为本机 ADB:5555。\n保留 ADB 授权；在 WireGuard 按应用配置中允许本 App。");
+        help.setText("先连接 WireGuard、Tailscale 或 ZeroTier，并开启系统网络调试。中转使用普通 App UID，监听隧道地址:15555，仅接受下方控制端，目标固定为本机 ADB:5555。\n保留 ADB 授权；在 VPN 的按应用设置中允许本 App。");
         box.addView(help);
         address = new EditText(this);
-        address.setHint("本机 WireGuard IPv4 地址");
+        address.setHint("本机组网 IPv4 地址");
         address.setText(getPreferences(0).getString("address", ""));
         box.addView(address);
         peer = new EditText(this);
-        peer.setHint("唯一允许的控制端 WireGuard IPv4 地址");
+        peer.setHint("唯一允许的控制端组网 IPv4 地址");
         peer.setText(getPreferences(0).getString("peer", ""));
         box.addView(peer);
         Button start = new Button(this);

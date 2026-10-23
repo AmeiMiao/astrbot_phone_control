@@ -1,14 +1,14 @@
 # Phone WG Relay
 
-Android 8+ 手机组件，以普通 App UID 在 WireGuard 隧道中接收 ADB 连接并中转到手机 `127.0.0.1:5555`。支持官方 WireGuard App 的应用级 VPN；手机 ADB 需先通过 USB 授权或设备网络调试开启。
+Android 8+ 手机组件，以普通 App UID 在 WireGuard、Tailscale 或 ZeroTier 隧道中接收 ADB 连接并中转到手机 `127.0.0.1:5555`。支持官方客户端的应用级 VPN；手机 ADB 需先通过 USB 授权或设备网络调试开启。
 
 ## 安装与连接
 
 1. 安装插件随包的 `bin/android/phone-wg-relay.apk`；同签名版本可覆盖更新。
 2. 手机开启网络 ADB（可由已授权 USB ADB 执行 `adb tcpip 5555`），确认 adbd 监听 5555。
-3. 官方 WireGuard App 导入配置并启用隧道；应用分流中允许 `fun.acat.phonerelay`。
-4. 打开 Phone WG Relay，填写手机 WG IPv4 地址和唯一允许的插件 WG IPv4 地址，点击启动。组件仅在 tun/wg 接口地址的 15555 端口监听，转发目标固定为手机 loopback adbd。
-5. 插件设置 `wireguard.adb_target_port=15555` 和 `auto_adb=true`；在 `security.background_keep_packages` 保留 `com.wireguard.android`、`fun.acat.phonerelay`。
+3. 官方 WireGuard/Tailscale/ZeroTier 客户端连接同一网络；应用分流中允许 `fun.acat.phonerelay`。
+4. 打开 Phone WG Relay，填写手机组网 IPv4 地址和唯一允许的插件组网 IPv4 地址，点击启动。组件仅在 tun/wg 接口地址的 15555 端口监听，转发目标固定为手机 loopback adbd。
+5. WireGuard 设置 `wireguard.adb_target_port=15555`；Tailscale/ZeroTier 设置 `mesh.adb_port=15555`，分别开启对应 `auto_adb`。后台保留名单包含当前 VPN 客户端与 `fun.acat.phonerelay`。
 
 通知栏和界面的停止按钮立即关闭监听与活动连接。VPN 接口消失后服务停止；服务使用 `START_NOT_STICKY`，由用户重新启动。并发上限为 16 对连接，连接 ADB 的超时为 5 秒。Android 的 ADB 授权机制保持生效。
 

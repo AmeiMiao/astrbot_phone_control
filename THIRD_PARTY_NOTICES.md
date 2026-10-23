@@ -11,6 +11,8 @@
 | **adb**（Android platform-tools，Linux x86_64） | AOSP Android SDK Platform-Tools 37.0.1（官方） | **Apache-2.0** | 位于 `bin/linux-x86_64/adb`，原样分发未修改。版权归 Google LLC 及 Android 项目贡献者；许可证与 NOTICE 全文见 `bin/linux-x86_64/NOTICE.txt`（来源 sdk-repo-linux-platform-tools.zip） |
 | **scrcpy-server** | [scrcpy](https://github.com/Genymobile/scrcpy) v5.0.1 | **Apache-2.0** | 位于 `bin/scrcpy-server-v5.0.1`，为 scrcpy 项目发布的 server 构建产物，未修改；通过 adb 推送到设备的 `/data/local/tmp` 以 `app_process` 运行。版权：Copyright (c) 2018 Genymobile、Copyright (c) 2018-2026 Romain Vimont 及 scrcpy 贡献者。详见 `bin/scrcpy-server-NOTICE.txt` |
 | **phone-wg**（WireGuard userspace helper） | 本仓库 `helper/phone-wg` 源码构建；静态链接 [wireguard-go](https://git.zx2c4.com/wireguard-go/) `v0.0.0-20261006164505-2631ce99a06f` 与 [gVisor](https://gvisor.dev/) `v0.0.0-20250503011706-39ed1f5ac29c` | **MIT + Apache-2.0** | 随包分发 `bin/linux-x86_64/phone-wg`（linux/amd64，静态链接 ELF）；wireguard-go 为 **MIT**，gVisor netstack 为 **Apache-2.0**，编译时未修改上游代码。其他平台不随包分发，用户可按本仓库源码自行编译。静态链接组件清单与许可证声明见「四、phone-wg 静态链接的第三方组件」 |
+| **Tailscale CLI / tailscaled** | [Tailscale](https://github.com/tailscale/tailscale) 1.104.2 官方 Linux amd64 归档 | **BSD-3-Clause** | `bin/linux-x86_64/tailscale`、`tailscaled`；独立用户态节点。许可证及官方归档 SHA256 见 `TAILSCALE-LICENSE.txt` 与 `NOTICE.txt` |
+| **ZeroTier Sockets SDK** | [libzt](https://github.com/zerotier/libzt) `a707ea6ae0910efdc1125d04758c411e2e9ea4f9` | **BSL-1.1** 及组件许可证 | `bin/linux-x86_64/libzt.so`；按 `helper/mesh/build-zerotier.sh` 构建，来源与完整许可证见 `ZEROTIER-LICENSE.txt` 和 `zerotier-licenses/`；使用须遵守上游授权条款 |
 
 Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`，或 <https://www.apache.org/licenses/LICENSE-2.0>。
 
@@ -88,4 +90,4 @@ gVisor 的声明：Copyright 2018 The gVisor Authors，许可证为 Apache-2.0�
 
 ## 五、Phone WG Relay
 
-`bin/android/phone-wg-relay.apk` 由本项目 `helper/android-relay` 源码构建，使用项目 MIT 许可；依赖 Android 系统 API。官方 WireGuard App 由用户按其官方渠道安装。
+`bin/android/phone-wg-relay.apk` 由本项目 `helper/android-relay` 源码构建，使用项目 MIT 许可；依赖 Android 系统 API。WireGuard、Tailscale、ZeroTier 手机客户端由用户按其官方渠道安装；中转 App 在已连接的 VPN 接口上提供受来源地址限制的 ADB 转发。

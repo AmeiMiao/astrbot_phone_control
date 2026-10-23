@@ -11,3 +11,5 @@ MESH_BUILD_DIR=/path/to/cache/mesh MESH_OUTPUT=/path/to/output ./build-zerotier.
 ```
 
 编译选项 `-include stdexcept` 为上游指标库声明 `std::invalid_argument` 所需标准头。Central API 编译关闭；插件通过 Network ID 与本地节点身份加入网络，成员授权由 ZeroTier 控制台完成。保留原始 SDK/ZeroTierOne/lwIP 许可证，位于 `bin/linux-x86_64/ZEROTIER-LICENSE.txt` 和 `zerotier-licenses/`。
+
+SDK 的虚拟接口 MTU 为 1280，TCP MSS 随之计算，使封装后的流量适合常见 1500 MTU 链路。构建脚本应用同目录 `zerotier-mtu.patch`；每个 SDK socket 的收发与关闭由同一线程处理，代理保留 TCP 半关闭并使用有界缓冲。

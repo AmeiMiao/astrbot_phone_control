@@ -196,11 +196,13 @@ class CommandsMixin:
         if sub == "mesh":
             action = rest[0].lower() if rest else "status"
             if action in {"start", "login"}:
+                if not self._config().mesh.enabled:
+                    await self._apply_config_patch({"mesh": {"enabled": True}})
                 result = await self._mesh.start()
             elif action == "stop":
-                await self._mesh.stop()
-                # 停止命令关闭配置，保活循环按配置保持停止。
+                # 配置先关闭，使保活循环与停止命令一致。
                 await self._apply_config_patch({"mesh": {"enabled": False}})
+                await self._mesh.stop()
                 result = await self._mesh.status()
             elif action == "status":
                 result = await self._mesh.status()

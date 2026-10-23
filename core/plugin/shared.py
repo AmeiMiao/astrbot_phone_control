@@ -181,8 +181,8 @@ _HELP_TEXT = """手机操控插件指令：
 /phone status         查看设备连接、前台 App、电量与分辨率
 /phone connect        重新连接 ADB 设备
 /phone screenshot     截图并发送到当前会话
-/phone open <app>     打开任意已安装 App（中文名/别名/包名）
-/phone browse [app] [条数]  浏览任意已安装 App 的信息流并记入记忆
+/phone open <app>     打开通过类型识别的已安装 App（中文名/别名/包名）
+/phone browse [app] [条数]  浏览通过类型识别的已安装 App 的信息流并记入记忆
 /phone diary [条数|关键词]  查看/检索浏览日志
 /phone auto on <app[,app]> [cron]  创建定时自主浏览任务（cron 默认取配置）
 /phone auto off [job_id]           取消自主浏览任务

@@ -428,6 +428,7 @@ class BootstrapMixin:
                 "serial": self.service.config.adb.serial,
             },
             config_patch=self._apply_config_patch,
+            blocking_reason=lambda: "请先关闭 Tailscale/ZeroTier 组网，再启用 WireGuard" if self.service.config.mesh.enabled else "",
         )
         self.service.wireguard = self._wireguard
         # 验证会话/人工接管控制器（先加载持久化状态，再启动调度器）。

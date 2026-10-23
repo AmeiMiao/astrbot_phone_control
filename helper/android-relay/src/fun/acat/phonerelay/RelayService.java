@@ -36,7 +36,7 @@ public final class RelayService extends Service {
             if (Integer.parseInt(part) > 255) throw new IOException("IPv4 地址无效");
         InetAddress address = InetAddress.getByName(value);
         if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isMulticastAddress())
-            throw new IOException("必须使用 WireGuard 单播地址");
+            throw new IOException("必须使用组网单播地址");
         return address;
     }
 
@@ -48,7 +48,7 @@ public final class RelayService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel("relay", "WireGuard ADB 中转", NotificationManager.IMPORTANCE_LOW));
+        nm.createNotificationChannel(new NotificationChannel("relay", "VPN ADB 中转", NotificationManager.IMPORTANCE_LOW));
         Intent stop = new Intent(this, RelayService.class).setAction("stop");
         PendingIntent stopAction = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE);
         Notification notification = new Notification.Builder(this, "relay")

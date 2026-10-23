@@ -48,3 +48,28 @@ def test_mesh_dashboard_rejects_invalid_actions_and_only_returns_public_ca(
             await plugin.terminate()
 
     asyncio.run(run())
+
+
+def test_mesh_start_stop_commands_persist_enabled_state(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    from test_main_0130_features import FakeEvent
+
+    async def run():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        plugin._mesh.reconcile = AsyncMock(return_value={})
+        plugin._mesh.start = AsyncMock(return_value={"ready": False})
+        plugin._mesh.stop = AsyncMock()
+        plugin._mesh.status = AsyncMock(return_value={"running": False})
+        plugin._say = AsyncMock()
+        event = FakeEvent()
+        try:
+            await plugin._dispatch_phone(event, "mesh start")
+            assert plugin.service.config.mesh.enabled
+            plugin._mesh.start.assert_awaited_once()
+            await plugin._dispatch_phone(event, "mesh stop")
+            assert not plugin.service.config.mesh.enabled
+            plugin._mesh.stop.assert_awaited_once()
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(run())

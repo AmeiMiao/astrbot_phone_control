@@ -45,6 +45,10 @@ class AdbCommandError(PhoneControlError):
         self.stderr = stderr
 
 
+class AdbTimeoutError(AdbCommandError):
+    """单条 ADB 子进程已达到超时并被回收。"""
+
+
 class DeviceOfflineError(AdbCommandError):
     """设备掉线 / offline 状态。"""
 

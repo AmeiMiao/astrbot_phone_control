@@ -1123,3 +1123,33 @@ def test_configured_client_reports_configured(tmp_path):
     client = AdbClient(sys.executable, "10.0.0.2", 5555, tmp_path / "home")
     assert client.configured is True
     assert client.serial == "10.0.0.2:5555"
+
+
+@pytest.mark.parametrize("already_online", [False, True])
+def test_connect_cli_timeout_uses_device_state_and_remaining_retry_window(tmp_path, already_online):
+    from core.errors import AdbTimeoutError
+    client = make_client(tmp_path)
+    attempts = 0
+    polls = 0
+
+    def handler(argv):
+        nonlocal attempts, polls
+        if "connect" in argv:
+            attempts += 1
+            if attempts == 1:
+                raise AdbTimeoutError("模拟连接子进程超时")
+        if "devices" in argv:
+            polls += 1
+            if polls == 1 and not already_online:
+                return 0, b"List of devices attached\n", b""
+        return standard_handler(argv)
+
+    runner = FakeRunner(handler)
+    client._run_adb = runner
+    info = run(client.connect())
+    assert info.adb_connected and info.serial == SERIAL
+    assert attempts == (1 if already_online else 2)
+    timeouts = [timeout for argv, timeout in runner.calls if "connect" in argv]
+    assert all(0 < value <= 1 for value in timeouts)
+    if len(timeouts) > 1:
+        assert timeouts[1] < timeouts[0]

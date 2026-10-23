@@ -1,0 +1,13 @@
+diff --git a/src/lwipopts.h b/src/lwipopts.h
+index 5ddb269..5b84091 100644
+--- a/src/lwipopts.h
++++ b/src/lwipopts.h
+@@ -83,7 +83,7 @@
+ ------------------------------------ Presets -----------------------------------
+ ------------------------------------------------------------------------------*/
+ 
+-#define LWIP_MTU                        2800
++#define LWIP_MTU                        1280
+ #define LWIP_CHKSUM_ALGORITHM           2
+ // memory
+ #define MEMP_NUM_NETCONN                1024

@@ -297,8 +297,10 @@ class MeshManager:
             for stream in [writer, remote_writer]:
                 if stream is not None:
                     stream.close()
-                    with contextlib.suppress(OSError):
-                        await stream.wait_closed()
+                    try:
+                        await asyncio.wait_for(stream.wait_closed(), 2)
+                    except (OSError, asyncio.TimeoutError):
+                        stream.transport.abort()
             self.connections.discard(task)
 
     async def start_adb(self):
@@ -320,11 +322,13 @@ class MeshManager:
             await adb.reconfigure(
                 host="127.0.0.1", port=self.settings.local_adb_port, serial=""
             )
+            # 本地转发重启后清除 ADB server 中该端口的离线传输，再核验实际操作。
+            await adb.disconnect()
             await adb.ensure_ready()
+            if (await adb.shell("echo phone_mesh_ready")).strip() != "phone_mesh_ready":
+                raise MeshError("组网 ADB 实际操作核验失败")
         except BaseException:
-            self.server.close()
-            await self.server.wait_closed()
-            self.server = None
+            await self.close_forward_server()
             host, port, serial = self.adb_original
             self.adb_original = None
             await adb.reconfigure(host=host, port=port, serial=serial)
@@ -453,12 +457,24 @@ class MeshManager:
                 raise MeshError("Tailscale 抓包端口关闭失败")
         self.exposed_port = 0
 
+    async def close_forward_server(self):
+        server = self.server
+        self.server = None
+        if server is not None:
+            server.close()
+        tasks = list(self.connections)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if server is not None:
+            await server.wait_closed()
+
     async def stop(self):
         traffic = getattr(self.service, "traffic", None)
         failure = None
         if (
             traffic is not None
-            and traffic.running
             and traffic.status().get("transport") == "mesh"
         ):
             try:
@@ -466,15 +482,12 @@ class MeshManager:
             except Exception as exc:
                 failure = exc
         async with self.lock:
-            if self.server is not None:
-                self.server.close()
-                await self.server.wait_closed()
-                self.server = None
-            tasks = list(self.connections)
-            for task in tasks:
-                task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+            if self.exposed_port:
+                try:
+                    await self.hide_proxy()
+                except Exception as exc:
+                    failure = failure or exc
+            await self.close_forward_server()
             if self.adb_original is not None:
                 host, port, serial = self.adb_original
                 self.adb_original = None
