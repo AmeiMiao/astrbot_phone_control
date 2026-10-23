@@ -9,7 +9,6 @@ import re
 import time
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
-from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +28,7 @@ try:  # AstrBot 内置命令的写法：一个 GreedyStr 参数吃下命令后�
 except ImportError:  # pragma: no cover - AstrBot 版本或单测环境没有该类型
     GreedyStr = str  # type: ignore[assignment,misc]
 
+from ..command_card import COMMAND_CARD_TEMPLATE
 from ..actions import DeviceActions
 from ..adb import AdbClient
 from ..app_memory import AppMemoryStore
@@ -293,7 +293,12 @@ class CommandsMixin:
             await self._say(event, text)
             return
         try:
-            image_path = await self.text_to_image(escape(text, quote=False).replace("\n", "  \n"), return_url=False)
+            image_path = await self.html_render(
+                COMMAND_CARD_TEMPLATE,
+                {"title": "手机操控 · " + ("帮助" if sub == "help" else "状态"), "text": text},
+                return_url=False,
+                options={"type": "png", "full_page": True},
+            )
             if not image_path:
                 raise ValueError("文字转图服务未返回图片")
         except Exception as exc:  # noqa: BLE001 - 图片服务错误向用户明确说明

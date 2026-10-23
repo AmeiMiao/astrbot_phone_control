@@ -20,7 +20,7 @@ def test_command_output_switch(tmp_path, monkeypatch, sub, as_image):
         plugin = _make_plugin(tmp_path, monkeypatch)
         plugin.raw_config["command"] = {f"{sub}_as_image": as_image}
         render = AsyncMock(return_value=str(tmp_path / "card.png"))
-        monkeypatch.setattr(plugin, "text_to_image", render)
+        monkeypatch.setattr(plugin, "html_render", render)
         event = SimpleNamespace(send=AsyncMock())
         try:
             await plugin._say_command(event, "手机帮助 <测试>\n下一行", sub)
@@ -28,7 +28,10 @@ def test_command_output_switch(tmp_path, monkeypatch, sub, as_image):
             assert type(chain[0]).__name__ == ("Image" if as_image else "Plain")
             assert render.await_count == int(as_image)
             if as_image:
-                render.assert_awaited_once_with("手机帮助 &lt;测试&gt;  \n下一行", return_url=False)
+                assert "{{ text | e }}" in render.call_args.args[0]
+                assert "white-space: pre-wrap" in render.call_args.args[0]
+                assert render.call_args.args[1]["text"] == "手机帮助 <测试>\n下一行"
+                assert render.call_args.kwargs["return_url"] is False
         finally:
             await plugin.terminate()
     asyncio.run(scenario())
@@ -37,7 +40,7 @@ def test_command_output_switch(tmp_path, monkeypatch, sub, as_image):
 def test_command_render_failure_is_visible(tmp_path, monkeypatch):
     async def scenario():
         plugin = _make_plugin(tmp_path, monkeypatch)
-        monkeypatch.setattr(plugin, "text_to_image", AsyncMock(side_effect=RuntimeError("render offline")))
+        monkeypatch.setattr(plugin, "html_render", AsyncMock(side_effect=RuntimeError("render offline")))
         event = SimpleNamespace(send=AsyncMock())
         try:
             await plugin._say_command(event, "手机帮助", "help")
@@ -46,3 +49,15 @@ def test_command_render_failure_is_visible(tmp_path, monkeypatch):
         finally:
             await plugin.terminate()
     asyncio.run(scenario())
+
+
+def test_command_card_preserves_literal_parameters_and_escapes_html():
+    from jinja2 import Template
+    from core.command_card import COMMAND_CARD_TEMPLATE
+
+    text = "/phone open <app>\n/phone task <instruction>\n<script>bad()</script>"
+    rendered = Template(COMMAND_CARD_TEMPLATE).render(title="手机帮助", text=text)
+    assert "/phone open &lt;app&gt;\n/phone task &lt;instruction&gt;" in rendered
+    assert "&lt;script&gt;bad()&lt;/script&gt;" in rendered
+    assert "<script>" not in rendered
+    assert "white-space: pre-wrap" in rendered
