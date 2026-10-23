@@ -13,6 +13,7 @@ from .compat import error_response, json_response, plugin_main_module
 class LibraryDashboardMixin:
     def _library_dashboard_routes(self, base):
         return (
+            (f"{base}/diary/delete", self.dashboard_diary_delete, ["POST"], "删除浏览日志"),
             (f"{base}/vectors", self.dashboard_vectors, ["GET"], "手机学习向量"),
             (
                 f"{base}/learning/delete",
@@ -72,10 +73,27 @@ class LibraryDashboardMixin:
             raise PhoneControlError("请提供有效的记录编号")
         return data
 
+    async def dashboard_diary_delete(self):
+        try:
+            data = await self._library_request()
+            await self.service.diary.delete_async(
+                data["id"], commit=lambda writer: self.semantic_index.deletions.commit_source_delete("diary", data["id"], writer)
+            )
+            self.semantic_maintainer.request_refresh()
+            return json_response({"deleted": data["id"]})
+        except PhoneControlError as exc:
+            return error_response(str(exc), status_code=400)
+        except OSError:
+            return error_response("浏览日志删除未保存，请检查存储", status_code=500)
+
     async def dashboard_learning_delete(self):
         try:
             data = await self._library_request()
-            self.service.learning.delete(data["id"])
+            await asyncio.to_thread(
+                self.service.learning.delete, data["id"],
+                commit=lambda writer: self.semantic_index.deletions.commit_source_delete("learning", data["id"], writer),
+            )
+            self.semantic_maintainer.request_refresh()
             return json_response({"deleted": data["id"]})
         except PhoneControlError as exc:
             return error_response(str(exc), status_code=400)

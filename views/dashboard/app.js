@@ -9,6 +9,7 @@
   const state = {
     bridge: null,
     view: "dashboard",
+    recordTab: "diary",
     overview: null,
     series: { screenshots: [], llm: [], buckets: [] },
     timers: [],
@@ -96,8 +97,7 @@
       btn.classList.toggle("active", btn.dataset.view === view);
     });
     $("view-dashboard").hidden = view !== "dashboard";
-    $("view-diary").hidden = view !== "diary";
-    $("view-learning").hidden = view !== "learning";
+    $("view-records").hidden = view !== "records";
     $("view-vectors").hidden = view !== "vectors";
     $("view-images").hidden = view !== "images";
     $("view-migration").hidden = view !== "migration";
@@ -107,11 +107,22 @@
       refreshSeries();
     } else {
       stopPolls();
-      if (view === "diary") loadDiary();
-      if (view === "learning") loadLearning();
+      if (view === "records") switchRecordTab(state.recordTab);
       if (view === "vectors") loadVectors();
       if (view === "images") loadImages();
     }
+  }
+
+  function switchRecordTab(tab) {
+    state.recordTab = tab;
+    document.querySelectorAll("[data-record-tab]").forEach(button => {
+      const active = button.dataset.recordTab === tab;
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    });
+    $("view-diary").hidden = tab !== "diary";
+    $("view-learning").hidden = tab !== "learning";
+    if (tab === "diary") loadDiary(); else loadLearning();
   }
 
   function schedulePolls() {
@@ -441,6 +452,10 @@
         offset: state.diaryOffset,
       });
       if (request !== state.diaryRequest) return;
+      if (!data.entries.length && data.total && state.diaryOffset) {
+        state.diaryOffset = Math.floor((data.total - 1) / limit) * limit;
+        return loadDiary();
+      }
       renderDiary(data || {});
     } catch (err) {
       if (request !== state.diaryRequest) return;
@@ -514,6 +529,11 @@
         app.className = "learning-source";
         app.textContent = entry.app || "未知 App";
         head.appendChild(app);
+        head.append(button("删除", async () => {
+          if (!await confirmAction("删除这条浏览日志及其关联检索索引？截图文件保留。")) return;
+          await state.bridge.apiPost("dashboard/diary/delete", { id: entry.id });
+          await loadDiary();
+        }));
         item.appendChild(head);
 
         const items = entry.items || [];
@@ -935,6 +955,17 @@
       refreshOverview();
       refreshSeries();
     });
+    const recordTabs = [...document.querySelectorAll("[data-record-tab]")];
+    recordTabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => switchRecordTab(tab.dataset.recordTab));
+      tab.addEventListener("keydown", event => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const next = event.key === "Home" ? 0 : event.key === "End" ? recordTabs.length - 1
+          : (index + (event.key === "ArrowRight" ? 1 : -1) + recordTabs.length) % recordTabs.length;
+        recordTabs[next].focus(); switchRecordTab(recordTabs[next].dataset.recordTab);
+      });
+    });
     $("btn-diary-refresh").addEventListener("click", loadDiary);
     $("btn-diary-search").addEventListener("click", () => {
       state.diaryOffset = 0;
@@ -983,10 +1014,8 @@
       if (state.view === "dashboard") {
         refreshOverview();
         refreshSeries();
-      } else if (state.view === "diary") {
-        loadDiary();
-      } else if (state.view === "learning") {
-        loadLearning();
+      } else if (state.view === "records") {
+        switchRecordTab(state.recordTab);
       } else if (state.view === "vectors") {
         loadVectors();
       } else if (state.view === "images") {

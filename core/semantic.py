@@ -34,6 +34,7 @@ import sys
 import time
 import uuid
 from array import array
+from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import islice
@@ -41,7 +42,9 @@ from operator import mul
 from pathlib import Path
 from typing import Any
 
+from .diary import PhoneDiary
 from .errors import PhoneControlError
+from .index_deletions import IndexDeletions
 
 # ---- 常量 ---------------------------------------------------------------
 
@@ -421,7 +424,7 @@ def collect_documents(
     if include_diary:
         docs.extend(
             build_diary_documents(
-                read_jsonl_entries(root / "diary" / "diary.jsonl"),
+                PhoneDiary(root / "diary").all_entries(),
                 doc_chars=doc_chars,
             )
         )
@@ -521,6 +524,7 @@ class SemanticSnapshot:
     vectors: array
     dim: int
     provider_key: str
+    deletions: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_by_id", {doc.id: doc for doc in self.docs})
@@ -573,7 +577,10 @@ class SemanticSnapshot:
             threshold = DEFAULT_MIN_SCORE
         scored: list[tuple[float, int]] = []
         vectors = self.vectors
+        deleted = self.deletions.predicate() if self.deletions is not None else lambda doc: False
         for index in range(len(self.docs)):
+            if deleted(self.docs[index]):
+                continue
             start = index * self.dim
             score = sum(
                 map(mul, query, islice(vectors, start, start + self.dim))
@@ -607,6 +614,7 @@ class SemanticIndex:
             root: 索引目录（``<plugin_data>/semantic``）。
         """
         self.root = Path(root)
+        self.deletions = IndexDeletions(self.root)
 
     @property
     def manifest_path(self) -> Path:
@@ -700,7 +708,13 @@ class SemanticIndex:
                 return None
         except (OSError, TypeError, ValueError):
             return None
+        deleted = self.deletions.predicate()
+        keep = [i for i, doc in enumerate(docs) if not deleted(doc)]
+        vectors = array("f", (vectors[i * dim + j] for i in keep for j in range(dim)))
+        docs = [docs[i] for i in keep]
+        manifest = dict(manifest, count=len(docs), sources=dict(Counter(d.source for d in docs)))
         return SemanticSnapshot(
+            deletions=self.deletions,
             manifest=manifest,
             docs=tuple(docs),
             vectors=vectors,
@@ -727,7 +741,7 @@ class SemanticIndex:
         docs: Sequence[SemanticDoc],
         vectors: Sequence[Sequence[float]],
         manifest: dict[str, Any],
-    ) -> None:
+    ) -> dict[str, Any]:
         """原子写入一代索引，最后一步替换 manifest 指针。
 
         Args:
@@ -739,6 +753,16 @@ class SemanticIndex:
         Raises:
             OSError: 磁盘写入失败；此时旧 manifest 保持不变，旧索引继续可用。
         """
+        with self.deletions.lock:
+            return self._write_generation_locked(generation, docs, vectors, manifest)
+
+    def _write_generation_locked(self, generation, docs, vectors, manifest):
+        deleted = self.deletions.predicate()
+        pairs = [(doc, vector) for doc, vector in zip(docs, vectors) if not deleted(doc)]
+        docs = [doc for doc, _ in pairs]
+        vectors = [vector for _, vector in pairs]
+        manifest = dict(manifest, signature=compute_signature(docs, provider_key=str(manifest.get("provider_key") or "")),
+                        sources=dict(Counter(doc.source for doc in docs)))
         entries_name = f"{ENTRIES_PREFIX}{generation}{ENTRIES_SUFFIX}"
         vectors_name = f"{VECTORS_PREFIX}{generation}{VECTORS_SUFFIX}"
         entries_path = self.root / entries_name
@@ -778,6 +802,7 @@ class SemanticIndex:
         os.replace(entries_tmp, entries_path)
         os.replace(vectors_tmp, vectors_path)
         os.replace(manifest_tmp, self.manifest_path)
+        return payload
 
     def cleanup(self, *, keep_generations: set[str] | None = None) -> None:
         """清理旧 generation 与残留临时文件（保留传入的 generation）。"""
@@ -888,7 +913,8 @@ async def build_index(
     if expected_dim <= 0:
         raise SemanticBuildError("向量维度非法")
     key = provider_key(provider_id, model, expected_dim)
-    prepared = [doc.with_hash(provider_key=key) for doc in docs]
+    deleted = index.deletions.predicate()
+    prepared = [doc.with_hash(provider_key=key) for doc in docs if not deleted(doc)]
     signature = compute_signature(prepared, provider_key=key)
     sources: dict[str, int] = {}
     for doc in prepared:
@@ -965,7 +991,7 @@ async def build_index(
     }
     if previous is not None:
         manifest["replaced_generation"] = previous.generation
-    await asyncio.to_thread(
+    committed = await asyncio.to_thread(
         index.write_generation, generation, prepared, filled, manifest
     )
     keep = {generation}
@@ -977,12 +1003,12 @@ async def build_index(
         pass
     return BuildResult(
         generation=generation,
-        count=len(prepared),
+        count=committed["count"],
         embedded=len(changed_indexes),
-        reused=len(prepared) - len(changed_indexes),
+        reused=min(len(prepared) - len(changed_indexes), committed["count"]),
         changed=True,
-        signature=signature,
-        sources=sources,
+        signature=committed["signature"],
+        sources=committed["sources"],
     )
 
 

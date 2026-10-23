@@ -17,8 +17,7 @@
         </div>
         <nav class="nav">
           <button class="nav-item active" data-view="dashboard" type="button">监控面板</button>
-          <button class="nav-item" data-view="diary" type="button">浏览日志</button>
-          <button class="nav-item" data-view="learning" type="button">学习记录</button>
+          <button class="nav-item" data-view="records" type="button">浏览与学习</button>
           <button class="nav-item" data-view="vectors" type="button">学习向量</button>
           <button class="nav-item" data-view="images" type="button">保存的图片</button>
           <button class="nav-item" data-view="migration" type="button">配置与数据迁移</button>
@@ -123,7 +122,12 @@
           <p class="hint">查看当前索引中的正文与实际向量值；页面只读，搜索按正文关键词筛选。索引由对应功能的后台任务维护。</p>
         </section>
 
-        <section id="view-learning" class="view" hidden>
+        <section id="view-records" class="view" hidden>
+          <div class="content-tabs" role="tablist" aria-label="浏览与学习记录">
+            <button id="tab-diary" role="tab" aria-controls="view-diary" aria-selected="true" tabindex="0" data-record-tab="diary" type="button">浏览日志</button>
+            <button id="tab-learning" role="tab" aria-controls="view-learning" aria-selected="false" tabindex="-1" data-record-tab="learning" type="button">学习记录</button>
+          </div>
+        <section id="view-learning" class="record-panel" role="tabpanel" aria-labelledby="tab-learning" tabindex="0" hidden>
           <header class="page-head">
             <div>
               <h1>手机学习记录</h1>
@@ -156,7 +160,7 @@
             也可用 /phone learn [关键词|条数] 在聊天里查看。
           </p>
         </section>
-        <section id="view-diary" class="view" hidden>
+        <section id="view-diary" class="record-panel" role="tabpanel" aria-labelledby="tab-diary" tabindex="0">
           <header class="page-head">
             <div>
               <h1>浏览日志</h1>
@@ -193,6 +197,7 @@
             浏览日志由浏览与自主任务自动写入；超过上限自动清理最旧日志，最近若干轮任务的日志受保护。
             也可用 /phone diary 在聊天里查看，或让 AI 调用 phone_recall_diary 检索。
           </p>
+        </section>
         </section>
         <section id="view-images" class="view" hidden>
           <header class="page-head"><div><h1>保存的图片</h1><p id="images-subtitle" class="subtitle">加载中…</p></div>

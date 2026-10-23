@@ -275,7 +275,7 @@ class LearningStore:
                 self._append_file([entry])
             return dict(entry)
 
-    def delete(self, entry_id: str) -> None:
+    def delete(self, entry_id: str, *, commit=None) -> None:
         """按唯一编号删除；文件替换成功后才更新内存。"""
         with self._lock:
             remaining = [e for e in self._entries if e["id"] != entry_id]
@@ -287,7 +287,8 @@ class LearningStore:
                 with temporary.open("w", encoding="utf-8") as handle:
                     for entry in remaining:
                         handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                os.replace(temporary, self.path)
+                writer = lambda: os.replace(temporary, self.path)
+                writer() if commit is None else commit(writer)
             except OSError as exc:
                 raise LearningError("学习记录删除未保存，请检查存储") from exc
             self._entries = deque(remaining, maxlen=self.max_entries)

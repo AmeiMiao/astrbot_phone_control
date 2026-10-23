@@ -489,3 +489,8 @@ canvas {
 .library-error { padding: 12px; border: 1px solid var(--red); color: var(--red); border-radius: 8px; overflow-wrap: anywhere; }
 
 .vector-values { max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.content-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 22px; }
+.content-tabs button { color: var(--muted); background: transparent; border: 0; border-bottom: 3px solid transparent; padding: 12px 18px; font: inherit; cursor: pointer; }
+.content-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.content-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }

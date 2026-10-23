@@ -17,7 +17,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import threading
+from functools import wraps
 import os
 import time
 import uuid
@@ -28,6 +31,19 @@ from typing import Any
 from astrbot.api import logger
 
 from .models import BrowseResult, FeedItem
+from .errors import PhoneControlError
+
+
+class DiaryError(PhoneControlError):
+    """浏览日志读取或删除失败。"""
+
+
+def _serialized(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._io_lock:
+            return method(self, *args, **kwargs)
+    return call
 
 DIARY_FILENAME = "diary.jsonl"
 DEFAULT_MAX_ENTRIES = 500
@@ -127,10 +143,11 @@ class PhoneDiary:
         self.max_entries = max_entries if max_entries > 0 else DEFAULT_MAX_ENTRIES
         self.path = self.root / DIARY_FILENAME
         self._lock = asyncio.Lock()
+        self._io_lock = threading.RLock()
 
     # ---- 内部读写 -----------------------------------------------------
 
-    def _read_entries_unlocked(self) -> list[dict[str, Any]]:
+    def _read_entries_unlocked(self, *, strict=False) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
         entries: list[dict[str, Any]] = []
@@ -143,11 +160,28 @@ class PhoneDiary:
                     try:
                         record = json.loads(line)
                     except json.JSONDecodeError:
+                        if strict:
+                            raise DiaryError("浏览日志含损坏记录，请检查存储")
                         logger.warning("忽略日记中无法解析的行：%s", line[:80])
                         continue
                     if isinstance(record, dict):
+                        if not isinstance(record.get("id"), str) or not record["id"]:
+                            ts = float(record.get("ts") or 0)
+                            app = " ".join(str(record.get("app") or "").split()) or "未知 App"
+                            base = hashlib.sha256(f"{ts}:{app}".encode()).hexdigest()[:16]
+                            used = {e["id"] for e in entries}
+                            key = base
+                            n = 0
+                            while key in used:
+                                n += 1
+                                key = f"{base}-{n}"
+                            record["id"] = key
                         entries.append(record)
+                    elif strict:
+                        raise DiaryError("浏览日志含非法记录，请检查存储")
         except OSError as exc:
+            if strict:
+                raise DiaryError("浏览日志读取失败，请检查存储") from exc
             logger.warning("读取浏览日志失败：%s", exc)
             return []
         return entries
@@ -162,6 +196,7 @@ class PhoneDiary:
 
     # ---- 对外接口 -----------------------------------------------------
 
+    @_serialized
     def add_browse(
         self,
         result: BrowseResult,
@@ -237,6 +272,23 @@ class PhoneDiary:
                 keep_rounds=keep_rounds,
             )
 
+    @_serialized
+    def delete(self, entry_id, *, commit=None):
+        """删除指定日志；持久化保留记录编号，截图文件独立保留。"""
+        entries = self._read_entries_unlocked(strict=True)
+        remaining = [entry for entry in entries if entry["id"] != entry_id]
+        if len(remaining) == len(entries):
+            raise DiaryError("浏览日志不存在，请刷新列表")
+        writer = lambda: self._write_entries_unlocked(remaining)
+        if commit is None:
+            writer()
+        else:
+            commit(writer)
+
+    async def delete_async(self, entry_id, *, commit=None):
+        async with self._lock:
+            await asyncio.to_thread(self.delete, entry_id, commit=commit)
+
     def recent(self, limit: int = 5) -> list[dict[str, Any]]:
         """返回最近的条目（新在前）。"""
         count = max(0, int(limit))
@@ -311,6 +363,7 @@ class PhoneDiary:
             text = text[: max(0, max_chars - 1)] + "…"
         return text
 
+    @_serialized
     def apply_limits(self, *, max_entries: int, keep_rounds: int = 0) -> dict[str, Any]:
         """按配置清理一次日志（插件启动/配置变更时调用）。
 
