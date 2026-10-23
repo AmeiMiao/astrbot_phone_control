@@ -769,6 +769,24 @@
       }
     }
   },
+  "command": {
+    "type": "object",
+    "description": "命令输出",
+    "items": {
+      "status_as_image": {
+        "type": "bool",
+        "default": true,
+        "description": "/phone status 以图片输出",
+        "hint": "开启后使用 AstrBot 文字转图服务；关闭后发送文字。渲染失败时会提示原因并发送文字。"
+      },
+      "help_as_image": {
+        "type": "bool",
+        "default": true,
+        "description": "/phone help 以图片输出",
+        "hint": "开启后使用 AstrBot 文字转图服务；关闭后发送文字。渲染失败时会提示原因并发送文字。"
+      }
+    }
+  },
   "perception": {
     "type": "object",
     "description": "屏幕感知",
@@ -1253,24 +1271,6 @@
         "default": true,
         "description": "设备动作写入 info 日志",
         "hint": "覆盖点击/滑动/dump/截图；关闭后降为 debug 级别；默认开启。"
-      }
-    }
-  },
-  "command": {
-    "type": "object",
-    "description": "命令输出",
-    "items": {
-      "status_as_image": {
-        "type": "bool",
-        "default": true,
-        "description": "/phone status 以图片输出",
-        "hint": "开启后使用 AstrBot 文字转图服务；关闭后发送文字。渲染失败时会提示原因并发送文字。"
-      },
-      "help_as_image": {
-        "type": "bool",
-        "default": true,
-        "description": "/phone help 以图片输出",
-        "hint": "开启后使用 AstrBot 文字转图服务；关闭后发送文字。渲染失败时会提示原因并发送文字。"
       }
     }
   }

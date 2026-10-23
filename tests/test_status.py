@@ -31,3 +31,17 @@ def test_connected_status_reads_image_settings(tmp_path, image, expected):
     assert "测试手机" in text
     assert expected in text
     assert "App经验：" in text
+
+
+def test_command_output_defaults_match_schema_and_allow_independent_switches():
+    import json
+    from pathlib import Path
+    from core.config import PhoneConfig
+
+    schema = json.loads((Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text())
+    assert list(schema).index("command") == list(schema).index("prompt") + 1
+    for key in ("status_as_image", "help_as_image"):
+        assert schema["command"]["items"][key]["default"] is True
+    config = PhoneConfig.from_mapping({"command": {"status_as_image": False}})
+    assert config.command.status_as_image is False
+    assert config.command.help_as_image is True
