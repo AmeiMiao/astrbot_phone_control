@@ -344,6 +344,8 @@ class PhoneControlPlugin(
             name = str(getattr(tool, "name", "") or "")
             if not name.startswith("phone_"):
                 return
+            if not check_admin_permission(event, self.service.config):
+                self._tool_reports.submit(event, name, tool_result)
             if name in _PHONE_CONTROL_TOOLS:
                 pending = list(event.get_extra("phone_control_pending") or [])
                 if pending:
@@ -354,8 +356,8 @@ class PhoneControlPlugin(
                     # 权限/参数错误等失败调用不应改变手机状态。
                     event.set_extra("phone_control_used", True)
             event.set_extra("phone_llm_started", time.monotonic())
-        except Exception:  # noqa: BLE001 - 指标失败不影响工具调用
-            pass
+        except Exception as exc:  # noqa: BLE001 - 汇报/指标失败不影响工具调用
+            logger.warning("手机工具结果跟踪失败：%s", type(exc).__name__)
 
     @filter.on_llm_response()
     async def track_llm_response_usage(

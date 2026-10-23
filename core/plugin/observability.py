@@ -330,6 +330,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
             data = {
                 "version": self._version,
                 "components": self._components.status(),
+                "error_reports": self._tool_reports.status(),
                 "uptime_s": round(max(0.0, time.time() - self._started_at), 1),
                 "backends": {
                     "control": getattr(status, "control", "adb"),
@@ -770,9 +771,8 @@ class ObservabilityMixin(LibraryDashboardMixin):
     @classmethod
     def _phone_tool_result_failed(cls, tool_result: Any) -> bool:
         """工具结果是否失败（错误统一以 ``error:`` 开头）。"""
-        if tool_result is None:
-            return True
-        return cls._tool_result_text(tool_result).lstrip().startswith("error:")
+        from ..tool_reports import result_failed
+        return result_failed(tool_result)
 
     def _should_capture_agent_usage(self, event: Any) -> bool:
         """是否采集本次 Agent run 的累计 usage（普通手机 run 或自主 cron 任务）。"""

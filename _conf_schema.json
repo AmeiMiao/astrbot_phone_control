@@ -1393,6 +1393,36 @@
       }
     }
   },
+  "report": {
+    "type": "object",
+    "description": "工具异常汇报",
+    "hint": "手机工具失败后自动汇报主人，独立于内容分享与免打扰时段；相同目标的后续错误合并后限频发送。",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "报错时通知主人"
+      },
+      "target": {
+        "type": "string",
+        "default": "",
+        "description": "主人通知会话",
+        "hint": "可填完整会话 UMO。留空时，按当前或最近实际平台会话，为 security.owner_ids 中的主人生成私聊目标；自主任务同样生效。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "cooldown_seconds": {
+        "type": "int",
+        "default": 300,
+        "description": "合并间隔（秒）",
+        "hint": "首次报错及时发送；后续错误按目标合并，默认每 300 秒最多一条汇报。发送失败有界重试三次，详情保留在日志。",
+        "condition": {
+          "enabled": true
+        }
+      }
+    }
+  },
   "debug": {
     "type": "object",
     "description": "调试",

@@ -17,6 +17,7 @@ ADB 主机/端口默认为空，表示「未配置」：插件仍可正常加载
 from __future__ import annotations
 
 from .mesh_config import MeshSettings, mesh_settings
+from .tool_reports import ReportSettings
 from .network_config import runtime_cards
 
 import math
@@ -806,6 +807,7 @@ class PhoneConfig:
     recall: RecallSettings = field(default_factory=RecallSettings)
     command: CommandSettings = field(default_factory=CommandSettings)
     debug: DebugSettings = field(default_factory=DebugSettings)
+    report: ReportSettings = field(default_factory=ReportSettings)
 
     @classmethod
     def from_mapping(
@@ -1940,4 +1942,9 @@ class PhoneConfig:
             recall=recall,
             command=command,
             debug=debug,
+            report=ReportSettings(
+                enabled=_as_bool(_pick(card("report"), source, "enabled"), True, "report.enabled", warn_fn),
+                target=_as_str(_pick(card("report"), source, "target"), "", "report.target", warn_fn),
+                cooldown_seconds=_as_int(_pick(card("report"), source, "cooldown_seconds"), 300, "report.cooldown_seconds", warn_fn, minimum=1, maximum=86400),
+            ),
         )

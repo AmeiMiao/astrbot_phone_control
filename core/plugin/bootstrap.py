@@ -162,6 +162,7 @@ from ..media import (
 )
 from ..platform_bins import ensure_bundled_executables
 from ..runtime_components import RuntimeComponents, ComponentError
+from ..tool_reports import ToolErrorReporter, owner_targets
 from ..network_config import migrate_network, normalize_network_patch
 from ..telemetry import MetricsStore
 from ..ui import dump_ui, render_ui
@@ -402,6 +403,12 @@ class BootstrapMixin:
         )
         self.service.app_context = self.context
         self.service.components = self._components
+        self._tool_reports = ToolErrorReporter(
+            settings=lambda: self.service.config.report,
+            targets=self._tool_error_targets,
+            send=self._send_tool_error_report,
+            log=lambda message: logger.warning("%s", message),
+        )
         from ..mesh import MeshManager
         self._mesh = MeshManager(self.service)
         self.service.mesh = self._mesh
@@ -732,6 +739,7 @@ class BootstrapMixin:
             return
         self._terminated = True
         try:
+            await self._tool_reports.close()
             await self._terminate_impl()
         finally:
             LIVE_PLUGIN_INSTANCES.discard(self)
@@ -1284,6 +1292,29 @@ class BootstrapMixin:
         except Exception as exc:  # noqa: BLE001 - 重置失败如实报告
             logger.warning("配置热应用：重置控制/感知后端失败：%s", exc)
             notes.append(f"控制/感知后端重置失败：{exc}（可重载插件）")
+
+    def _tool_error_targets(self, event):
+        return owner_targets(
+            target=self.service.config.report.target,
+            owners=self.service.config.security.owner_ids,
+            origin=str(getattr(event, "unified_msg_origin", "") or ""),
+            last_session=self.service.last_session(),
+        )
+
+    async def _send_tool_error_report(self, target, text):
+        config = self.service.config
+        if not config.report.enabled:
+            return False
+        if config.report.target:
+            allowed = target == config.report.target
+        else:
+            parts = target.split(":", 2)
+            allowed = len(parts) == 3 and parts[1] == "FriendMessage" and parts[2] in config.security.owner_ids
+        if not allowed:
+            raise PermissionError("错误汇报目标已改变")
+        return await self.context.send_message(
+            MessageSession.from_str(target), MessageChain().message(text)
+        )
 
     async def _apply_config_patch(
         self, patch: dict[str, Any], *, notes: list[str] | None = None
