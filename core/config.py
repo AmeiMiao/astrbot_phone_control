@@ -582,6 +582,8 @@ class TrafficSettings:
     body_chars: int = DEFAULT_TRAFFIC_BODY_CHARS
     keep_seconds: int = DEFAULT_TRAFFIC_KEEP_SECONDS
     mitmdump_path: str = ""
+    transport: str = "adb"
+    ca_mode: str = "system"
 
 
 @dataclass(frozen=True)
@@ -1504,6 +1506,8 @@ class PhoneConfig:
 
         traffic_card = card("traffic")
         traffic = TrafficSettings(
+            transport=_as_choice(_pick(traffic_card, source, "transport"), "adb", "traffic.transport", warn_fn, ("adb", "mesh")),
+            ca_mode=_as_choice(_pick(traffic_card, source, "ca_mode"), "system", "traffic.ca_mode", warn_fn, ("system", "manual")),
             enabled=_as_bool(
                 _pick(traffic_card, source, "enabled"),
                 True,

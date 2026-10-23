@@ -412,6 +412,8 @@ class BootstrapMixin:
             logger=logger.info,
             mitmdump=self.service.config.traffic.mitmdump_path,
             keep_packages_provider=lambda: self.service.config.security.background_keep_packages,
+            settings_provider=lambda: self.service.config.traffic,
+            mesh=self._mesh,
         )
         self.service.traffic = self._traffic
         # WireGuard 组网：userspace helper 生命周期跟随插件；auto_adb 开启时
@@ -624,6 +626,12 @@ class BootstrapMixin:
                 "验证：存在待人工协助/待确认会话，手机自动操作保持暂停（/phone verify status 查看）"
             )
         # 抓包必须先于自刷/随机循环就位：App 进程需在 CA 注入后启动才能被解密。
+        if self.service.config.mesh.enabled:
+            try:
+                await self._mesh.reconcile()
+            except Exception:
+                self._mesh.last_error = "组网等待连接或授权"
+        self._start_mesh_keepalive()
         try:
             await asyncio.wait_for(self._ensure_traffic_started(), timeout=60)
         except asyncio.TimeoutError:
@@ -631,7 +639,6 @@ class BootstrapMixin:
         except Exception as exc:  # noqa: BLE001 - 抓包失败不能阻塞插件启用
             logger.warning("抓包启动失败：%s", exc)
         self._start_traffic_keepalive()
-        self._start_mesh_keepalive()
         try:
             await asyncio.wait_for(self._ensure_wireguard_started(), timeout=30)
         except asyncio.TimeoutError:
@@ -784,12 +791,15 @@ class BootstrapMixin:
             mesh_task.cancel()
             with suppress(asyncio.CancelledError):
                 await mesh_task
-        if getattr(self, "_mesh", None) is not None:
-            await self._mesh.stop()
         try:
             await self._traffic.stop()
         except Exception as exc:  # noqa: BLE001 - 抓包清理失败不影响停用
             logger.warning("抓包停止失败：%s", exc)
+        try:
+            if getattr(self, "_mesh", None) is not None:
+                await self._mesh.stop()
+        except Exception as exc:
+            logger.warning("组网停止清理未完成：%s", exc)
         wireguard_task = getattr(self, "_wireguard_keepalive_task", None)
         self._wireguard_keepalive_task = None
         if wireguard_task is not None and not wireguard_task.done():
@@ -1186,6 +1196,10 @@ class BootstrapMixin:
         if (
             previous.traffic.enabled != current.traffic.enabled
             or previous.traffic.port != current.traffic.port
+            or previous.traffic.transport != current.traffic.transport
+            or previous.traffic.ca_mode != current.traffic.ca_mode
+            or previous.traffic.mitmdump_path != current.traffic.mitmdump_path
+            or (plan.mesh_changed and current.traffic.transport == "mesh")
             or previous.traffic.body_chars != current.traffic.body_chars
         ):
             try:
@@ -1194,6 +1208,7 @@ class BootstrapMixin:
                     self._traffic.reset_unavailable()
                 if self._traffic.running:
                     await self._traffic.stop()
+                self._traffic._mitmdump = current.traffic.mitmdump_path
                 await self._ensure_traffic_started()
                 if current.traffic.enabled and self._traffic.running:
                     notes.append(

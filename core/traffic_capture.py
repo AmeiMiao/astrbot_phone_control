@@ -1,25 +1,12 @@
-"""ADB 抓包管理器：启动 mitmproxy、注入系统 CA、设置设备代理并读取解密流量。
+"""流量抓包：mitmproxy 回环服务、ADB 或组网传输与 CA 信任管理。
 
-运行前提（由部署环境准备）：
-* 容器内安装 mitmproxy（``pip3 install mitmproxy``，提供 ``mitmdump``）；
-* 手机可通过 adb root 获取 root（用于系统 CA 绑定挂载与 ``nsenter``）。
+手机代理通过 ADB reverse 或 Tailscale/ZeroTier 组网地址连接服务端。
+系统 CA 模式使用 adb root 注入证书；手动模式由使用者或 App 信任公开 CA，
+可在无 root 设备使用 HTTP，HTTPS 解密取决于 App 的证书信任策略。
 
-工作方式：
-1. 在插件数据目录启动 ``mitmdump``（监听 127.0.0.1:<port>），生成 CA 证书；
-2. ``adb root`` 后把 CA 混入系统证书目录并用 ``nsenter -t 1 -m -- mount --bind`` 挂载；
-3. ``adb reverse`` 把手机 127.0.0.1:<port> 转发到容器 mitmdump，并设置全局 http_proxy；
-4. addon 把解密后的 HTTP(S) 流量写入 JSONL，供 ``phone_traffic`` 工具读取。
-
-停止时会恢复设备代理、移除 reverse 并卸载 CA 绑定挂载；异常退出后再次启动会先清理
-遗留状态，避免设备因为代理指向不存在的服务而断网。
-
-并发与失败策略：
-* ``start``/``stop``/``ensure_device`` 以及设备环境配置全部由一把 ``asyncio.Lock``
-  串行执行；同一实例内不会出现「清理/挂载互相打断」的竞态，``start`` 幂等。
-* 失败返回的 ``reason`` 一定是明确字符串；确定性不可用（设备无 root、系统证书
-  挂载被拒绝、mitmdump 缺失等）记录原因后停止自动重试；临时失败按指数退避重试，
-  连续多次失败同样收敛为不可用，避免保活循环反复 WARN 与反复 adb 往返。
-* 启动失败回滚只处理本实例本次尝试改动过的进程/设备状态。
+启动、停止与设备保活由 asyncio 锁串行化；子进程和设备代理持有心跳租约。
+停止或失败回滚撤回本实例代理与转发，保留其他反向映射和后续代理设置。
+确定性不可用记录原因，临时失败按指数退避重试。
 """
 
 from __future__ import annotations
@@ -74,6 +61,8 @@ class TrafficCapture:
         logger: Any = None,
         mitmdump: str = "",
         keep_packages_provider=None,
+        settings_provider=None,
+        mesh=None,
     ) -> None:
         self.adb = adb
         self.root = Path(data_dir) / "traffic"
@@ -84,6 +73,12 @@ class TrafficCapture:
         self._logger = logger
         self._mitmdump = mitmdump
         self._keep_packages_provider = keep_packages_provider
+        self._settings_provider = settings_provider
+        self.mesh = mesh
+        self._transport = "adb"
+        self._ca_mode = "system"
+        self._proxy_value = ""
+        self._mesh_proxy = False
         self._device_lease = None
         self._process_heartbeat = None
         self._proc: asyncio.subprocess.Process | None = None
@@ -201,9 +196,7 @@ class TrafficCapture:
             "retry_in": round(self.next_retry_in, 1),
         }
 
-    def _fail_locked(
-        self, reason: str, *, unavailable: bool = False
-    ) -> dict[str, Any]:
+    def _fail_locked(self, reason: str, *, unavailable: bool = False) -> dict[str, Any]:
         """记录一次失败并按确定性/临时性更新状态。"""
         self._note_failure(reason, unavailable=unavailable)
         return self._failure_result(reason, unavailable=self.unavailable)
@@ -221,9 +214,7 @@ class TrafficCapture:
                 f"连续 {self._failures} 次失败，本次运行不再自动重试：{reason}"
             )
             return
-        delay = min(
-            RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * (2 ** (self._failures - 1))
-        )
+        delay = min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * (2 ** (self._failures - 1)))
         self._next_retry_at = time.monotonic() + delay
 
     def _note_success(self) -> None:
@@ -258,21 +249,29 @@ class TrafficCapture:
         with suppress(Exception):
             await self.adb.shell("settings put global http_proxy :0", timeout=10)
 
-    async def _cleanup_device_state_locked(
-        self, *, port: int | None = None
-    ) -> None:
+    async def _cleanup_device_state_locked(self, *, port: int | None = None) -> None:
         """清理上一次运行可能残留的代理/reverse/CA 挂载（失败静默）。"""
         target_port = int(port or self._port or traffic_mod.DEFAULT_TRAFFIC_PORT)
-        with suppress(Exception):
-            await self.adb.run(["reverse", "--remove", f"tcp:{target_port}"], timeout=10)
-        with suppress(Exception):
-            await self.adb.run(["reverse", "--remove-all"], timeout=10)
-        await self._clear_device_proxy()
-        with suppress(Exception):
-            await self.adb.shell(
-                "nsenter -t 1 -m -- umount -l " + SYSTEM_CACERTS + " 2>/dev/null; true",
-                timeout=15,
-            )
+        if self._transport == "adb":
+            with suppress(Exception):
+                await self.adb.run(
+                    ["reverse", "--remove", f"tcp:{target_port}"], timeout=10
+                )
+        current = (
+            await self.adb.shell("settings get global http_proxy", timeout=10)
+        ).strip()
+        if current == PROXY_VALUE.format(port=target_port) or (
+            self._proxy_value and current == self._proxy_value
+        ):
+            await self._clear_device_proxy()
+        if self._ca_mode == "system":
+            with suppress(Exception):
+                await self.adb.shell(
+                    "nsenter -t 1 -m -- umount -l "
+                    + SYSTEM_CACERTS
+                    + " 2>/dev/null; true",
+                    timeout=15,
+                )
 
     async def cleanup_device_state(self, *, port: int | None = None) -> None:
         """清理设备侧遗留抓包状态（串行对外入口）。"""
@@ -312,22 +311,27 @@ class TrafficCapture:
     async def _force_stop_apps(self) -> int:
         """按统一保留规则重启应用，使其读取注入的系统 CA。"""
         from .background import DEFAULT_KEEP_PACKAGES, clean_background
-        whitelist = self._keep_packages_provider() if self._keep_packages_provider else DEFAULT_KEEP_PACKAGES
+
+        whitelist = (
+            self._keep_packages_provider()
+            if self._keep_packages_provider
+            else DEFAULT_KEEP_PACKAGES
+        )
         report = await clean_background(self.adb, whitelist=whitelist)
         if report["errors"]:
             self._log("抓包初始化清理异常：" + "；".join(report["errors"]))
         return report["stopped"]
 
     async def _setup_device_locked(self) -> None:
-        """注入系统 CA、建立 reverse 与全局代理（需要 root；调用方持锁）。"""
+        """按所选 CA 信任方式与传输通道配置手机代理（调用方持锁）。"""
         # 设备重配置先撤回前一看门狗，防止旧心跳在代理重建后继续存活。
         if self._device_lease is not None and self._device_lease.task is not None:
             await self._device_lease.close()
             self._device_lease = DeviceLease(self.adb, "traffic")
             await self._device_lease.prepare()
         ca_path = self.confdir / traffic_mod.CA_FILE_NAME
-        cert_hash = self._subject_hash_old(ca_path)
-        if not cert_hash:
+        cert_hash = self._subject_hash_old(ca_path) if self._ca_mode == "system" else ""
+        if self._ca_mode == "system" and not cert_hash:
             raise RuntimeError("无法计算 CA 证书哈希（容器缺少 openssl）")
         # 首次配置时记录设备原有代理，stop 时恢复；保活重配置保留首次记录，
         # 否则会把「指向本实例 mitmdump 的代理」当成原始值。
@@ -345,47 +349,55 @@ class TrafficCapture:
         self._device_configured = True
         # 先清掉可能残留的旧挂载/代理，避免重复绑定失败
         await self._cleanup_device_state_locked()
-        with suppress(Exception):
-            await self.adb.run(["root"], timeout=20)
-        # adb root 会让 adbd 重启：等它完成后再建 reverse，否则 reverse 会被清掉。
-        await asyncio.sleep(ROOT_SETTLE_SECONDS)
-        if not await self._wait_root():
-            # 设备无 root 属确定性不可用：直接记录原因，避免保活循环反复重试。
-            reason = "设备无 root，已跳过抓包（adb root 失败）"
-            self._root_unavailable = True
-            self._unavailable_reason = reason
-            self._last_error = reason
-            raise RuntimeError(reason)
-        remote_ca = f"{REMOTE_TMP}/cacerts/{cert_hash}.0"
-        await self.adb.shell(
-            f"rm -rf {REMOTE_TMP}; mkdir -p {REMOTE_TMP}/cacerts; "
-            f"cp -a {SYSTEM_CACERTS}/. {REMOTE_TMP}/cacerts/",
-            timeout=40,
-        )
-        await self.adb.run(["push", str(ca_path), remote_ca], timeout=30)
-        await self.adb.shell(f"chmod 644 {remote_ca}", timeout=10)
-        await self.adb.shell(
-            f"nsenter -t 1 -m -- mount --bind {REMOTE_TMP}/cacerts {SYSTEM_CACERTS}",
-            timeout=30,
-        )
-        visible = await self.adb.shell(
-            f"ls {SYSTEM_CACERTS}/{cert_hash}.0", timeout=10
-        )
-        if cert_hash not in visible:
-            raise RuntimeError("系统 CA 绑定挂载失败（nsenter/mount 被拒绝）")
-        # 已运行的 App 进程不会重新加载系统 CA：先结束它们，保证新进程能解密。
-        stopped = await self._force_stop_apps()
-        if stopped:
-            self._log(f"抓包：已结束 {stopped} 个第三方 App 进程，确保新进程信任 CA")
-        if not await self._ensure_reverse():
-            raise RuntimeError("adb reverse 建立失败（端口映射不可用）")
+        if self._ca_mode == "system":
+            with suppress(Exception):
+                await self.adb.run(["root"], timeout=20)
+            # adb root 会让 adbd 重启：等它完成后再建 reverse，否则 reverse 会被清掉。
+            await asyncio.sleep(ROOT_SETTLE_SECONDS)
+            if not await self._wait_root():
+                # 设备无 root 属确定性不可用：直接记录原因，避免保活循环反复重试。
+                reason = "设备无 root，已跳过抓包（adb root 失败）"
+                self._root_unavailable = True
+                self._unavailable_reason = reason
+                self._last_error = reason
+                raise RuntimeError(reason)
+            remote_ca = f"{REMOTE_TMP}/cacerts/{cert_hash}.0"
+            await self.adb.shell(
+                f"rm -rf {REMOTE_TMP}; mkdir -p {REMOTE_TMP}/cacerts; "
+                f"cp -a {SYSTEM_CACERTS}/. {REMOTE_TMP}/cacerts/",
+                timeout=40,
+            )
+            await self.adb.run(["push", str(ca_path), remote_ca], timeout=30)
+            await self.adb.shell(f"chmod 644 {remote_ca}", timeout=10)
+            await self.adb.shell(
+                f"nsenter -t 1 -m -- mount --bind {REMOTE_TMP}/cacerts {SYSTEM_CACERTS}",
+                timeout=30,
+            )
+            visible = await self.adb.shell(
+                f"ls {SYSTEM_CACERTS}/{cert_hash}.0", timeout=10
+            )
+            if cert_hash not in visible:
+                raise RuntimeError("系统 CA 绑定挂载失败（nsenter/mount 被拒绝）")
+            # 已运行的 App 进程不会重新加载系统 CA：先结束它们，保证新进程能解密。
+            stopped = await self._force_stop_apps()
+            if stopped:
+                self._log(
+                    f"抓包：已结束 {stopped} 个第三方 App 进程，确保新进程信任 CA"
+                )
+        if self._transport == "mesh":
+            if self.mesh is None:
+                raise RuntimeError("未配置组网抓包管理器")
+            self._proxy_value = await self.mesh.expose_proxy(self._port)
+            self._mesh_proxy = True
+        else:
+            if not await self._ensure_reverse():
+                raise RuntimeError("adb reverse 建立失败（端口映射不可用）")
+            self._proxy_value = PROXY_VALUE.format(port=self._port)
         await self._arm_device_lease_locked()
         await self.adb.shell(
-            f"settings put global http_proxy {PROXY_VALUE.format(port=self._port)}",
-            timeout=10,
+            f"settings put global http_proxy {self._proxy_value}", timeout=10
         )
-        # adb root 的 adbd 重启可能晚于上面步骤，设置代理后再确认一次 reverse。
-        if not await self._ensure_reverse(attempts=2):
+        if self._transport == "adb" and not await self._ensure_reverse(attempts=2):
             raise RuntimeError("adb reverse 在设置代理后丢失，端口映射不可用")
 
     async def _setup_device(self) -> None:
@@ -394,41 +406,63 @@ class TrafficCapture:
             await self._setup_device_locked()
 
     async def _arm_device_lease_locked(self) -> None:
-        if self._device_lease is not None and self._device_lease.task is not None and not self._device_lease.task.done():
+        if (
+            self._device_lease is not None
+            and self._device_lease.task is not None
+            and not self._device_lease.task.done()
+        ):
             return
         if self._device_lease is None:
             self._device_lease = DeviceLease(self.adb, "traffic")
         import shlex
+
         proxy = shlex.quote(self._prev_proxy or ":0")
-        cleanup = (f"if [ \"$(settings get global http_proxy)\" = \"127.0.0.1:{self._port}\" ]; then "
-                   f"settings put global http_proxy {proxy}; "
-                   f"true; fi; nsenter -t 1 -m -- umount -l {SYSTEM_CACERTS} 2>/dev/null; true")
+        expected = shlex.quote(self._proxy_value or PROXY_VALUE.format(port=self._port))
+        cleanup = (
+            f'if [ "$(settings get global http_proxy)" = {expected} ]; then '
+            f"settings put global http_proxy {proxy}; "
+            f"true; fi; nsenter -t 1 -m -- umount -l {SYSTEM_CACERTS} 2>/dev/null; true"
+        )
+        if self._ca_mode == "manual":
+            cleanup = cleanup.split("; nsenter", 1)[0] + "; true"
         await self._device_lease.arm(None, cleanup=cleanup)
 
     async def _restore_device_locked(self) -> None:
-        """恢复设备代理、移除 reverse、卸载 CA 挂载（调用方持锁）。"""
-        if self._port:
+        """撤回本次代理与转发，保留调用者后续改动。"""
+        if self._transport == "adb" and self._port:
             with suppress(Exception):
                 await self.adb.run(
                     ["reverse", "--remove", f"tcp:{self._port}"], timeout=10
                 )
         with suppress(Exception):
-            if self._prev_proxy:
+            current = (
+                await self.adb.shell("settings get global http_proxy", timeout=10)
+            ).strip()
+            if current in {
+                self._proxy_value,
+                PROXY_VALUE.format(port=self._port),
+                "null",
+                "",
+                ":0",
+            }:
+                import shlex
+
                 await self.adb.shell(
-                    f"settings put global http_proxy {self._prev_proxy}",
+                    "settings put global http_proxy "
+                    + shlex.quote(self._prev_proxy or ":0"),
                     timeout=10,
                 )
-            else:
+        if self._ca_mode == "system":
+            with suppress(Exception):
                 await self.adb.shell(
-                    "settings put global http_proxy :0", timeout=10
+                    "nsenter -t 1 -m -- umount -l "
+                    + SYSTEM_CACERTS
+                    + " 2>/dev/null; true",
+                    timeout=15,
                 )
-        with suppress(Exception):
-            await self.adb.shell(
-                "nsenter -t 1 -m -- umount -l "
-                + SYSTEM_CACERTS
-                + " 2>/dev/null; true",
-                timeout=15,
-            )
+        if self._mesh_proxy and self.mesh is not None:
+            await self.mesh.hide_proxy()
+            self._mesh_proxy = False
 
     async def _teardown_process_locked(self) -> None:
         """停止并清理本实例的 mitmdump 进程/日志句柄（调用方持锁）。"""
@@ -451,16 +485,32 @@ class TrafficCapture:
                 self._proc_log.close()
             self._proc_log = None
 
-    async def _rollback_start_locked(self) -> None:
-        """启动失败/取消回滚：只清理本实例本次尝试改动的资源。"""
+    async def _cleanup_owned_locked(self):
+        failure = None
         if self._device_lease is not None:
-            await self._device_lease.close()
-            self._device_lease = None
+            try:
+                await self._device_lease.close()
+            except Exception as exc:
+                failure = exc
+            finally:
+                self._device_lease = None
         if self._device_configured:
-            await self._restore_device_locked()
-            self._device_configured = False
-        await self._teardown_process_locked()
-        self._prev_proxy = ""
+            try:
+                await self._restore_device_locked()
+            except Exception as exc:
+                failure = failure or exc
+            finally:
+                self._device_configured = False
+        try:
+            await self._teardown_process_locked()
+        finally:
+            self._prev_proxy = ""
+        if failure is not None:
+            raise RuntimeError("抓包清理未全部完成，请检查代理与组网端口状态") from failure
+
+    async def _rollback_start_locked(self) -> None:
+        """启动失败/取消时完整回收本次进程、代理与转发。"""
+        await self._cleanup_owned_locked()
 
     # ---- 生命周期 -----------------------------------------------------
     async def start(
@@ -482,9 +532,7 @@ class TrafficCapture:
                 raise
             except Exception as exc:  # noqa: BLE001 - 未预期异常也要给出明确原因
                 await self._rollback_start_locked()
-                return self._fail_locked(
-                    f"{type(exc).__name__}: 抓包启动异常：{exc}"
-                )
+                return self._fail_locked(f"{type(exc).__name__}: 抓包启动异常：{exc}")
 
     async def _start_locked(
         self,
@@ -495,9 +543,10 @@ class TrafficCapture:
         if self.running:
             return self.status()
         if self._unavailable_reason:
-            return self._failure_result(
-                self._unavailable_reason, unavailable=True
-            )
+            return self._failure_result(self._unavailable_reason, unavailable=True)
+        settings = self._settings_provider() if self._settings_provider else None
+        self._transport = getattr(settings, "transport", "adb")
+        self._ca_mode = getattr(settings, "ca_mode", "system")
         target_port = int(port or traffic_mod.DEFAULT_TRAFFIC_PORT)
         # 启动前先清理设备侧可能残留的代理/reverse/CA：插件进程异常退出后兜底，
         # 避免设备代理指向并不存在的 mitmdump 而断网。清理失败静默，不影响启动判定。
@@ -532,13 +581,21 @@ class TrafficCapture:
             )
             traffic_mod.prune_log(self.log_path)
         except OSError as exc:
-            return self._fail_locked(
-                f"{type(exc).__name__}: 抓包目录准备失败：{exc}"
-            )
+            return self._fail_locked(f"{type(exc).__name__}: 抓包目录准备失败：{exc}")
         try:
             self._proc_log = self.mitm_log_path.open("ab")
-            command = [mitmdump, "-q", "-p", str(target_port), "--set",
-                       f"confdir={self.confdir}", "-s", str(self.addon_path)]
+            command = [
+                mitmdump,
+                "-q",
+                "--listen-host",
+                "127.0.0.1",
+                "-p",
+                str(target_port),
+                "--set",
+                f"confdir={self.confdir}",
+                "-s",
+                str(self.addon_path),
+            ]
             self._proc = await asyncio.create_subprocess_exec(
                 *guarded_command(command, self.root / "process.lock"),
                 stdin=asyncio.subprocess.PIPE,
@@ -601,7 +658,11 @@ class TrafficCapture:
         # 所有设备配置完成后才输出成功日志，避免「先报成功再报失败」。
         self._log(
             f"抓包已启动：端口 {self._port}，流量日志 {self.log_path}；"
-            "已注入系统 CA 并设置设备代理（新启动的 App 才会信任 CA）"
+            + (
+                "系统 CA 已注入"
+                if self._ca_mode == "system"
+                else "手动 CA 模式：HTTPS 需 App 信任抓包 CA"
+            )
         )
         return self.status()
 
@@ -618,25 +679,14 @@ class TrafficCapture:
             await self._stop_locked()
 
     async def _stop_locked(self, *, log: bool = True) -> None:
-        if self._device_lease is not None:
-            await self._device_lease.close()
-            self._device_lease = None
         configured = self._device_configured
         had_capture = self.running
-        if configured:
-            await self._restore_device_locked()
-            self._device_configured = False
-        await self._teardown_process_locked()
-        self._prev_proxy = ""
+        await self._cleanup_owned_locked()
         if log and (configured or had_capture):
-            self._log(
-                "抓包已停止，设备代理/CA 挂载已恢复"
-                if configured
-                else "抓包已停止"
-            )
+            self._log("抓包已停止，设备代理/CA 挂载已恢复" if configured else "抓包已停止")
 
     async def ensure_device(self) -> None:
-        """保活校验：进程存活、设备仍走代理且 root/CA 正常；异常时重建（串行）。"""
+        """按传输与 CA 模式检查代理健康，连接中断时撤回（串行）。"""
         async with self._lock:
             await self._ensure_device_locked()
 
@@ -649,14 +699,21 @@ class TrafficCapture:
             proxy = (
                 await self.adb.shell("settings get global http_proxy", timeout=8)
             ).strip()
-        expected = PROXY_VALUE.format(port=self._port)
-        reverse_ok = False
-        with suppress(Exception):
-            listing = await self.adb.run(["reverse", "--list"], timeout=8)
-            reverse_ok = f"tcp:{self._port}" in listing
-        root_ok = False
-        with suppress(Exception):
-            root_ok = (await self.adb.shell("id -u", timeout=8)).strip() == "0"
+        expected = self._proxy_value or PROXY_VALUE.format(port=self._port)
+        reverse_ok = self._transport == "mesh"
+        if self._transport == "mesh":
+            if self.mesh is None or not (await self.mesh.status())["ready"]:
+                self._note_failure("组网连接中断，已撤回手机代理")
+                await self._stop_locked(log=False)
+                return
+        else:
+            with suppress(Exception):
+                listing = await self.adb.run(["reverse", "--list"], timeout=8)
+                reverse_ok = f"tcp:{self._port}" in listing
+        root_ok = self._ca_mode == "manual"
+        if self._ca_mode == "system":
+            with suppress(Exception):
+                root_ok = (await self.adb.shell("id -u", timeout=8)).strip() == "0"
         if proxy == expected and root_ok and not reverse_ok:
             # 只有 reverse 丢失（adb 重连/transport 变化）时只重建端口映射，
             # 不重启 App，避免打断正在进行的玩手机任务。
@@ -697,6 +754,9 @@ class TrafficCapture:
             "ok": self.running,
             "running": self.running,
             "port": self._port,
+            "transport": self._transport,
+            "ca_mode": self._ca_mode,
+            "proxy_address": self._proxy_value,
             "flows": flows,
             "log_path": str(self.log_path),
             "mitmdump": self._find_mitmdump() or "",
@@ -713,9 +773,7 @@ class TrafficCapture:
     def status_text(self) -> str:
         status = self.status()
         if status["running"]:
-            text = (
-                f"抓包：已开启（端口 {status['port']}，已记录 {status['flows']} 条流量）"
-            )
+            text = f"抓包：已开启（{status['transport']}，代理 {status['proxy_address']}，CA {status['ca_mode']}，已记录 {status['flows']} 条流量）"
         elif status["unavailable"]:
             text = (
                 "抓包：不可用（"
@@ -733,7 +791,9 @@ class TrafficCapture:
             text = "抓包：未开启"
         return text
 
-    def recent(self, *, limit: int = traffic_mod.DEFAULT_LIMIT, since_seconds: int = 0) -> list[dict[str, Any]]:
+    def recent(
+        self, *, limit: int = traffic_mod.DEFAULT_LIMIT, since_seconds: int = 0
+    ) -> list[dict[str, Any]]:
         return traffic_mod.load_recent_flows(
             self.log_path, limit=limit, since_seconds=since_seconds
         )

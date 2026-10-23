@@ -454,6 +454,17 @@ class MeshManager:
         self.exposed_port = 0
 
     async def stop(self):
+        traffic = getattr(self.service, "traffic", None)
+        failure = None
+        if (
+            traffic is not None
+            and traffic.running
+            and traffic.status().get("transport") == "mesh"
+        ):
+            try:
+                await traffic.stop()
+            except Exception as exc:
+                failure = exc
         async with self.lock:
             if self.server is not None:
                 self.server.close()
@@ -467,7 +478,12 @@ class MeshManager:
             if self.adb_original is not None:
                 host, port, serial = self.adb_original
                 self.adb_original = None
-                await self.service.adb.reconfigure(host=host, port=port, serial=serial)
+                try:
+                    await self.service.adb.reconfigure(
+                        host=host, port=port, serial=serial
+                    )
+                except Exception as exc:
+                    failure = failure or exc
             if self.running:
                 self.process.terminate()
                 try:
@@ -483,6 +499,10 @@ class MeshManager:
                 self.log = None
             self.exposed_port = 0
             self._signature = None
+        if failure is not None:
+            raise MeshError(
+                "组网已停止，但代理或 ADB 原目标恢复未完成，请检查状态"
+            ) from failure
 
     async def reconcile(self):
         if self.running and self._signature != self.settings:

@@ -253,6 +253,7 @@ class _FakeAdb:
     def __init__(self) -> None:
         self.run_calls: list[list[str]] = []
         self.shell_calls: list[str] = []
+        self.proxy: str | None = None
 
     async def run(self, args, **_kwargs):
         self.run_calls.append(list(args))
@@ -260,6 +261,8 @@ class _FakeAdb:
 
     async def shell(self, command, **_kwargs):
         self.shell_calls.append(command)
+        if command == "settings get global http_proxy" and self.proxy is not None:
+            return self.proxy
         if "GUARD_PID=$!" in command:
             return "GUARD_PID=9999"
         return "1000"
@@ -447,6 +450,7 @@ def test_start_marks_deterministic_failure_and_stops_retrying(
 def test_start_marks_missing_mitmdump_unavailable(tmp_path, monkeypatch) -> None:
     harness = _CaptureHarness(tmp_path, monkeypatch)
     monkeypatch.setattr(harness.capture, "_find_mitmdump", lambda: "")
+    harness.adb.proxy = "127.0.0.1:18080"
 
     async def _run() -> None:
         result = await harness.capture.start(port=18080)

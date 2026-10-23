@@ -1010,6 +1010,15 @@
       btn.addEventListener("click", () => switchView(btn.dataset.view));
     });
     $("mesh-refresh").addEventListener("click", loadMesh);
+    $("mesh-ca").addEventListener("click", async () => {
+      try {
+        const certificate = await apiGet("dashboard/mesh/ca");
+        const bytes = Uint8Array.from(atob(certificate.content_base64), c => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: "application/x-x509-ca-cert" }));
+        const link = document.createElement("a"); link.href = url; link.download = certificate.name;
+        document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) { setText("mesh-status", `证书下载失败：${error.message || error}`); }
+    });
     for (const action of ["start", "stop"]) {
       $("mesh-" + action).addEventListener("click", async () => {
         const button = $("mesh-" + action); button.disabled = true;

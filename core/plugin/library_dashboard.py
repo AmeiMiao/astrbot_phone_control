@@ -13,6 +13,7 @@ from .compat import error_response, json_response, plugin_main_module
 class LibraryDashboardMixin:
     def _library_dashboard_routes(self, base):
         return (
+            (f"{base}/mesh/ca", self.dashboard_mesh_ca, ["GET"], "下载抓包 CA"),
             (f"{base}/mesh", self.dashboard_mesh, ["GET"], "组网状态"),
             (f"{base}/mesh/action", self.dashboard_mesh_action, ["POST"], "组网接入操作"),
             (f"{base}/diary/delete", self.dashboard_diary_delete, ["POST"], "删除浏览日志"),
@@ -232,3 +233,14 @@ class LibraryDashboardMixin:
             return json_response(result)
         except (PhoneControlError, OSError, asyncio.TimeoutError):
             return error_response("组网操作未完成，请检查客户端路径、节点授权与网络配置", status_code=400)
+
+
+    async def dashboard_mesh_ca(self):
+        from ..traffic import CA_FILE_NAME
+        path = self._traffic.confdir / CA_FILE_NAME
+        if not path.is_file():
+            return error_response("请先启动抓包以生成 CA 证书", status_code=400)
+        data = await asyncio.to_thread(path.read_bytes)
+        if len(data) > 100000 or b"PRIVATE KEY" in data or b"BEGIN CERTIFICATE" not in data:
+            return error_response("抓包 CA 证书格式异常", status_code=500)
+        return json_response({"name": "phone-capture-ca.crt", "content_base64": base64.b64encode(data).decode("ascii")})

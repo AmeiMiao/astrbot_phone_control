@@ -123,6 +123,8 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "memory.companion_user_id",
         "memory.bot_action_enabled",
         "traffic.enabled",
+        "traffic.transport",
+        "traffic.ca_mode",
         "traffic.port",
         "traffic.body_chars",
         "traffic.keep_seconds",
