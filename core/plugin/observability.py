@@ -329,6 +329,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
                 reason = status.fallback_reason or status.last_error or ""
             data = {
                 "version": self._version,
+                "components": self._components.status(),
                 "uptime_s": round(max(0.0, time.time() - self._started_at), 1),
                 "backends": {
                     "control": getattr(status, "control", "adb"),

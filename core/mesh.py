@@ -85,18 +85,12 @@ class MeshManager:
         return self.process is not None and self.process.returncode is None
 
     def binary(self, name, configured):
-        path = (
-            Path(configured).expanduser()
-            if configured
-            else Path(__file__).resolve().parents[1] / "bin/linux-x86_64" / name
+        components = getattr(self.service, "components", None)
+        path = Path(configured).expanduser() if configured else (
+            components.resolve(name) if components is not None else self.service.data_dir / "runtime" / name
         )
-        if not configured and (
-            platform.system() != "Linux"
-            or platform.machine().lower() not in {"x86_64", "amd64"}
-        ):
-            raise MeshError(f"当前平台请配置 mesh.{name}_path")
         if not path.is_file():
-            raise MeshError(f"缺少组网组件 {name}，请配置其可执行文件绝对路径")
+            raise MeshError(f"缺少组网组件 {name}，请在配置开启该功能并保存重载，或手动填写可执行文件绝对路径")
         ensure_executable(path)
         return str(path.resolve())
 
@@ -374,19 +368,9 @@ class MeshManager:
             if not re.fullmatch(r"[0-9a-f]{16}", settings.zerotier_network_id):
                 raise MeshError("ZeroTier Network ID 需为 16 位十六进制")
             if not self.running:
-                library = (
-                    Path(settings.zerotier_library).expanduser()
-                    if settings.zerotier_library
-                    else Path(__file__).resolve().parents[1]
-                    / "bin/linux-x86_64/libzt.so"
-                )
-                if not library.is_file():
-                    raise MeshError("缺少 ZeroTier Sockets SDK，请配置动态库路径")
-                if not settings.zerotier_library and (
-                    platform.system() != "Linux"
-                    or platform.machine().lower() not in {"x86_64", "amd64"}
-                ):
-                    raise MeshError("当前平台请配置兼容的 ZeroTier Sockets SDK 动态库")
+                library = Path(settings.zerotier_library).expanduser()
+                if not settings.zerotier_library or not library.is_file():
+                    raise MeshError("请手动准备 ZeroTier Sockets SDK 并填写动态库绝对路径")
                 reserve = await asyncio.start_server(
                     lambda r, w: w.close(), "127.0.0.1", 0
                 )
@@ -437,7 +421,7 @@ class MeshManager:
                 for _ in range(30):
                     if not self.running:
                         raise MeshError(
-                            "ZeroTier 用户态组件启动失败，请检查 SDK 架构与运行库（随包要求 glibc ≥ 2.38）"
+                            "ZeroTier 用户态组件启动失败，请检查手动配置的 SDK 架构、API 与运行库"
                         )
                     if status_path.exists():
                         break

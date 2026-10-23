@@ -76,7 +76,7 @@ def _raw_config(**overrides) -> dict:
     raw["adb"] = {
         "host": "127.0.0.1",
         "port": 5555,
-        "path": "",
+        "path": sys.executable,
         "serial": "",
         "connect_timeout": 2,
         "command_timeout": 3,

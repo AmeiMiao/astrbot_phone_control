@@ -422,6 +422,7 @@ class AdbClient:
         command_timeout: float = 30.0,
         logger: LogFn | None = None,
         allow_unconfigured: bool = False,
+        defer_binary: bool = False,
     ) -> None:
         self._host = str(host or "").strip()
         self._port = int(port)
@@ -440,7 +441,7 @@ class AdbClient:
             self._adb_path = Path(str(adb_path)) if adb_path else Path()
             self._unconfigured = True
         else:
-            self._adb_path = self._resolve_adb_path(adb_path)
+            self._adb_path = Path(str(adb_path)) if defer_binary else self._resolve_adb_path(adb_path)
             self._unconfigured = False
         if not resolved_serial and self._host:
             resolved_serial = f"{self._host}:{self._port}"
@@ -481,7 +482,7 @@ class AdbClient:
         if not raw:
             raise AdbNotConfiguredError(
                 "未配置 adb 可执行文件路径",
-                detail="请确认插件 bin 目录下存在 adb，或在配置中填写 adb.path",
+                detail="请重新加载插件准备官方 ADB，或在配置中填写 adb.path",
             )
         candidate = Path(raw).expanduser()
         if candidate.is_file():
@@ -491,7 +492,7 @@ class AdbClient:
             return Path(found)
         raise AdbNotConfiguredError(
             f"adb 可执行文件不存在：{raw}",
-            detail="请确认插件 bin 目录已随插件分发，或在配置中填写正确的 adb.path",
+            detail="请重新加载插件准备官方 ADB，或在配置中填写正确的 adb.path",
         )
 
     @staticmethod

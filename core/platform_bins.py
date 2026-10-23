@@ -1,18 +1,4 @@
-"""插件自带宿主平台二进制的选择与权限修复。
-
-为满足 AstrBot 插件市场体积限制，随包只分发 **Linux x86_64** 的 ``adb`` 与
-``phone-wg``（取自 `bin/linux-x86_64/`）：
-
-    bin/linux-x86_64/adb
-    bin/linux-x86_64/phone-wg
-    bin/linux-x86_64/NOTICE.txt
-
-其他宿主平台（Linux ARM64、Windows、macOS 等）不再随包分发二进制，插件会自动回退：
-``adb`` 使用配置的 ``adb.path`` 或 PATH 中的系统 adb；``phone-wg`` 可使用用户按
-`helper/phone-wg` 源码自行编译后放入插件根目录的 ``bin/phone-wg``。
-
-本模块只依赖标准库，不导入 astrbot，便于本地单测与在插件装配早期使用。
-"""
+"""插件自带 WireGuard helper 的平台选择与可执行位修复。"""
 
 from __future__ import annotations
 
@@ -86,13 +72,6 @@ def bundled_binary(
     return candidate if candidate.is_file() else None
 
 
-def bundled_adb(
-    root: str | Path | None = None, *, platform_id: str | None = None
-) -> Path | None:
-    """随包 ``adb`` 路径（仅 Linux x86_64）。"""
-    return bundled_binary("adb", root=root, platform_id=platform_id)
-
-
 def bundled_phone_wg(
     root: str | Path | None = None, *, platform_id: str | None = None
 ) -> Path | None:
@@ -120,7 +99,7 @@ def ensure_bundled_executables(
     if directory is None:
         return {}
     result: dict[str, bool] = {}
-    for name in ("adb", "phone-wg"):
+    for name in ("phone-wg",):
         candidate = directory / name
         if candidate.is_file():
             result[candidate.relative_to(base).as_posix()] = ensure_executable(candidate)

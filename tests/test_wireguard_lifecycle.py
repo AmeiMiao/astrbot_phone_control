@@ -612,7 +612,12 @@ def _method_node(klass: ast.ClassDef, name: str) -> ast.AST:
 
 def test_bootstrap_initialize_starts_wireguard_and_keepalive() -> None:
     klass = _class_node(BOOTSTRAP_PATH, "BootstrapMixin")
-    dumped = ast.dump(_method_node(klass, "initialize"))
+    initialized = ast.dump(_method_node(klass, "initialize"))
+    assert "_prepare_components_and_start" in initialized
+    assert "_initialize_device_runtime" in initialized
+    prepared = ast.dump(_method_node(klass, "_prepare_components_and_start"))
+    assert "prepare" in prepared and "_initialize_device_runtime" in prepared
+    dumped = ast.dump(_method_node(klass, "_initialize_device_runtime"))
     assert "_ensure_wireguard_started" in dumped
     assert "_start_wireguard_keepalive" in dumped
 

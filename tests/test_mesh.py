@@ -189,17 +189,13 @@ def test_zerotier_invalid_network_and_stale_status_are_not_ready(tmp_path):
     asyncio.run(run())
 
 
-def test_bundled_zerotier_sdk_exports_required_native_api():
-    import platform
-    from pathlib import Path
+def test_manual_zerotier_sdk_exports_required_native_api():
+    import os
     from core.mesh_zerotier_worker import SDK
 
-    if platform.system() != "Linux" or platform.machine().lower() not in {
-        "x86_64",
-        "amd64",
-    }:
-        pytest.skip("Linux x86_64 bundled artifact")
-    library = Path(__file__).resolve().parents[1] / "bin/linux-x86_64/libzt.so"
+    library = os.environ.get("PHONE_TEST_LIBZT")
+    if not library:
+        pytest.skip("设置 PHONE_TEST_LIBZT 验证手动提供的 SDK 原生 ABI")
     sdk = SDK(library)
     assert sdk.lib.zts_node_start.argtypes == []
     assert len(sdk.lib.zts_connect.argtypes) == 4

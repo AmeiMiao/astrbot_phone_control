@@ -160,7 +160,8 @@ from ..media import (
     plan_frame_times,
     safe_unlink as safe_unlink_media,
 )
-from ..platform_bins import bundled_adb, ensure_bundled_executables, host_platform
+from ..platform_bins import ensure_bundled_executables
+from ..runtime_components import RuntimeComponents, ComponentError
 from ..telemetry import MetricsStore
 from ..ui import dump_ui, render_ui
 from .shared import (
@@ -343,6 +344,8 @@ class BootstrapMixin:
         adb_home = self.data_dir / "adbhome"
         adb_home.mkdir(parents=True, exist_ok=True)
 
+        self._components = RuntimeComponents(self.data_dir / "runtime")
+        self._components_task = None
         self._ensure_bundled_executables()
         adb_path = self._resolve_adb_path(initial) if initial.adb.configured else None
         self.adb = AdbClient(
@@ -355,6 +358,7 @@ class BootstrapMixin:
             command_timeout=initial.adb.command_timeout,
             logger=self._device_log,
             allow_unconfigured=True,
+            defer_binary=True,
         )
         self.actions = DeviceActions(self.adb, logger=self._device_log)
         self.diary = PhoneDiary(self.data_dir / "diary")
@@ -392,6 +396,7 @@ class BootstrapMixin:
             telemetry=self.telemetry,
         )
         self.service.app_context = self.context
+        self.service.components = self._components
         from ..mesh import MeshManager
         self._mesh = MeshManager(self.service)
         self.service.mesh = self._mesh
@@ -513,7 +518,7 @@ class BootstrapMixin:
             adb_path=(
                 self._resolve_adb_path(initial)
                 if initial.adb.configured
-                else bundled_adb() or Path("adb")
+                else self._components.resolve("adb")
             ),
             scrcpy_factory=self._create_scrcpy_client,
             minitouch_factory=self._create_minitouch_client,
@@ -603,6 +608,29 @@ class BootstrapMixin:
         self._start_app_recall_maintenance()
         # 浏览日志上限清理不访问设备：假开启与启用状态都要在启动时执行一次。
         await self._cleanup_diary_limits()
+        if self._components.needs_prepare(self.service.config):
+            self._components_task = asyncio.create_task(
+                self._prepare_components_and_start(), name=f"{PLUGIN_NAME}_components"
+            )
+            return
+        await self._components.prepare(self.service.config)
+        await self._initialize_device_runtime()
+
+    async def _prepare_components_and_start(self):
+        try:
+            await self._components.prepare(self.service.config)
+        except asyncio.CancelledError:
+            raise
+        except ComponentError as exc:
+            logger.warning("运行组件尚未就绪：%s；修正配置或网络后重新加载插件", exc)
+            return
+        if not self._terminated:
+            try:
+                await self._initialize_device_runtime()
+            except (PhoneControlError, OSError) as exc:
+                logger.warning("设备初始化失败：%s", exc)
+
+    async def _initialize_device_runtime(self):
         if not self.service.configured:
             logger.warning(
                 "未配置 ADB 地址/端口，插件保持未启用状态："
@@ -779,6 +807,12 @@ class BootstrapMixin:
                 pass
         if hasattr(self.service, "_contents"):
             await self.service.contents.close(abnormal=True)
+        self._components.cancel()
+        components_task = getattr(self, "_components_task", None)
+        if components_task is not None and not components_task.done():
+            components_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await components_task
         traffic_task = getattr(self, "_traffic_keepalive_task", None)
         self._traffic_keepalive_task = None
         if traffic_task is not None and not traffic_task.done():
@@ -872,22 +906,8 @@ class BootstrapMixin:
                 logger.warning("无法设置插件自带二进制的可执行权限：%s", relative)
 
     def _resolve_adb_path(self, config: PhoneConfig) -> Path:
-        """解析 adb 可执行文件：配置优先，其次当前平台随包二进制。"""
-        configured = str(config.adb.path or "").strip()
-        if configured:
-            candidate = Path(configured).expanduser()
-            if candidate.is_file():
-                return candidate
-            logger.warning("配置的 adb.path 不存在：%s，回退到插件自带 adb", candidate)
-        bundled = bundled_adb()
-        if bundled is not None:
-            return bundled
-        logger.warning(
-            "当前平台（%s）没有随包 adb，尝试使用 PATH 中的 adb；"
-            "可在 adb.path 指定系统 adb 绝对路径",
-            host_platform() or "未知",
-        )
-        return Path("adb")
+        """手动路径、持久化组件与系统 PATH 按优先级解析。"""
+        return self._components.resolve("adb", config.adb.path)
 
     def _device_log(self, message: str) -> None:
         """设备层日志回调（受 debug.log_actions 控制）。"""
@@ -1086,6 +1106,10 @@ class BootstrapMixin:
             notes.append("App 经验召回索引已按新配置排队刷新")
         # 浏览日志上限/保护轮次是实时读取配置，保存后立即按新上限清理一次。
         await self._cleanup_diary_limits()
+
+        if self._components.needs_prepare(current):
+            notes.append("运行组件缺失：保存配置后请重新加载插件，组件将从官方来源准备")
+            return
 
         if plan.mesh_changed:
             await self._mesh.reconcile()

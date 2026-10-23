@@ -22320,17 +22320,11 @@ consider it more useful to permit linking proprietary applications with the
 library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.
 
-Tailscale / tailscaled
-Version: 1.104.2 (Linux amd64)
-Upstream: https://tailscale.com/
-Source: https://github.com/tailscale/tailscale/tree/v1.104.2
-Archive: https://pkgs.tailscale.com/stable/tailscale_1.104.2_amd64.tgz
-Archive SHA256: 512f613ed7d04fc7282f7dc5bd76aa105aae28168fbb9357eb749ebcbc29f0ae
-License: BSD-3-Clause (TAILSCALE-LICENSE.txt); upstream binaries include their dependency notices.
+Tailscale / tailscaled runtime: https://pkgs.tailscale.com/stable/
+The downloaded archive and its SHA256 are recorded in the plugin data runtime manifest.
+License reference: TAILSCALE-LICENSE.txt.
 
-ZeroTier Sockets SDK (libzt.so)
+ZeroTier Sockets SDK manual library:
 Source: https://github.com/zerotier/libzt/tree/a707ea6ae0910efdc1125d04758c411e2e9ea4f9
-Build: helper/mesh/build-zerotier.sh
-Platform: Linux x86_64, glibc >= 2.38
-Build configuration: SDK virtual-interface MTU 1280; see helper/mesh/zerotier-mtu.patch.
-License: ZEROTIER-LICENSE.txt and zerotier-licenses/
+Build: helper/mesh/build-zerotier.sh (virtual-interface MTU 1280).
+License reference: ZEROTIER-LICENSE.txt and zerotier-licenses/.

@@ -1,6 +1,6 @@
 """core.platform_bins 单元测试：宿主平台识别、二进制选择与可执行位修复。
 
-随包只分发 Linux x86_64；其他平台必须回退到 ``adb.path``/PATH 与用户自行编译的 helper。
+WireGuard helper 面向 Linux x86_64；外部运行组件由组件准备器管理。
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from pathlib import Path
 from core.platform_bins import (
     PLATFORM_LINUX_X86_64,
     SUPPORTED_PLATFORMS,
-    bundled_adb,
     bundled_binary,
     bundled_phone_wg,
     ensure_bundled_executables,
@@ -45,17 +44,14 @@ def test_bundled_binary_selects_only_linux_x86_64(tmp_path):
     (platform / "adb").write_bytes(b"ELF")
     (platform / "phone-wg").write_bytes(b"ELF")
 
-    assert bundled_adb(tmp_path, platform_id=PLATFORM_LINUX_X86_64) == platform / "adb"
     assert bundled_phone_wg(tmp_path) == platform / "phone-wg"
     assert bundled_binary("missing", root=tmp_path) is None
 
-    # 其他平台目录即使存在也不参与选择（不再随包分发）。
+    # helper 按宿主平台选择。
     arm = tmp_path / "bin" / "linux-aarch64"
     arm.mkdir(parents=True)
     (arm / "adb").write_bytes(b"ELF")
-    assert bundled_adb(tmp_path, platform_id="linux-aarch64") is None
     assert platform_dir(tmp_path, platform_id="linux-aarch64") is None
-    assert bundled_adb(tmp_path, platform_id="") is None
 
 
 def test_ensure_bundled_executables_repairs_modes(tmp_path):
@@ -70,22 +66,19 @@ def test_ensure_bundled_executables_repairs_modes(tmp_path):
 
     result = ensure_bundled_executables(tmp_path, platform_id=platform)
     assert set(result) == {
-        f"bin/{platform}/adb",
         f"bin/{platform}/phone-wg",
     }
     assert all(result.values())
-    for path in (adb, helper):
+    for path in (helper,):
         mode = path.stat().st_mode
         assert mode & stat.S_IXUSR and mode & stat.S_IXGRP and mode & stat.S_IXOTH
 
 
-def test_common_repository_layout_has_bundled_adb_for_supported_platform():
-    """仓库对 Linux x86_64 宿主随包提供 adb/phone-wg/说明文件。"""
+def test_external_runtime_components_are_acquired_separately():
     repository = Path(__file__).resolve().parents[1]
-    path = bundled_adb(repository, platform_id=PLATFORM_LINUX_X86_64)
-    assert path is not None and os.access(path, os.X_OK)
     assert bundled_phone_wg(repository, platform_id=PLATFORM_LINUX_X86_64) is not None
-    assert (repository / "bin" / PLATFORM_LINUX_X86_64 / "NOTICE.txt").is_file()
+    for name in ("adb", "libzt.so", "tailscale", "tailscaled"):
+        assert not (repository / "bin" / PLATFORM_LINUX_X86_64 / name).exists()
 
 
 def test_repository_ships_only_linux_x86_64_platform_dir():

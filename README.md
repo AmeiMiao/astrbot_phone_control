@@ -5,7 +5,7 @@
 
 让 AstrBot 操作一台安卓模拟器：查看屏幕、浏览应用、理解图文与视频、记录学习，并按授权完成互动。
 
-**版本：`0.1.6.22`** · **AstrBot：`>=4.27.1,<5`** · **Python：`>=3.10`**
+**版本：`0.1.6.23`** · **AstrBot：`>=4.27.1,<5`** · **Python：`>=3.10`**
 
 > **使用风险**：使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失。请自行确认平台规则与操作授权，仅操作自己拥有或获授权的设备和账号。
 
@@ -19,10 +19,10 @@
 | --- | --- |
 | 宿主 | AstrBot `>=4.27.1,<5`，Python 3.10+；完整功能以 Linux x86_64 为验证平台 |
 | 设备 | 开启 ADB 调试的安卓模拟器或真机，ADB 地址可从 AstrBot 所在环境访问 |
-| ADB / scrcpy | Linux x86_64 随包提供 adb 37.0.1 与平台无关的 scrcpy-server 5.0.1；其他宿主自备 adb 并填写 `adb.path` |
+| ADB / scrcpy | ADB 缺失时从 Google 官方下载；scrcpy-server 5.0.1 随包提供 |
 | 视频与中文输入 | 可选 PyAV/ffmpeg、ADBKeyboard、minitouch；实时解码和抓包依赖相应宿主组件 |
 | 抓包 | 独立 venv 安装 mitmproxy，配置 `traffic.mitmdump_path`；系统 CA 模式需要 `adb root` |
-| 组网 | WireGuard、Tailscale、ZeroTier 三选一；ZeroTier 随包 SDK 要求 Linux x86_64、glibc ≥2.38 |
+| 组网 | WireGuard、Tailscale、ZeroTier 三选一；ZeroTier SDK 动态库需手动提供 |
 
 ### 安装与首次连接
 
@@ -130,7 +130,15 @@ Android 同时启用一种 VPN。启用 Tailscale/ZeroTier 时关闭插件 WireG
 4. 按需开启组网 ADB。无 root Android 配合 [Phone ADB Relay](helper/android-relay/README.md)（[APK](bin/android/phone-adb-relay.apk)）将 App UID 的 `15555` 转入本机 adbd；系统级 VPN 对端可直接填写实际 adbd 端口。
 5. 停止组网会关闭该开关并恢复原 ADB 目标，私有身份文件保留，重启可复用。
 
-Linux x86_64 随包提供 Tailscale 1.104.2 和 ZeroTier SDK；ZeroTier SDK 要求 glibc ≥2.38。其他环境可配置兼容组件路径；构建与来源见 [用户态组网组件](helper/mesh/README.md)。
+启用对应功能并保存、重载后，缺失的 ADB、Tailscale CLI/daemon 会从官方来源下载到插件数据目录 `runtime/<系统-架构>/`。已有文件与 PATH 程序直接复用，手动路径优先；停用相关功能不会下载。下载过程在后台执行，概览接口的 `components` 和日志提供准备状态；失败后修正网络/路径并重载即可重试。组件缓存与组网身份均随插件数据保留。
+
+| 组件 | 官方自动下载范围 | 手动方式 |
+| --- | --- | --- |
+| ADB | Linux x86_64、Windows x86/x86_64、macOS x86_64/arm64 | 填写 `adb.path`；Google 平台包保留配套文件 |
+| Tailscale CLI/daemon | Linux x86_64、x86、arm64、armv7、riscv64 | 填写两个程序路径；其他平台安装官方客户端并确认用户态参数兼容 |
+| ZeroTier SDK | 手动提供 | 填写 `mesh.zerotier_library`，要求架构和 SDK API 兼容 |
+
+ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/platform-tools) 读取校验信息；Tailscale 使用 [官方稳定源](https://pkgs.tailscale.com/stable/) 的 SHA256。程序经安全解压、格式/架构检查后原子写入，同一目录并发准备使用文件锁。详细来源及 ZeroTier 构建见 [用户态组网组件](helper/mesh/README.md)。
 
 ### 抓包通道与证书
 

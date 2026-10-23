@@ -25,7 +25,7 @@
         "type": "string",
         "default": "",
         "description": "adb 可执行文件路径（非必填）",
-        "hint": "留空时 Linux x86_64 使用随包 adb（bin/linux-x86_64/adb）；Linux ARM64、Windows、macOS 等其他平台请填系统 adb 绝对路径或 PATH 中的命令名。"
+        "hint": "留空优先使用数据目录/PATH 中的 adb；缺失时按宿主平台从 Google 官方下载。可填写手动准备的绝对路径，保存后重载。"
       },
       "connect_timeout": {
         "type": "int",
@@ -1147,7 +1147,7 @@
         "type": "string",
         "default": "",
         "description": "Tailscale CLI 路径",
-        "hint": "Linux x86_64 留空使用随包组件；其他平台填写官方客户端绝对路径。",
+        "hint": "留空使用数据目录/PATH；缺失时从 Tailscale 官方下载当前 Linux 架构便携包。可填写手动路径，保存后重载。",
         "condition": {
           "enabled": true,
           "provider": "tailscale"
@@ -1157,7 +1157,7 @@
         "type": "string",
         "default": "",
         "description": "Tailscale 服务路径",
-        "hint": "Linux x86_64 留空使用随包组件；其他平台填写官方 tailscaled 绝对路径。",
+        "hint": "留空使用数据目录/PATH；缺失时从 Tailscale 官方下载当前 Linux 架构便携包。可填写手动路径，保存后重载。",
         "condition": {
           "enabled": true,
           "provider": "tailscale"
@@ -1222,7 +1222,7 @@
         "type": "string",
         "default": "",
         "description": "ZeroTier Sockets SDK 路径",
-        "hint": "Linux x86_64 留空使用随包 libzt.so（glibc ≥ 2.38）；其他平台填写对应官方 SDK 动态库路径。无需 TUN 或 NET_ADMIN。",
+        "hint": "仅手动提供与宿主架构及 SDK API 兼容的动态库绝对路径；构建要求见 helper/mesh/README.md。",
         "condition": {
           "enabled": true,
           "provider": "zerotier"

@@ -129,3 +129,50 @@ def test_empty_adb_command_and_tool_gate(tmp_path, monkeypatch):
             await plugin.terminate()
 
     asyncio.run(scenario())
+
+
+def test_component_download_finishes_before_device_runtime(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        runtime = []
+        monkeypatch.setattr(plugin._components, "needs_prepare", lambda _: True)
+        async def prepare(_):
+            entered.set()
+            await release.wait()
+        async def start():
+            runtime.append("started")
+        monkeypatch.setattr(plugin._components, "prepare", prepare)
+        monkeypatch.setattr(plugin, "_initialize_device_runtime", start)
+        try:
+            await plugin.initialize()
+            await entered.wait()
+            assert runtime == []
+            release.set()
+            await plugin._components_task
+            assert runtime == ["started"]
+        finally:
+            await plugin.terminate()
+    asyncio.run(scenario())
+
+
+def test_disable_cancels_component_wait_without_starting_device(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        entered = asyncio.Event()
+        runtime = []
+        monkeypatch.setattr(plugin._components, "needs_prepare", lambda _: True)
+        async def prepare(_):
+            entered.set()
+            await asyncio.Event().wait()
+        async def start():
+            runtime.append("started")
+        monkeypatch.setattr(plugin._components, "prepare", prepare)
+        monkeypatch.setattr(plugin, "_initialize_device_runtime", start)
+        await plugin.initialize()
+        await entered.wait()
+        await plugin.terminate()
+        assert plugin._components_task.cancelled()
+        assert runtime == []
+    asyncio.run(scenario())

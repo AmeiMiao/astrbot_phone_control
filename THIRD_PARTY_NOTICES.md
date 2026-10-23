@@ -8,11 +8,8 @@
 
 | 组件 | 版本/来源 | 许可证 | 分发形式与说明 |
 | --- | --- | --- | --- |
-| **adb**（Android platform-tools，Linux x86_64） | AOSP Android SDK Platform-Tools 37.0.1（官方） | **Apache-2.0** | 位于 `bin/linux-x86_64/adb`，原样分发未修改。版权归 Google LLC 及 Android 项目贡献者；许可证与 NOTICE 全文见 `bin/linux-x86_64/NOTICE.txt`（来源 sdk-repo-linux-platform-tools.zip） |
 | **scrcpy-server** | [scrcpy](https://github.com/Genymobile/scrcpy) v5.0.1 | **Apache-2.0** | 位于 `bin/scrcpy-server-v5.0.1`，为 scrcpy 项目发布的 server 构建产物，未修改；通过 adb 推送到设备的 `/data/local/tmp` 以 `app_process` 运行。版权：Copyright (c) 2018 Genymobile、Copyright (c) 2018-2026 Romain Vimont 及 scrcpy 贡献者。详见 `bin/scrcpy-server-NOTICE.txt` |
 | **phone-wg**（WireGuard userspace helper） | 本仓库 `helper/phone-wg` 源码构建；静态链接 [wireguard-go](https://git.zx2c4.com/wireguard-go/) `v0.0.0-20261006164505-2631ce99a06f` 与 [gVisor](https://gvisor.dev/) `v0.0.0-20250503011706-39ed1f5ac29c` | **MIT + Apache-2.0** | 随包分发 `bin/linux-x86_64/phone-wg`（linux/amd64，静态链接 ELF）；wireguard-go 为 **MIT**，gVisor netstack 为 **Apache-2.0**，编译时未修改上游代码。其他平台不随包分发，用户可按本仓库源码自行编译。静态链接组件清单与许可证声明见「四、phone-wg 静态链接的第三方组件」 |
-| **Tailscale CLI / tailscaled** | [Tailscale](https://github.com/tailscale/tailscale) 1.104.2 官方 Linux amd64 归档 | **BSD-3-Clause** | `bin/linux-x86_64/tailscale`、`tailscaled`；独立用户态节点。许可证及官方归档 SHA256 见 `TAILSCALE-LICENSE.txt` 与 `NOTICE.txt` |
-| **ZeroTier Sockets SDK** | [libzt](https://github.com/zerotier/libzt) `a707ea6ae0910efdc1125d04758c411e2e9ea4f9` | **BSL-1.1** 及组件许可证 | `bin/linux-x86_64/libzt.so`；按 `helper/mesh/build-zerotier.sh` 构建，来源与完整许可证见 `ZEROTIER-LICENSE.txt` 和 `zerotier-licenses/`；使用须遵守上游授权条款 |
 
 Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`，或 <https://www.apache.org/licenses/LICENSE-2.0>。
 
@@ -22,6 +19,9 @@ Apache-2.0 许可证全文见 `bin/linux-x86_64/NOTICE.txt`，或 <https://www.a
 
 | 组件 | 用途 | 许可证 | 说明 |
 | --- | --- | --- | --- |
+| ADB / Google Platform-Tools | Android 调试 | Apache-2.0 及 Google SDK 条款 | 从 Google 官方仓库按平台下载，原始许可随平台包保存；也可手动提供路径 |
+| Tailscale CLI / tailscaled | 用户态组网节点 | BSD-3-Clause | 从 https://pkgs.tailscale.com/stable/ 按 Linux 架构获取官方便携包；也可手动提供路径。许可参考 `bin/linux-x86_64/TAILSCALE-LICENSE.txt` |
+| ZeroTier Sockets SDK | 用户态组网节点 | BSL-1.1 及组件许可证 | 手动提供动态库；兼容源码与构建说明见 `helper/mesh/README.md`，许可参考 `bin/linux-x86_64/ZEROTIER-LICENSE.txt` 和 `zerotier-licenses/` |
 | [AstrBot](https://github.com/AstrBotDevs/AstrBot) | 插件宿主框架（4.27.1–4.29.x） | **AGPL-3.0** + 项目 EULA | 本插件仅通过 AstrBot 公开的插件 API（Star/Context/FunctionTool/hook 等）运行，不包含 AstrBot 源代码；AstrBot 及其依赖的许可证以 AstrBot 仓库为准 |
 | [mitmproxy](https://github.com/mitmproxy/mitmproxy) | 手机流量抓包与解密（`traffic.enabled`） | **MIT** | 可选运行依赖（`requirements-traffic.txt`，`mitmproxy>=12,<13`）；因 AstrBot Core 固定 cryptography==50.0.1、mitmproxy 12.x 要求 cryptography<=48.1，需用独立 venv 安装并通过 `traffic.mitmdump_path` 指定，不随插件自动安装 |
 | [PyAV](https://github.com/PyAV-Org/PyAV)（`av`） | scrcpy 视频镜像的实时解码（可选） | **BSD-3-Clause** | 不随插件分发，运行环境安装时生效；缺失时自动回退宿主机 `ffmpeg` 管道 |

@@ -1,8 +1,8 @@
 # 用户态组网组件
 
-Tailscale CLI/tailscaled 使用官方固定版本 1.104.2 Linux amd64 归档，来源、SHA256 和许可证位于 `bin/linux-x86_64/NOTICE.txt` 与 `TAILSCALE-LICENSE.txt`。
+Tailscale CLI/tailscaled 在启用并重载时按 Linux 宿主架构从 https://pkgs.tailscale.com/stable/ 下载官方稳定版。归档与 SHA256 校验后保存到插件数据目录，manifest.json 记录实际版本与来源；手动路径优先。
 
-ZeroTier 使用官方 ZeroTier Sockets SDK 固定提交 `a707ea6ae0910efdc1125d04758c411e2e9ea4f9`，在独立工作进程运行节点、回环 SOCKS 和来自指定手机 IP 的组网代理转发。随包 `libzt.so` 面向 Linux x86_64、glibc ≥ 2.38；C++ 运行库静态链接。其他平台可配置兼容 SDK 动态库路径。
+ZeroTier 使用官方 ZeroTier Sockets SDK 固定提交 `a707ea6ae0910efdc1125d04758c411e2e9ea4f9`，在独立工作进程运行节点、回环 SOCKS 和来自指定手机 IP 的组网代理转发。`libzt` 仅支持手动提供，在配置中填写动态库绝对路径。请在目标宿主系统构建，以匹配架构和运行库；以下脚本静态链接 C++ 运行库。
 
 构建需要 Git、CMake、C/C++ 编译器、Make 与 strip：
 
