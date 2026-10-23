@@ -20,5 +20,5 @@ cp "$OUT_DIR/base.apk" "$OUT_DIR/unsigned.apk"
 jar uf "$OUT_DIR/unsigned.apk" -C "$OUT_DIR/dex" classes.dex
 "$BUILD_TOOLS/zipalign" -f 4 "$OUT_DIR/unsigned.apk" "$OUT_DIR/aligned.apk"
 "$BUILD_TOOLS/apksigner" sign --ks "$SIGNING_KEYSTORE" --ks-pass env:SIGNING_PASSWORD \
-  --key-pass env:SIGNING_PASSWORD --out "$OUT_DIR/phone-wg-relay.apk" "$OUT_DIR/aligned.apk"
-"$BUILD_TOOLS/apksigner" verify --verbose "$OUT_DIR/phone-wg-relay.apk"
+  --key-pass env:SIGNING_PASSWORD --out "$OUT_DIR/phone-adb-relay.apk" "$OUT_DIR/aligned.apk"
+"$BUILD_TOOLS/apksigner" verify --verbose "$OUT_DIR/phone-adb-relay.apk"

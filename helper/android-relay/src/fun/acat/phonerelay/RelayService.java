@@ -52,7 +52,7 @@ public final class RelayService extends Service {
         Intent stop = new Intent(this, RelayService.class).setAction("stop");
         PendingIntent stopAction = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE);
         Notification notification = new Notification.Builder(this, "relay")
-            .setSmallIcon(android.R.drawable.stat_sys_upload).setContentTitle("Phone WG Relay")
+            .setSmallIcon(android.R.drawable.stat_sys_upload).setContentTitle(getApplicationInfo().loadLabel(getPackageManager()))
             .setContentText("仅隧道内允许的控制端可连接；点击停止可立即回收连接")
             .addAction(new Notification.Action.Builder(null, "停止", stopAction).build()).build();
         startForeground(13, notification);

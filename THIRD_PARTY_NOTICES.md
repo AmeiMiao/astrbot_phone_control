@@ -88,6 +88,6 @@ SOFTWARE.
 
 gVisor 的声明：Copyright 2018 The gVisor Authors，许可证为 Apache-2.0（全文同上）。
 
-## 五、Phone WG Relay
+## 五、Phone ADB Relay
 
-`bin/android/phone-wg-relay.apk` 由本项目 `helper/android-relay` 源码构建，使用项目 MIT 许可；依赖 Android 系统 API。WireGuard、Tailscale、ZeroTier 手机客户端由用户按其官方渠道安装；中转 App 在已连接的 VPN 接口上提供受来源地址限制的 ADB 转发。
+`bin/android/phone-adb-relay.apk` 由本项目 `helper/android-relay` 源码构建，使用项目 MIT 许可；依赖 Android 系统 API。WireGuard、Tailscale、ZeroTier 手机客户端由用户按其官方渠道安装；中转 App 在已连接的 VPN 接口上提供受来源地址限制的 ADB 转发。

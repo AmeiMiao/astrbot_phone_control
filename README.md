@@ -5,7 +5,7 @@
 
 让 AstrBot 操作一台安卓模拟器：查看屏幕、浏览应用、理解图文与视频、记录学习，并按授权完成互动。
 
-**版本：`0.1.6.21`** · **AstrBot：`>=4.27.1,<5`** · **Python：`>=3.10`**
+**版本：`0.1.6.22`** · **AstrBot：`>=4.27.1,<5`** · **Python：`>=3.10`**
 
 > **使用风险**：使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失。请自行确认平台规则与操作授权，仅操作自己拥有或获授权的设备和账号。
 
@@ -127,7 +127,7 @@ Android 同时启用一种 VPN。启用 Tailscale/ZeroTier 时关闭插件 WireG
 1. 在「Tailscale / ZeroTier 组网」选择服务与独立设备名。
 2. Tailscale 可填写 Auth Key，或留空后在组网页启动并打开登录链接；ZeroTier 填写 Network ID，启动后在控制台授权显示的 10 位节点 ID。
 3. 手机官方客户端加入同一网络，将手机的组网 IPv4 填入配置。Tailscale 使用 `100.64.0.0/10` 地址。
-4. 按需开启组网 ADB。无 root Android 配合 [Phone WG Relay](helper/android-relay/README.md) 将 App UID 的 `15555` 转入本机 adbd；系统级 VPN 对端可直接填写实际 adbd 端口。
+4. 按需开启组网 ADB。无 root Android 配合 [Phone ADB Relay](helper/android-relay/README.md)（[APK](bin/android/phone-adb-relay.apk)）将 App UID 的 `15555` 转入本机 adbd；系统级 VPN 对端可直接填写实际 adbd 端口。
 5. 停止组网会关闭该开关并恢复原 ADB 目标，私有身份文件保留，重启可复用。
 
 Linux x86_64 随包提供 Tailscale 1.104.2 和 ZeroTier SDK；ZeroTier SDK 要求 glibc ≥2.38。其他环境可配置兼容组件路径；构建与来源见 [用户态组网组件](helper/mesh/README.md)。
@@ -141,7 +141,7 @@ Linux x86_64 随包提供 Tailscale 1.104.2 和 ZeroTier SDK；ZeroTier SDK 要�
 | `traffic.ca_mode=system` | 通过 `adb root` 注入系统 CA |
 | `traffic.ca_mode=manual` | 从组网页下载公开 CA，由手机或 App 配置信任；无 root 可捕获 HTTP，HTTPS 需 App 信任此 CA |
 
-mitmproxy 只监听本地回环。ZeroTier 抓包入口仅接受配置的手机 IP；Tailscale 访问由 Tailnet ACL 控制。组网中断会撤回手机代理；停止抓包恢复原代理，保留其他 reverse 和使用者后续改动。
+抓包适用于遵循系统 HTTP 代理的应用请求。mitmproxy 只监听本地回环。ZeroTier 抓包入口仅接受配置的手机 IP；Tailscale 访问由 Tailnet ACL 控制。组网中断会撤回手机代理；停止抓包恢复原代理，保留其他 reverse 和使用者后续改动。
 
 部分 App 使用证书固定或额外加密，无法由普通 CA 信任实现解密，此时使用屏幕/OCR 识别。流量日志做敏感参数打码、正文截断和轮转。
 
@@ -176,7 +176,7 @@ mitmproxy 只监听本地回环。ZeroTier 抓包入口仅接受配置的手机 
 
 ### 停止与保活
 
-`/phone stop` 关闭手机任务、抓包、自主调度、随机/持续刷、实时屏幕和控制后端，返回桌面并清理后台。默认保留官方 WireGuard、Tailscale、ZeroTier、Phone WG Relay，以及桌面和当前输入法。
+`/phone stop` 关闭手机任务、抓包、自主调度、随机/持续刷、实时屏幕和控制后端，返回桌面并清理后台。默认保留官方 WireGuard、Tailscale、ZeroTier、Phone ADB Relay，以及桌面和当前输入法。
 
 组网身份和运行开关通过组网页或 `/phone mesh stop` 管理。抓包、组网及解码进程使用心跳监护，手机端控制服务使用设备看门狗；失联后回收，重载时检查前任租约。
 

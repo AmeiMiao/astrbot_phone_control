@@ -26,6 +26,11 @@ public final class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(32, 32, 32, 32);
+        TextView title = new TextView(this);
+        title.setText(getApplicationInfo().loadLabel(getPackageManager()));
+        title.setTextSize(22);
+        title.setPadding(0, 0, 0, 16);
+        box.addView(title);
         TextView help = new TextView(this);
         help.setText("先连接 WireGuard、Tailscale 或 ZeroTier，并开启系统网络调试。中转使用普通 App UID，监听隧道地址:15555，仅接受下方控制端，目标固定为本机 ADB:5555。\n保留 ADB 授权；在 VPN 的按应用设置中允许本 App。");
         box.addView(help);

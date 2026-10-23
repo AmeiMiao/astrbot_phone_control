@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.1.6.22] - 2026-10-23
+
+### 优化
+- 手机中转组件统一命名为 Phone ADB Relay，为 WireGuard、Tailscale、ZeroTier 提供 ADB 中转；包名与签名支持覆盖升级并保留配置。
+- 统一 APK 文件名、界面、通知、配置提示与文档名称，README 提供 APK 入口及系统代理适用范围。
+
 ## [0.1.6.21] - 2026-10-23
 
 ### 文档
@@ -245,7 +251,7 @@
 
 ### Fixed
 
-- 保存的标准 WireGuard + Tailscale 默认后台名单自动包含 Phone WG Relay，停止、任务收尾与抓包初始化使用统一名单；自定义或显式空名单保持配置值。
+- 保存的标准 WireGuard + Tailscale 默认后台名单自动包含 手机 ADB 中转组件，停止、任务收尾与抓包初始化使用统一名单；自定义或显式空名单保持配置值。
 
 ### Changed
 
@@ -255,7 +261,7 @@
 
 ### Added
 
-- Phone WG Relay 手机组件通过普通 App UID 转发 WG 内 ADB，支持无 root Android 官方 WireGuard App；中转仅监听隧道地址并限制唯一控制端，通知栏可停止。
+- 手机 ADB 中转组件 手机组件通过普通 App UID 转发 WG 内 ADB，支持无 root Android 官方 WireGuard App；中转仅监听隧道地址并限制唯一控制端，通知栏可停止。
 - `wireguard.adb_target_port` 选择手机入口；`socks_port` 提供环回 SOCKS5 TCP CONNECT，按 peer AllowedIPs 访问 IPv4/IPv6 目标。
 - 图片库提供保存开关、两地都存和主要存储位置；默认存 AstrBot 服务端，两地都存开启时隐藏主要位置。`phone_save_image` 保存原图及描述、标签、来源、SHA256 和路径；`phone_saved_images` 支持后续查询和传到手机，手机哈希与相册索引均核验。
 

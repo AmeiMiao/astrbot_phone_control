@@ -7,7 +7,7 @@
   可在无特权容器内运行；
 - 既可作 **WG client**（`endpoint` 指向远端 WG 服务端），也可作 **WG server**（监听 UDP 端口，
   接受手机等 WG client 接入，自动学习对端 endpoint 支持 roaming）；
-- 通过本地 `127.0.0.1:<port>` 到隧道内 `ip:port` 的 TCP 转发实现 ADB over WireGuard；Android 官方 WG App 使用 [Phone WG Relay](../android-relay/README.md) 的普通 App UID 中转入口。
+- 通过本地 `127.0.0.1:<port>` 到隧道内 `ip:port` 的 TCP 转发实现 ADB over WireGuard；Android 官方 WG App 使用 [Phone ADB Relay](../android-relay/README.md) 的普通 App UID 中转入口。
 - 可配置 `socks_listen=127.0.0.1:<port>`，使用 SOCKS5 CONNECT 动态访问 peer AllowedIPs 内的 IPv4/IPv6 地址。域名由客户端解析后传入 IP，UDP/IP 转发由独立网络网关提供。
 
 插件 Python 侧以子进程方式管理本 helper：写入配置 JSON、读取状态 JSON、按退出码与日志判断失败原因。

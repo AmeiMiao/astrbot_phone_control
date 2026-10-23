@@ -169,7 +169,7 @@
           "com.zerotier.one"
         ],
         "description": "后台清理保留名单",
-        "hint": "填写需要常驻的完整包名。组网时保留 WireGuard、Tailscale、ZeroTier、Tailscale 和 Phone WG Relay；停止手机、任务收尾和抓包初始化均保留名单内应用。"
+        "hint": "填写需要常驻的完整包名。组网时保留 WireGuard、Tailscale、ZeroTier 和 Phone ADB Relay；停止手机、任务收尾和抓包初始化均保留名单内应用。"
       }
     },
     "hint": "使用本插件的自动化操作、互动发布、组网与抓包功能，使用者须自行承担全部风险，包括账号限流、封禁、设备级封锁及其他损失；请自行确认平台规则与操作授权。"
@@ -1084,7 +1084,7 @@
         "description": "手机隧道内 ADB 入口端口",
         "type": "int",
         "default": 5555,
-        "hint": "官方 WireGuard App + Phone WG Relay 填 15555；直接 adbd 填 5555。Relay 需监听手机 WG 地址并仅允许本插件 WG 地址。",
+        "hint": "官方 WireGuard App + Phone ADB Relay 填 15555；直接 adbd 填 5555。Relay 需监听手机 WG 地址并仅允许本插件 WG 地址。",
         "condition": {
           "enabled": true
         }
@@ -1176,7 +1176,7 @@
         "type": "bool",
         "default": false,
         "description": "经组网连接 ADB",
-        "hint": "手机需运行 Phone WG Relay UID 中转（通用于 Android VPN），默认转入 15555；电脑系统级 VPN 可直接填 adbd 端口。",
+        "hint": "手机需运行 Phone ADB Relay UID 中转（通用于 Android VPN），默认转入 15555；电脑系统级 VPN 可直接填 adbd 端口。",
         "condition": {
           "enabled": true
         }

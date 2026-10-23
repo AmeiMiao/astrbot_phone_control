@@ -1,6 +1,6 @@
 """WireGuard 密钥、用户态组网、TCP/SOCKS5 与 Android App UID 中转。
 
-Android 官方 WireGuard App 配合 Phone WG Relay，将隧道内 15555 端口转给
+Android 官方 WireGuard App 配合 Phone ADB Relay，将隧道内 15555 端口转给
 手机 loopback adbd:5555；Linux 与 root 全局隧道可直接使用 adbd 端口。
 密钥与 helper 配置以 0600 持久化，helper 由插件管理并按状态和退出码退避。
 """
