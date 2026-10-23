@@ -23,12 +23,12 @@ def test_command_output_switch(tmp_path, monkeypatch, sub, as_image):
         monkeypatch.setattr(plugin, "text_to_image", render)
         event = SimpleNamespace(send=AsyncMock())
         try:
-            await plugin._say_command(event, "手机帮助 <测试>", sub)
+            await plugin._say_command(event, "手机帮助 <测试>\n下一行", sub)
             chain = event.send.call_args.args[0].chain
             assert type(chain[0]).__name__ == ("Image" if as_image else "Plain")
             assert render.await_count == int(as_image)
             if as_image:
-                render.assert_awaited_once_with("手机帮助 <测试>", return_url=False)
+                render.assert_awaited_once_with("手机帮助 <测试>  \n下一行", return_url=False)
         finally:
             await plugin.terminate()
     asyncio.run(scenario())

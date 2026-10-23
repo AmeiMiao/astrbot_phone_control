@@ -489,7 +489,6 @@ class BootstrapMixin:
         except Exception:  # noqa: BLE001 - 清理失败不影响插件加载
             pass
         self._memory_companion_bridge_cache: Any = None
-        self._livingmemory_plugin_cache: Any = None
         self._user_priority = self.service.user_priority
         self.live_screen = LiveScreenWatcher(
             capture=self._capture_live_frame,
