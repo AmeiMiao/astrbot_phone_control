@@ -485,7 +485,7 @@ class InteractionStore:
         max_posts: int,
         cooldown_seconds: int,
         allow_passive_replies: bool = False,
-        max_passive_replies: int = 0,
+        max_passive_replies: int = -1,
         passive_cooldown_seconds: int = 0,
         allow_interactions: bool = False,
         max_likes_per_session: int = 5,
@@ -506,7 +506,7 @@ class InteractionStore:
             1 for reservation in pending if reservation.kind == KIND_PASSIVE_REPLY
         )
         def _limit_text(used: int, limit: int) -> str:
-            return f"今日已用 {used}，不限次数" if int(limit) <= 0 else f"今日已用 {used}/{limit}"
+            return f"今日已用 {used}，不限次数" if int(limit) < 0 else f"今日已用 {used}/{limit}"
 
         def _cooldown_text(seconds: int) -> str:
             return "无冷却" if int(seconds) <= 0 else f"{int(seconds)} 秒"

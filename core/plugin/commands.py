@@ -439,17 +439,21 @@ class CommandsMixin:
                 return
             limit = max(1, min(limit, 30))
         security = config.security
+        from ..interactions import interaction_limits
+        comments, active_cooldown = interaction_limits(security, config.flexibility, KIND_COMMENT)
+        posts, _ = interaction_limits(security, config.flexibility, KIND_POST)
+        passive, passive_cooldown = interaction_limits(security, config.flexibility, KIND_PASSIVE_REPLY)
         await self._say(
             event,
             self.service.interactions.status_text(
                 allow_comments=security.allow_comments,
                 allow_posts=security.allow_posts,
-                max_comments=security.max_comments_per_day,
-                max_posts=security.max_posts_per_day,
-                cooldown_seconds=security.interaction_cooldown_seconds,
+                max_comments=comments,
+                max_posts=posts,
+                cooldown_seconds=active_cooldown,
                 allow_passive_replies=security.allow_passive_replies,
-                max_passive_replies=security.max_passive_replies_per_day,
-                passive_cooldown_seconds=security.passive_reply_cooldown_seconds,
+                max_passive_replies=passive,
+                passive_cooldown_seconds=passive_cooldown,
                 allow_interactions=security.allow_interactions,
                 max_likes_per_session=security.max_likes_per_session,
                 limit=limit,

@@ -830,3 +830,12 @@ def test_finished_run_releases_pending_daily_quota_without_touching_other_run(tm
     assert store.get_reservation("other", "like") is not None
     assert evaluate_gate(store, kind=kind, allow=True, max_per_day=1, cooldown_seconds=0, session="second", run="next").allowed
     assert store.used_today(kind) == 0
+
+
+def test_status_daily_zero_is_finite_and_minus_one_is_unlimited(tmp_path):
+    store = InteractionStore(tmp_path)
+    text = store.status_text(allow_comments=True, allow_posts=True, max_comments=0, max_posts=-1, cooldown_seconds=0)
+    comment = next(line for line in text.splitlines() if line.startswith("- 评论："))
+    post = next(line for line in text.splitlines() if line.startswith("- 发帖："))
+    assert "0/0" in comment and "不限次数" not in comment
+    assert "不限次数" in post
