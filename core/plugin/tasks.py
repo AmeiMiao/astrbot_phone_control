@@ -536,7 +536,7 @@ class TasksMixin:
                 await asyncio.sleep(1)
         finally:
             # 框架取消 run 时未必发送结束钩子，由事件标记保证收尾只执行一次。
-            if task.cancelled():
+            if task.done():
                 await self.on_task_agent_done(event)
 
     def _track_activity_window(self, event, task) -> None:

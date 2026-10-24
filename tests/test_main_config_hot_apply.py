@@ -427,7 +427,8 @@ def test_agent_begin_rejects_inactive_mode_before_model(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('origin,mode',[('phone_random_play','随机玩'),('phone_continuous','自动刷')])
-def test_cancelled_activity_releases_lease_without_framework_done_hook(tmp_path, monkeypatch, origin, mode):
+@pytest.mark.parametrize('swallow_cancel',[False,True])
+def test_cancelled_activity_releases_lease_without_framework_done_hook(tmp_path, monkeypatch, origin, mode, swallow_cancel):
     """真实任务取消路径没有框架结束钩子时，仍释放设备并只收尾一次。"""
     async def scenario():
         plugin = _make_plugin(tmp_path, monkeypatch)
@@ -443,7 +444,11 @@ def test_cancelled_activity_releases_lease_without_framework_done_hook(tmp_path,
             await plugin.track_task_agent_begin(event)
             plugin.device_gate.enter(event,purpose='uat')
             ready.set()
-            await asyncio.Event().wait()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                if not swallow_cancel:
+                    raise
         run=asyncio.create_task(model_run())
         await ready.wait()
         assert plugin.device_gate.busy
@@ -453,7 +458,8 @@ def test_cancelled_activity_releases_lease_without_framework_done_hook(tmp_path,
             monitors=list(plugin._activity_window_tasks)
             if monitors:
                 await asyncio.wait_for(asyncio.gather(*monitors),2)
-            assert run.cancelled()
+            assert run.done()
+            assert run.cancelled() is (not swallow_cancel)
             assert not plugin.device_gate.busy
             assert not plugin._active_agent_tasks
             assert len(cleanups)==1
