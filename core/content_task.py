@@ -256,6 +256,20 @@ class ContentTasks:
         task = self.current(event, task_id)
         if task.get("_reader") is not None:
             raise PhoneControlError("当前内容正在分析，请等待本段完成")
+        # 流程参数错误可由下一次调用修正，检查阶段不占用 reader 或清理素材。
+        if task["kind"] == "video":
+            if task["cursor"] and not self.service.config.auto.break_rule and not any(
+                i > task.get("_continuation_index", -1) and d["decision"] == "continue"
+                for i, d in enumerate(task["decisions"])
+            ):
+                raise PhoneControlError("续看前请独立决定 continue 并给出原因")
+            config = self.service.config.media
+            try:
+                duration = float(seconds or (config.preview_seconds if not task["cursor"] else config.seconds))
+            except (TypeError, ValueError):
+                raise PhoneControlError("片段时长需为有效秒数") from None
+            if not 3 <= duration <= config.max_seconds:
+                raise PhoneControlError(f"片段时长需 3–{config.max_seconds} 秒")
         task["_reader"] = asyncio.current_task()
         try:
             return await self._read(event, task_id, seconds)
@@ -296,7 +310,7 @@ class ContentTasks:
                     if d["decision"] == "continue"
                     and i > task.get("_continuation_index", -1)
                 ]
-                if task["cursor"] and not available:
+                if task["cursor"] and not available and not self.service.config.auto.break_rule:
                     raise PhoneControlError("续看前请独立决定 continue 并给出原因")
                 config = self.service.config.media
                 duration = float(
@@ -356,7 +370,7 @@ class ContentTasks:
                 "image_storage_location": "both" if self.service.config.image.save_images_both else self.service.config.image.image_storage_location,
                 "captured_until": self.captured_until(task),
                 "note": "分析期间持续采集；续看从 understood_until 继续，包含分析期间的素材。",
-                "next": "独立判断 continue/read_comments/like/favorite/skip，结束调用 finish；看评论不等于回复",
+                "next": ("可直接续看或自由浏览；需要精读时使用内容决策，结束调用 finish" if self.service.config.auto.break_rule else "独立判断 continue/read_comments/like/favorite/skip，结束调用 finish；看评论不等于回复"),
             }
 
     async def understand(self, event, task, text, images, audio):

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 
-from .play_flow import BREAK_RULE_FLOW, break_rule_hint
+from .play_flow import BREAK_RULE_FLOW, DIRECT_BROWSE_FLOW, break_rule_hint
 from collections.abc import Iterable
 
 DEFAULT_GAP_SECONDS = 60
@@ -143,8 +143,8 @@ def build_continuous_note(
     except (TypeError, ValueError):
         budget = 0
     note = (
-        _CORE
-        + (_LEARN_RULE if learn_tool_available else _LEARN_RULE_FALLBACK)
+        (("这是连续自由活动的一轮。" + BREAK_RULE_FLOW + DIRECT_BROWSE_FLOW) if break_rule else _CORE)
+        + ("有值得记住的内容时按需记录真实体验。" if break_rule else (_LEARN_RULE if learn_tool_available else _LEARN_RULE_FALLBACK))
         + _SILENT_RULE
         + _TIME_RULE
         + (str(share_hint).strip() if str(share_hint or "").strip() else "")

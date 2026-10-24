@@ -12,7 +12,7 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 
-from .play_flow import FLOW_RULE, flow_rule_text, break_rule_hint, share_rule_text
+from .play_flow import CONTENT_FLOW, content_rule_text, FLOW_RULE, flow_rule_text, break_rule_hint, share_rule_text
 
 MIN_INTERVAL_MINUTES = 1.0
 # 随机间隔不设上限（用户可配置任意低频率）
@@ -91,11 +91,8 @@ _SILENT_AND_SHARE = (
     "默认保持静默：普通操作在后台连续进行，不要逐条汇报。"
     + FLOW_RULE
     + share_rule_text()
-    + "每篇内容独立任务：图文点开前 phone_content begin；视频打开并确认起点后begin，"
-    "read先理解正文或试看。感兴趣再decide continue并read续看。看评论前独立decide "
-    "read_comments；想回复具体已读评论再decide reply_comment并申请互动名额，"
-    "看评论不等于回复。点赞收藏可选且遵守权限，结束finish后再换内容。"
-    "帖子默认回顶截图，视频传 content_type=video、当前画面传 screen。"
+    + CONTENT_FLOW
+    + "帖子默认回顶截图，视频传 content_type=video、当前画面传 screen。"
 )
 
 
@@ -117,9 +114,7 @@ def build_play_note(
         "不熟悉的界面用 phone_screen 边看边试（实时页面可用 mode=image）。"
         "结束后若要判断分享或互动，再 phone_recent_chat 看最近聊天与对方喜好。"
         + _MEMORY_SOURCES
-        + _SILENT_AND_SHARE.replace(FLOW_RULE, flow_rule_text(break_rule)).replace(
-            "感兴趣再decide continue", "按真实意愿decide continue" if break_rule else "感兴趣再decide continue"
-        )
+        + _SILENT_AND_SHARE.replace(FLOW_RULE, flow_rule_text(break_rule)).replace(CONTENT_FLOW, content_rule_text(break_rule))
         + (str(share_hint).strip() if str(share_hint or "").strip() else "")
         + (f"\n{novelty}" if novelty else "")
         + interaction_hint
@@ -202,8 +197,6 @@ def build_random_play_note(
         note += f"\n{novelty}"
     note += _CONCISE_REPLY
     if break_rule:
-        note = note.replace(FLOW_RULE, flow_rule_text(True)).replace(
-            "感兴趣再decide continue", "按真实意愿decide continue"
-        )
+        note = note.replace(FLOW_RULE, flow_rule_text(True)).replace(CONTENT_FLOW, content_rule_text(True))
         note += break_rule_hint(True)
     return note

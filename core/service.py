@@ -1226,6 +1226,11 @@ class PhoneService:
         self.ensure_configured()
         manager=self.contents
         owner=manager.owner(event)
+        if self.config.auto.break_rule and owner in manager.active:
+            package, _ = await self.actions.foreground()
+            current = manager.current(event)
+            if current["kind"] != "video" or current["package"] != package:
+                await manager.finish_owner(owner, abnormal=False)
         if owner not in manager.active:
             package,activity=await self.actions.foreground()
             await manager.begin(event,kind="video",content_id=f"{package}/{activity}",question=question,mode=mode)

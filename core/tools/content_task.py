@@ -11,6 +11,7 @@ class PhoneContentTool(_PhoneToolBase):
     name: str = "phone_content"
     description: str = (
         "单帖/视频任务：图文在打开详情前 begin(kind=post,content_id=内容ID)再打开详情并 read；视频先打开并确认起点，再 begin(kind=video,content_id=内容ID)。视频先试看8秒，续看前 decide(decision=continue,reason=原因)，再 read；"
+        "auto.break_rule 开启时可直接打开应用、看屏幕或 phone_watch_media 连续观看，本工具按需使用；"
         "评论兴趣 read_comments 与回复兴趣 reply_comment(target=具体已读评论)分开判断；点赞like/收藏favorite可选，决定不执行操作，回复另申请互动名额。skip停止；finish结束。切换内容先结束。status查看任务。"
     )
     parameters: dict = Field(
@@ -66,11 +67,7 @@ class PhoneContentTool(_PhoneToolBase):
                 "note": "素材采集已就绪；请打开匹配内容，read 理解正文；begin 不代表已看过",
             }
         elif action == "read":
-            try:
-                result = await manager.read(event, task_id, kwargs.get("seconds") or 0)
-            except BaseException:
-                await manager.finish_owner(manager.owner(event), abnormal=True)
-                raise
+            result = await manager.read(event, task_id, kwargs.get("seconds") or 0)
         elif action == "decide":
             result = await manager.decide(
                 event,

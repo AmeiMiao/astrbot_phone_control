@@ -16,7 +16,7 @@ from ..plugin_shared import (
 )
 from ..config import PhoneConfig
 from ..identity import PLUGIN_NAME
-from ..play_flow import FLOW_RULE, flow_rule_text, break_rule_hint, share_cooldown_text
+from ..play_flow import DIRECT_BROWSE_FLOW, FLOW_RULE, flow_rule_text, break_rule_hint, share_cooldown_text
 from ..share_policy import share_window_text
 
 
@@ -133,6 +133,10 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
     enabled = bool(config and config.auto.break_rule)
     guidance = _GUIDANCE.replace(FLOW_RULE, flow_rule_text(enabled))
     if enabled:
+        guidance = guidance.replace(
+            "内容任务：图文打开前begin，视频确认起点后begin；phone_content 分段read、独立决定续看/看评论/回复，完成finish。看评论不等于回复。",
+            DIRECT_BROWSE_FLOW,
+        )
         guidance = guidance.replace(
             "刷到同类内容时降低打开/停留概率，优先换主题或换 App",
             "新鲜感阈值作参考，可按真实意愿继续看同类内容",

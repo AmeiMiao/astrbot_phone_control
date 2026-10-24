@@ -360,3 +360,50 @@ def test_missing_explicit_asr_does_not_send_audio_to_vision(tmp_path):
         with pytest.raises(PhoneControlError, match="未找到语音识别模型"):
             await m.understand(None, {"question": ""}, "内容", [], tmp_path/'audio.wav')
     asyncio.run(run())
+
+@pytest.mark.parametrize('relaxed', [False, True])
+def test_direct_continuation_is_optional_only_in_break_rule(tmp_path, relaxed):
+    async def run():
+        s = service(tmp_path)
+        s.config = PhoneConfig.from_mapping({'auto': {'break_rule': relaxed}, 'media': {'audio_enabled': False}})
+        s.backends = SimpleNamespace(ensure=lambda: asyncio.sleep(0))
+        async def capture(**kw): return b'frame', tmp_path/'screen.png', {}
+        s.capture = capture
+        m = ContentTasks(s)
+        e = SimpleNamespace(unified_msg_origin='owner')
+        t = await m.begin(e, kind='video', content_id='live')
+        t['_start'] -= 12
+        t['frames'] = [[0, str(tmp_path/'0.jpg')], [3, str(tmp_path/'3.jpg')], [6, str(tmp_path/'6.jpg')]]
+        async def understand(*a): return '真实片段摘要'
+        m.understand = understand
+        assert (await m.read(e, seconds=3))['understood_until'] == 3
+        if not relaxed:
+            with pytest.raises(PhoneControlError, match='continue'):
+                await m.read(e, seconds=3)
+            assert m.current(e) is t and (m.root/t['id']/'state.json').exists()
+            assert t['cursor'] == 3 and not t.get('_reader')
+            await m.decide(e, 'continue', '继续了解内容')
+        assert (await m.read(e, seconds=3))['understood_until'] == 6
+        assert len(t['summaries']) == 2
+        await m.close()
+    asyncio.run(run())
+
+
+def test_invalid_segment_does_not_destroy_active_media(tmp_path):
+    async def run():
+        s = service(tmp_path)
+        s.config = PhoneConfig.from_mapping({'media': {'audio_enabled': False}})
+        s.backends = SimpleNamespace(ensure=lambda: asyncio.sleep(0))
+        async def capture(**kw): return b'frame', tmp_path/'screen.png', {}
+        s.capture = capture
+        m = ContentTasks(s)
+        e = SimpleNamespace(unified_msg_origin='owner')
+        t = await m.begin(e, kind='video', content_id='live')
+        path = m.root/t['id']/'protected.wav'
+        path.write_bytes(b'capture')
+        for seconds in (1, float('nan'), 'bad'):
+            with pytest.raises(PhoneControlError):
+                await m.read(e, seconds=seconds)
+            assert m.current(e) is t and path.read_bytes() == b'capture'
+        await m.close()
+    asyncio.run(run())

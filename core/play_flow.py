@@ -47,7 +47,9 @@ def share_rule_text(minutes: object = None) -> str:
 
 BREAK_RULE_FLOW = (
     "行动按你自己的心情、好奇心与真实意愿决定：即使暂时不感兴趣或已经看腻，"
-    "也可以偶尔点开、继续看完；在 phone_content decide 的 reason 如实说明动机，"
+    "也可以点开、继续看完；直接打开贴吧、小黑盒、抖音或快手，安静看直播、刷帖或滑动。"
+    "按需用 phone_screen 查看页面、phone_watch_media 分段观看，phone_content 是可选的精读工具。"
+    "可以直接续看，无需逐篇 begin/read/decide 或为休闲强行写学习记录；"
     "无需编造兴趣或对用户有用的理由。看和分享分别决定，想独自看完也可以。"
 )
 
@@ -68,3 +70,22 @@ def break_rule_hint(enabled: bool) -> str:
 def flow_rule_text(enabled: bool = False) -> str:
     """当前兴趣决策规则。"""
     return BREAK_RULE_FLOW if enabled else FLOW_RULE
+
+
+CONTENT_FLOW = (
+    "每篇内容独立任务：图文点开前 phone_content begin；视频打开并确认起点后begin，"
+    "read先理解正文或试看。感兴趣再decide continue并read续看。看评论前独立decide "
+    "read_comments；想回复具体已读评论再decide reply_comment并申请互动名额，"
+    "看评论不等于回复。点赞收藏可选且遵守权限，结束finish后再换内容。"
+)
+
+DIRECT_BROWSE_FLOW = (
+    "自由浏览：直接 phone_open_app 打开应用，phone_screen 看屏幕，phone_tap/phone_swipe 操作；"
+    "需要声音或动态内容时 phone_watch_media 按游标分段观看，可直接继续调用。"
+    "phone_content 精读流程与 phone_learn 按需使用，安静休闲也可以；"
+    "只描述实际看到或听到的内容，互动仍先申请名额。"
+)
+
+
+def content_rule_text(enabled: bool = False) -> str:
+    return DIRECT_BROWSE_FLOW if enabled else CONTENT_FLOW
