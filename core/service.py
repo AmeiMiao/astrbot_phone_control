@@ -14,7 +14,7 @@ from typing import Any
 
 from astrbot.api import logger
 
-from .actions import DeviceActions
+from .actions import DeviceActions, validate_touch_point
 from .adb import AdbClient
 from .apps import (
     KNOWN_APP_LABELS,
@@ -2085,7 +2085,7 @@ class PhoneService:
 
     async def tap(self, x: int, y: int) -> None:
         self.guard_device("tap")
-        x, y = await self.actions._check_point(x, y)
+        x, y = validate_touch_point(x, y, *(await self.actions.screen_size()))
         backend = await self._control_backend_or_none()
         try:
             if backend is None:
@@ -2099,7 +2099,7 @@ class PhoneService:
         self, x: int, y: int, *, duration_ms: int = 800
     ) -> None:
         self.guard_device("long_press")
-        x, y = await self.actions._check_point(x, y)
+        x, y = validate_touch_point(x, y, *(await self.actions.screen_size()))
         backend = await self._control_backend_or_none()
         try:
             if backend is None:

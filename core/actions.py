@@ -98,6 +98,16 @@ def _validate_package(package: str) -> str:
     return name
 
 
+def validate_touch_point(x: object, y: object, width: int, height: int) -> tuple[int, int]:
+    """所有触控后端共用的屏幕坐标校验。"""
+    x_int, y_int = _validate_int(x, "x"), _validate_int(y, "y")
+    if not 0 <= x_int < width:
+        raise ActionFailedError(f"x 坐标越界：{x_int}", detail=f"有效范围 0..{width - 1}")
+    if not 0 <= y_int < height:
+        raise ActionFailedError(f"y 坐标越界：{y_int}", detail=f"有效范围 0..{height - 1}")
+    return x_int, y_int
+
+
 def _escape_input_text(text: str) -> str:
     """把文本转成 ``input text`` 可用的 shell 参数（空格转 %s、单引号转义）。"""
     converted = text.replace(" ", "%s").replace("'", "'\\''")
@@ -153,13 +163,7 @@ class DeviceActions:
     async def _check_point(self, x: object, y: object) -> tuple[int, int]:
         """校验坐标落在屏幕范围内。"""
         width, height = await self.screen_size()
-        x_int = _validate_int(x, "x")
-        y_int = _validate_int(y, "y")
-        if x_int < 0 or x_int >= width:
-            raise ActionFailedError(f"x 坐标越界：{x_int}", detail=f"有效范围 0..{width - 1}")
-        if y_int < 0 or y_int >= height:
-            raise ActionFailedError(f"y 坐标越界：{y_int}", detail=f"有效范围 0..{height - 1}")
-        return x_int, y_int
+        return validate_touch_point(x, y, width, height)
 
     async def _has_adbkeyboard(self) -> bool:
         """检测设备上是否已启用 ADBKeyboard 输入法（结果缓存）。"""
