@@ -401,6 +401,9 @@ class MediaSettings:
     """流媒体内容识别（设备播放音频采集 + 关键帧描述）参数。"""
 
     enabled: bool = True
+    full_video_enabled: bool = False
+    full_video_max_mb: float = 6.0
+    full_video_max_seconds: int = 300
     audio_enabled: bool = True
     audio_source: str = DEFAULT_MEDIA_AUDIO_SOURCE
     seconds: int = int(DEFAULT_MEDIA_SECONDS)
@@ -1136,6 +1139,9 @@ class PhoneConfig:
             maximum=media_max_seconds,
         )
         media = MediaSettings(
+            full_video_enabled=_as_bool(_pick(media_card, source, "full_video_enabled"), False, "media.full_video_enabled", warn_fn),
+            full_video_max_mb=_as_float(_pick(media_card, source, "full_video_max_mb"), 6.0, "media.full_video_max_mb", warn_fn, minimum=0.25, maximum=6.0),
+            full_video_max_seconds=_as_int(_pick(media_card, source, "full_video_max_seconds"), 300, "media.full_video_max_seconds", warn_fn, minimum=3, maximum=600),
             enabled=_as_bool(
                 _pick(media_card, source, "enabled"),
                 True,

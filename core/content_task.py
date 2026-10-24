@@ -26,6 +26,8 @@ class ContentTasks:
         from .media_provider import MediaProviders
 
         self.providers = MediaProviders(getattr(service, "app_context", None))
+        from .full_video import FullVideoWatch
+        self.full = FullVideoWatch(self)
         # 新插件实例只恢复已完成任务；进行中记录的运行者已经失效。
         for path in self.root.glob("*/state.json"):
             try:
@@ -81,7 +83,7 @@ class ContentTasks:
             raise PhoneControlError("本会话没有匹配的进行中内容任务")
         return task
 
-    async def begin(self, event, *, kind, content_id, question="", mode="auto"):
+    async def begin(self, event, *, kind, content_id, question="", mode="auto", capture=True):
         if kind not in {"post", "video"} or not str(content_id or "").strip():
             raise PhoneControlError("需指定 post/video 和当前内容唯一标识 content_id")
         if mode in {"audio", "both"} and not self.service.config.media.audio_enabled:
@@ -121,28 +123,35 @@ class ContentTasks:
             # 内容归属整次 Agent run；收尾由 finish、on_agent_done 和服务关闭执行。
             self.write(task)
             try:
-                if kind == "video":
-                    await self.service.backends.ensure()
-                    if self.service.config.media.audio_enabled and mode != "frames":
-                        if self.service.media is None:
-                            raise PhoneControlError("设备音频采集客户端未初始化")
-                        stream = self.service.media.stream(
-                            self.root / task["id"] / "source.pcm",
-                            source=self.service.config.media.audio_source,
-                        )
-                        task["_audio"] = stream
-                        await stream.start()
-                        task["_start"] = stream.started
-                    else:
-                        task["_start"] = time.monotonic()
-                self.arm_capture(task)
-                task["_sampler"] = asyncio.create_task(
-                    self.sample(task), name=f"{PLUGIN_NAME}_content_sampler"
-                )
+                if capture:
+                    await self.start_capture(task)
             except BaseException:
                 await self.finish_owner(task["owner"], abnormal=True)
                 raise
             return task
+
+    async def start_capture(self, task, *, play_x=None, play_y=None):
+        if task.get("_sampler") is not None:
+            return
+        if task["kind"] == "video":
+            await self.service.backends.ensure()
+            if self.service.config.media.audio_enabled and task["mode"] != "frames":
+                if self.service.media is None:
+                    raise PhoneControlError("设备音频采集客户端未初始化")
+                stream = self.service.media.stream(self.root / task["id"] / "source.pcm", source=self.service.config.media.audio_source)
+                task["_audio"] = stream
+                await stream.start()
+                task["_start"] = stream.started
+            else:
+                task["_start"] = time.monotonic()
+            if play_x is not None and play_y is not None:
+                started = time.monotonic()
+                await self.service.actions.tap(int(play_x), int(play_y))
+                task["_start"] = started
+                if task.get("_audio"):
+                    task["_audio_offset"] = max(0, started - task["_audio"].started)
+        self.arm_capture(task)
+        task["_sampler"] = asyncio.create_task(self.sample(task), name=f"{PLUGIN_NAME}_content_sampler")
 
     def arm_capture(self, task):
         traffic = getattr(self.service, "traffic", None)
@@ -345,8 +354,8 @@ class ContentTasks:
                 audio = None
                 if task.get("_audio") is not None:
                     audio = await task["_audio"].segment(
-                        start,
-                        end,
+                        start + task.get("_audio_offset", 0),
+                        end + task.get("_audio_offset", 0),
                         self.root / task["id"] / f"audio-{start:g}-{end:g}.wav",
                     )
                 if task.get("video_provider_id"):
@@ -640,7 +649,7 @@ class ContentTasks:
 
         times = []
         if audio is not None:
-            times.append(pcm_duration(audio.size))
+            times.append(max(0, pcm_duration(audio.size) - task.get("_audio_offset", 0)))
         if task["mode"] != "audio" and task["kind"] == "video":
             times.append(task["frames"][-1][0] if task["frames"] else 0.0)
         return round(min(times), 3) if times else 0.0

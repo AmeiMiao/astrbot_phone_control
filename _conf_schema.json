@@ -1322,6 +1322,30 @@
         "description": "视频首次试看秒数",
         "default": 8,
         "hint": "3–60 秒，后续按单段采集时长顺序续看。"
+      },
+      "full_video_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "完整视频观看",
+        "hint": "开启后点播视频优先获取原文件，获取不到则从头完整录制；直播保持分段。需由模型确认 video/live 类型。"
+      },
+      "full_video_max_mb": {
+        "type": "float",
+        "default": 6.0,
+        "description": "完整视频大小阈值（MiB）",
+        "hint": "范围 0.25–6；超过阈值自动切片观看。原文件在响应头与下载字节数两侧检查，录制文件按编码后实际大小判断；Base64 传输量约为文件大小的 4/3。",
+        "condition": {
+          "full_video_enabled": true
+        }
+      },
+      "full_video_max_seconds": {
+        "type": "int",
+        "default": 300,
+        "description": "完整视频时长上限（秒）",
+        "hint": "范围 3–600，默认 300；超过上限按切片观看，仍受所选模型时长能力限制。",
+        "condition": {
+          "full_video_enabled": true
+        }
       }
     }
   },

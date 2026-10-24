@@ -1220,12 +1220,26 @@ class PhoneService:
             provider_id = str(provider_config.get("id") or "")
         return provider_id, "当前会话 Provider"
 
-    async def watch_media(self, event: Any, *, seconds: float = 0, question: str = "", mode: str = "auto") -> str:
-        """通过统一内容任务理解当前视频；非 Agent 调用在返回前结束任务。"""
+    async def watch_media(self, event: Any, *, seconds: float = 0, question: str = "", mode: str = "auto", stream_kind: str = "auto", video_url: str = "", duration_seconds: float = 0, play_x=None, play_y=None) -> str:
+        """按配置识别完整点播或连续片段，直播始终分段。"""
         self.guard_device("watch_media")
         self.ensure_configured()
+        if self.config.media.full_video_enabled and mode != "audio":
+            try:
+                result = await self.contents.full.watch(event, seconds=seconds, question=question, mode=mode, stream_kind=stream_kind, video_url=video_url, duration_seconds=duration_seconds, play_x=play_x, play_y=play_y)
+                return json.dumps(result, ensure_ascii=False)
+            finally:
+                getter = getattr(event, "get_extra", None)
+                if not callable(getter) or not getter("phone_agent_run_active"):
+                    await self.contents.finish_owner(self.contents.owner(event), abnormal=False)
+        return json.dumps(await self._watch_segment(event, seconds=seconds, question=question, mode=mode), ensure_ascii=False)
+
+    async def _watch_segment(self, event: Any, *, seconds=0, question="", mode="auto"):
         manager=self.contents
         owner=manager.owner(event)
+        existing = manager.active.get(owner)
+        if existing and existing.get("_full_request") and not existing.get("_segmented_reason"):
+            await manager.finish_owner(owner, abnormal=False)
         if self.config.auto.break_rule and owner in manager.active:
             package, _ = await self.actions.foreground()
             current = manager.current(event)
@@ -1238,7 +1252,7 @@ class PhoneService:
             raise PhoneControlError("当前是图文任务，请结束后再看视频")
         try:
             result=await manager.read(event,seconds=seconds)
-            return json.dumps(result,ensure_ascii=False)
+            return result
         finally:
             getter=getattr(event,"get_extra",None)
             if not callable(getter) or not getter("phone_agent_run_active"):

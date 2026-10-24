@@ -199,6 +199,7 @@ class PhoneWatchMediaTool(_PhoneToolBase):
         "同时在录制期间抓关键画面交给视觉模型描述，返回『语音转写 + 画面描述』。"
         "标题/评论/弹幕不足以判断内容，或刷视频、看直播需要真正理解时使用；"
         "首次试看取 media.preview_seconds，后续默认需 phone_content decide continue；auto.break_rule 开启时可直接重复调用连续分段观看；续看自动附带有界前情摘要；可传 seconds。"
+        "完整视频开关开启时，需明确 stream_kind=video（点播）或 live（直播）。点播优先用手机最近流量中已观测的 video_url；获取不到时，先暂停在起点，提供 duration_seconds 和播放按钮 play_x/play_y，工具开始采集后点击播放。超过大小阈值自动分段；直播固定分段。"
         "action=finish 结束观看并释放本会话素材采集，不额外录制；默认 action=watch。"
         "只录设备播放声音（output），无音频/DRM 内容时只返回画面描述。"
     )
@@ -207,6 +208,11 @@ class PhoneWatchMediaTool(_PhoneToolBase):
             "type": "object",
             "properties": {
                 "action": {"type": "string", "enum": ["watch", "finish"], "default": "watch", "description": "watch 观看下一段；finish 结束观看，不采集新片段。"},
+                "stream_kind": {"type": "string", "enum": ["auto", "video", "live"], "default": "auto", "description": "确认是点播 video 或直播 live；完整开关开启时必填，直播始终分段。"},
+                "video_url": {"type": "string", "description": "手机最近视频流量中实际观测的原文件 URL（可选，优先获取完整文件）。"},
+                "duration_seconds": {"type": "number", "description": "完整录制时已确认的点播总时长秒数；先暂停到起点。"},
+                "play_x": {"type": "integer", "description": "从起点开始播放的按钮横坐标（完整录制回退时使用）。"},
+                "play_y": {"type": "integer", "description": "从起点开始播放的按钮纵坐标（完整录制回退时使用）。"},
                 "seconds": {
                     "type": "number",
                     "description": (
@@ -248,4 +254,4 @@ class PhoneWatchMediaTool(_PhoneToolBase):
         seconds = _as_float(kwargs.get("seconds"), 0)
         question = str(kwargs.get("question") or "").strip()
         mode = str(kwargs.get("mode") or "auto").strip()
-        return _ok(await self.service.watch_media(event,seconds=seconds,question=question,mode=mode))
+        return _ok(await self.service.watch_media(event, seconds=seconds, question=question, mode=mode, stream_kind=str(kwargs.get("stream_kind") or "auto"), video_url=str(kwargs.get("video_url") or ""), duration_seconds=_as_float(kwargs.get("duration_seconds"), 0), play_x=kwargs.get("play_x"), play_y=kwargs.get("play_y")))
