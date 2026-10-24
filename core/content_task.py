@@ -179,6 +179,12 @@ class ContentTasks:
                 self.write(task)
                 self.arm_capture(task)
                 elapsed = time.monotonic() - task.get("_start", time.monotonic())
+                if task.get("_full_target") and elapsed >= task["_full_target"] + .5:
+                    task["_recorded_until"] = task["_full_target"]
+                    if task.get("_audio"):
+                        await task["_audio"].stop()
+                    task["_capture_finished"] = True
+                    return
                 if task["kind"] == "video" and task["mode"] != "audio":
                     video = bool(task.get("video_provider_id"))
                     options = dict(fast=True, quiet=True, record_metric=False, persist=False) if video else {}
@@ -268,6 +274,8 @@ class ContentTasks:
         task = self.current(event, task_id)
         if task.get("_reader") is not None:
             raise PhoneControlError("当前内容正在分析，请等待本段完成")
+        if task.get("_full_result"):
+            raise PhoneControlError("本条完整视频已识别，请结束观看后切换内容")
         # 流程参数错误可由下一次调用修正，检查阶段不占用 reader 或清理素材。
         if task["kind"] == "video":
             if task["cursor"] and not self.service.config.auto.break_rule and not any(
@@ -282,6 +290,8 @@ class ContentTasks:
                 raise PhoneControlError("片段时长需为有效秒数") from None
             if not 3 <= duration <= config.max_seconds:
                 raise PhoneControlError(f"片段时长需 3–{config.max_seconds} 秒")
+        if task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"]:
+            raise PhoneControlError("本条视频缓存已完整理解，请结束观看")
         task["_reader"] = asyncio.current_task()
         try:
             return await self._read(event, task_id, seconds)
@@ -336,6 +346,10 @@ class ContentTasks:
                 if not 3 <= duration <= maximum:
                     raise PhoneControlError(f"片段时长需 3–{config.max_seconds} 秒")
                 start = task["cursor"]
+                if task.get("_recorded_until") is not None:
+                    duration = min(duration, task["_recorded_until"] - start)
+                    if duration <= 0:
+                        raise PhoneControlError("本条视频缓存已完整理解，请结束观看")
                 end = start + duration
                 deadline = time.monotonic() + duration + 45
                 while time.monotonic() - task["_start"] < end or (
@@ -383,6 +397,7 @@ class ContentTasks:
                 "auto_save_images": self.service.config.image.auto_save_images,
                 "image_storage_location": "both" if self.service.config.image.save_images_both else self.service.config.image.image_storage_location,
                 "captured_until": self.captured_until(task),
+                "content_complete": bool(task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"]),
                 "note": "分析期间持续采集；续看从 understood_until 继续，包含分析期间的素材。",
                 "next": ("可直接续看或自由浏览；phone_watch_media(action=finish) 结束观看，本轮结束也会自动清理" if self.service.config.auto.break_rule else "独立判断 continue/read_comments/like/favorite/skip，结束调用 finish；看评论不等于回复"),
             }

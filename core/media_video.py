@@ -17,6 +17,10 @@ MAX_BUFFER_BYTES = 128 * 1024 * 1024
 MAX_CAPTURE_SECONDS = 900
 
 
+class VideoTooLarge(PhoneControlError):
+    """编码后超过完整观看阈值，交由分段路径处理。"""
+
+
 def compact_frame(data: bytes) -> bytes:
     from PIL import Image
 
@@ -36,13 +40,13 @@ def video_part(path: Path) -> dict:
     return {"type": "video_url", "video_url": {"url": "data:video/mp4;base64," + base64.b64encode(data).decode("ascii")}}
 
 
-async def encode_segment(frames, start: float, end: float, audio: Path | None, output: Path) -> Path:
+async def encode_segment(frames, start: float, end: float, audio: Path | None, output: Path, *, maximum_seconds=MAX_VIDEO_SECONDS, maximum_bytes=MAX_VIDEO_BYTES) -> Path:
     """按实际采样时间保留帧间停留，音频取相同游标范围。"""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise PhoneControlError("视频回传需要宿主安装 FFmpeg 并加入 PATH")
     duration = end - start
-    if not 0 < duration <= MAX_VIDEO_SECONDS:
+    if not 0 < duration <= maximum_seconds:
         raise PhoneControlError("视频回传单段时长需大于 0 且不超过 60 秒")
     chosen = [(float(t), Path(p)) for t, p in frames if t < end]
     previous = [(t, p) for t, p in chosen if t <= start]
@@ -65,7 +69,7 @@ async def encode_segment(frames, start: float, end: float, audio: Path | None, o
         # 全模态视频解码器通过音轨建立时间轴；无声音素材使用明确的静音轨。
         args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=16000",
                  "-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "24k"]
-    args += ["-vf", "scale=480:480:force_original_aspect_ratio=decrease,pad=480:480:(ow-iw)/2:(oh-ih)/2", "-r", "2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p", "-threads", "1", "-t", f"{duration:.6f}", "-movflags", "+faststart", "-fs", str(MAX_VIDEO_BYTES + 65536), str(output)]
+    args += ["-vf", "scale=480:480:force_original_aspect_ratio=decrease,pad=480:480:(ow-iw)/2:(oh-ih)/2", "-r", "2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p", "-threads", "1", "-t", f"{duration:.6f}", "-movflags", "+faststart", "-fs", str(maximum_bytes + 65536), str(output)]
     process = None
     succeeded = False
     try:
@@ -73,8 +77,8 @@ async def encode_segment(frames, start: float, end: float, audio: Path | None, o
         _, stderr = await asyncio.wait_for(process.communicate(), timeout=90)
         if process.returncode:
             raise PhoneControlError("视频片段编码失败", detail=stderr.decode("utf-8", "replace")[-500:])
-        if not output.is_file() or not 0 < output.stat().st_size <= MAX_VIDEO_BYTES:
-            raise PhoneControlError("视频片段超过 6 MiB，请缩短单段观看时长")
+        if not output.is_file() or not 0 < output.stat().st_size <= maximum_bytes:
+            raise VideoTooLarge("编码后视频超过完整观看大小阈值，使用切片观看")
         succeeded = True
         return output
     finally:

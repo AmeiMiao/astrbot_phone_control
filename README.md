@@ -117,7 +117,7 @@ MemoryCompanion、LivingMemory 使用独立同步开关。LivingMemory 写入复
 | 提示词与命令输出 | 使用指南、经验注入、状态/帮助图片开关 |
 | 屏幕感知、控制后端 | UI、截图、实时屏幕、OCR、scrcpy 与 minitouch |
 | 组网 | 一个开关与服务选择器；按所选 WireGuard / Tailscale / ZeroTier 显示参数 |
-| 流媒体、流量抓包 | 音频/关键帧 Provider、mitmproxy 路径、传输通道与 CA 信任方式 |
+| 流媒体、流量抓包 | 完整点播开关与大小阈值、音频/视频识别、mitmproxy 路径、传输通道与 CA 信任方式 |
 | 工具异常汇报 | 手机工具报错自动通知主人，包含静默自主任务；按目标合并并限频 |
 | 验证与人工协助、调试 | 自动尝试与等待时限、通知目标、动作日志 |
 
