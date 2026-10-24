@@ -43,7 +43,7 @@
     svg.replaceChildren();
     const group = make("g"); svg.append(group);
     const edgeElements = edges.map(edge => {
-      const line = make("line", { stroke: "#94a3b8", "stroke-width": 1 + edge.score * 2, "stroke-opacity": 0.65, "pointer-events": "none" });
+      const line = make("path", { fill: "none", stroke: "#94a3b8", "stroke-width": 0.7 + edge.score, "stroke-opacity": 0.25, "stroke-linecap": "round", "pointer-events": "none" });
       const title = make("title"); title.textContent = `余弦相似度 ${edge.score.toFixed(3)}`; line.append(title); group.append(line); return line;
     });
     let selected = null, dragging = null, panning = null;
@@ -56,6 +56,12 @@
         circle.setAttribute("stroke", id === selected ? "#f59e0b" : "#fff");
         circle.setAttribute("stroke-width", id === selected ? "5" : "2");
       });
+      edges.forEach((edge, i) => {
+        const active = edge.source === selected || edge.target === selected;
+        edgeElements[i].setAttribute("stroke", active ? colors[node.source] || "#64748b" : "#94a3b8");
+        edgeElements[i].setAttribute("stroke-opacity", active ? "0.78" : "0.12");
+        edgeElements[i].setAttribute("stroke-width", active ? 1.2 + edge.score * 1.4 : 0.7 + edge.score);
+      });
       onSelect(node);
     }
     function draw() {
@@ -67,8 +73,10 @@
       });
       edges.forEach((edge, i) => {
         const line = edgeElements[i];
-        line.setAttribute("x1", edge.a.x); line.setAttribute("y1", edge.a.y);
-        line.setAttribute("x2", edge.b.x); line.setAttribute("y2", edge.b.y);
+        const dx = edge.b.x - edge.a.x, dy = edge.b.y - edge.a.y;
+        const cx = (edge.a.x + edge.b.x) / 2 - dy * 0.08;
+        const cy = (edge.a.y + edge.b.y) / 2 + dx * 0.08;
+        line.setAttribute("d", `M ${edge.a.x} ${edge.a.y} Q ${cx} ${cy} ${edge.b.x} ${edge.b.y}`);
       });
     }
     function point(event) {

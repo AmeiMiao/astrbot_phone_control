@@ -342,6 +342,20 @@ class TokenQuota:
             if float(entry.get("ts") or 0) >= cutoff
         ]
 
+    def minute_series(self, minutes: int = 30, *, now: float | None = None) -> list[dict[str, float]]:
+        """按自然分钟汇总额度账本，包含估算与实际差额，空分钟补零。"""
+        current = time.time() if now is None else float(now)
+        count = max(1, min(int(minutes), 1440))
+        end = int(current // 60) * 60
+        start = end - (count - 1) * 60
+        buckets = {slot: 0.0 for slot in range(start, end + 1, 60)}
+        for entry in self._read_entries_unlocked():
+            ts = float(entry.get("ts") or 0)
+            slot = int(ts // 60) * 60
+            if slot in buckets and ts <= current:
+                buckets[slot] += float(entry.get("tokens") or 0)
+        return [{"ts": slot, "tokens": round(tokens, 2)} for slot, tokens in buckets.items()]
+
     def used(self, window_hours: float) -> float:
         """滚动窗口内已用 token 数。"""
         return float(

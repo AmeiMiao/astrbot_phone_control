@@ -192,11 +192,11 @@
       const used = Number(quota.used || 0);
       const max = Number(quota.max_tokens || 0);
       const pct = max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0;
-      setText("ov-quota", `${pct}%`);
+      setText("ov-quota", `${fmtNum(used / 1e6, 3)} M`);
       setClass($("ov-quota"), pct >= 90 ? "error" : pct >= 70 ? "warn" : "ok");
       setText(
         "ov-quota-note",
-        `${fmtNum(used)} / ${fmtNum(max)} · ${quota.window_hours || 24}h 窗口`,
+        `上限 ${max > 0 ? fmtNum(max / 1e6, 3) + " M · " + pct + "%" : "不限"} · ${quota.window_hours || 24}h 窗口`,
       );
     }
 
@@ -283,7 +283,7 @@
       };
       renderCharts();
       if (data.last_screenshot) updateShotLatest(data.last_screenshot);
-      if (data.last_llm) updateTpsLatest(data.last_llm);
+
     } catch (err) {
       setText("shot-foot", `曲线加载失败：${err.message || err}`);
     }
@@ -298,7 +298,8 @@
   }
 
   function updateTpsLatest(llm) {
-    setText("tps-latest", `${fmtNum(llm.tps, 1)} tok/s`);
+    const bucket = state.series.buckets.at(-1);
+    setText("tps-latest", `${fmtNum(bucket?.tokens || 0)} tokens/分钟`);
   }
 
   function renderCharts() {
@@ -316,18 +317,12 @@
     });
 
     const bucketPoints = state.series.buckets
-      .map((item) => ({ ts: Number(item.ts), value: Number(item.tps) }))
+      .map((item) => ({ ts: Number(item.ts), value: Number(item.tokens) }))
       .filter((item) => Number.isFinite(item.ts) && Number.isFinite(item.value));
-    const llmPoints = state.series.llm
-      .map((item) => ({ ts: Number(item.ts), value: Number(item.tps) }))
-      .filter((item) => Number.isFinite(item.ts) && Number.isFinite(item.value));
-    const tpsPoints = bucketPoints.length ? bucketPoints : llmPoints;
-    drawChart($("chart-tps"), tpsPoints, {
-      color: "#8b5cf6",
-      from: Math.min(from, tpsPoints.length ? tpsPoints[0].ts : from),
-      to: now,
-      unit: "tok/s",
+    drawChart($("chart-tps"), bucketPoints, {
+      color: "#8b5cf6", from, to: now, unit: "tokens/分钟",
     });
+    updateTpsLatest();
   }
 
   function niceMax(value) {

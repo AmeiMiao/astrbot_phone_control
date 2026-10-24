@@ -91,3 +91,17 @@ def test_play_budget_registry_reset_and_unknown():
     assert registry.add("not-exist", 10) is None
     registry.clear()
     assert len(registry) == 0
+
+
+def test_minute_series_uses_ledger_without_point_truncation(tmp_path):
+    quota = TokenQuota(tmp_path, max_entries=2000)
+    # 600 点以上仍应完整统计；同一分钟内主模型、媒体和对账差额相加。
+    for _ in range(650):
+        quota.record(2, ts=120)
+    quota.record(30, source="internal:vision", ts=145, actual=True)
+    quota.record(20, source="agent_usage", ts=151, actual=True)
+    quota.record(999, ts=119)
+    quota.record(888, ts=201)
+    assert quota.minute_series(2, now=200) == [
+        {"ts": 120, "tokens": 1350}, {"ts": 180, "tokens": 0},
+    ]

@@ -373,11 +373,14 @@ class ObservabilityMixin(LibraryDashboardMixin):
             return error_response(f"读取概览失败：{exc}", status_code=500)
 
     async def dashboard_series(self):
-        """GET dashboard/series?minutes=30：截图/LLM 序列与 10s token/s 桶。"""
+        """GET dashboard/series?minutes=30：截图序列与按自然分钟汇总的 Token 消耗。"""
         try:
             minutes = plugin_main_module().request.query.get("minutes", 30, type=int) or 30
             minutes = max(1, min(int(minutes), 24 * 60))
-            return json_response(self.telemetry.recent_series(minutes))
+            series = self.telemetry.recent_series(minutes)
+            series["buckets"] = self.quota.minute_series(minutes)
+            series["bucket_seconds"] = 60
+            return json_response(series)
         except Exception as exc:  # noqa: BLE001
             return error_response(f"读取指标序列失败：{exc}", status_code=500)
 
