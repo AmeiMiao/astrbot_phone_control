@@ -526,12 +526,18 @@ class TasksMixin:
 
     async def _watch_activity_window(self, event, task) -> None:
         """活动结束或配置变更后取消对应 Agent，等待原有收尾释放资源。"""
-        while not task.done():
-            if not activity_allowed(self.service.config.auto, self.service.task_origin(event)):
-                logger.info("自主活动时段结束或模式已切换，中止任务：%s", self.service.task_origin(event))
-                task.cancel()
-                return
-            await asyncio.sleep(1)
+        try:
+            while not task.done():
+                if not activity_allowed(self.service.config.auto, self.service.task_origin(event)):
+                    logger.info("自主活动时段结束或模式已切换，中止任务：%s", self.service.task_origin(event))
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    return
+                await asyncio.sleep(1)
+        finally:
+            # 框架取消 run 时未必发送结束钩子，由事件标记保证收尾只执行一次。
+            if task.cancelled():
+                await self.on_task_agent_done(event)
 
     def _track_activity_window(self, event, task) -> None:
         if self.service.task_origin(event) not in {*WINDOW_ORIGINS, AUTO_BROWSE_JOB_ORIGIN}:
@@ -540,7 +546,6 @@ class TasksMixin:
         monitor = asyncio.create_task(self._watch_activity_window(event, task))
         monitors.add(monitor)
         monitor.add_done_callback(monitors.discard)
-        task.add_done_callback(lambda _: monitor.cancel())
 
     def _start_random_play_loop(self) -> None:
         """启动单实例随机玩手机循环（配置 random_enabled 关闭时循环空转等待）。"""

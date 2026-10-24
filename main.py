@@ -465,6 +465,7 @@ class PhoneControlPlugin(
         try:
             from .core.interactions import interaction_run
 
+            event.set_extra("phone_activity_cleanup_done", False)
             interaction_run(event, restart=True)
             # 所有 Agent run 都标记：工具作用域据此把租约保持到 run 结束。
             with suppress(Exception):
@@ -501,6 +502,13 @@ class PhoneControlPlugin(
         response: Any = None,
     ) -> None:
         """Agent 结束：任务会话停止实时屏幕；玩过手机则确定性收尾。"""
+        managed_activity = self.service.task_origin(event) in {
+            "phone_random_play", CONTINUOUS_JOB_ORIGIN, AUTO_BROWSE_JOB_ORIGIN,
+        }
+        if managed_activity:
+            if event.get_extra("phone_activity_cleanup_done"):
+                return
+            event.set_extra("phone_activity_cleanup_done", True)
         try:
             from .core.interactions import RUN_EXTRA
 

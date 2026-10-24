@@ -329,6 +329,9 @@ def test_activity_window_stops_model_run_on_boundary(tmp_path, monkeypatch, orig
         taskmod = sys.modules[plugin_main.PhoneControlPlugin._watch_activity_window.__module__]
         allowed = True
         monkeypatch.setattr(taskmod, 'activity_allowed', lambda *args: allowed)
+        async def finish(_event):
+            return None
+        monkeypatch.setattr(plugin, 'on_task_agent_done', finish)
         event = types.SimpleNamespace(get_extra=lambda key: {'origin': origin, 'play_task': True} if key == 'cron_payload' else None)
         cleaned = asyncio.Event()
         started = asyncio.Event()
@@ -419,5 +422,45 @@ def test_agent_begin_rejects_inactive_mode_before_model(tmp_path, monkeypatch):
                 await plugin.track_task_agent_begin(event)
             assert not plugin._active_agent_tasks
         finally:
+            await plugin.terminate()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('origin,mode',[('phone_random_play','随机玩'),('phone_continuous','自动刷')])
+def test_cancelled_activity_releases_lease_without_framework_done_hook(tmp_path, monkeypatch, origin, mode):
+    """真实任务取消路径没有框架结束钩子时，仍释放设备并只收尾一次。"""
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        plugin.raw_config['auto'].update(mode=mode,activity_enabled=True)
+        extra={'cron_payload':{'origin':origin,'play_task':True},'cron_job':{'id':'cancel-uat'}}
+        event=types.SimpleNamespace(unified_msg_origin='cron:OtherMessage:cancel-uat',role='admin',get_extra=lambda key,default=None:extra.get(key,default),set_extra=lambda key,value:extra.__setitem__(key,value),get_platform_name=lambda:'cron',get_sender_id=lambda:'1',get_message_str=lambda:'')
+        cleanups=[]
+        async def cleanup(e):
+            cleanups.append(e)
+        monkeypatch.setattr(plugin,'_auto_cleanup_after_task',cleanup)
+        ready=asyncio.Event()
+        async def model_run():
+            await plugin.track_task_agent_begin(event)
+            plugin.device_gate.enter(event,purpose='uat')
+            ready.set()
+            await asyncio.Event().wait()
+        run=asyncio.create_task(model_run())
+        await ready.wait()
+        assert plugin.device_gate.busy
+        try:
+            plugin.raw_config['auto']['activity_enabled']=False
+            await asyncio.wait_for(asyncio.gather(run,return_exceptions=True),2)
+            monitors=list(plugin._activity_window_tasks)
+            if monitors:
+                await asyncio.wait_for(asyncio.gather(*monitors),2)
+            assert run.cancelled()
+            assert not plugin.device_gate.busy
+            assert not plugin._active_agent_tasks
+            assert len(cleanups)==1
+            await plugin.on_task_agent_done(event)
+            assert len(cleanups)==1
+        finally:
+            run.cancel()
+            await asyncio.gather(run,return_exceptions=True)
             await plugin.terminate()
     asyncio.run(scenario())
