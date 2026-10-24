@@ -452,6 +452,7 @@ class BootstrapMixin:
         self.service.verification = self._verification
         # 统一设备执行入口：命令、工具与定时任务接触设备前都经过它。
         self.device_gate = DeviceExecutionGate(
+            debug_log=lambda message: logger.debug("[手机] %s", message),
             authorize=self._device_authorize,
             blocking_reason=self._device_blocking_reason,
             deadline_seconds=self._device_deadline_seconds,

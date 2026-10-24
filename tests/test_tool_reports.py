@@ -57,6 +57,24 @@ def test_summary_keeps_useful_error_and_removes_credentials():
         assert secret not in text
 
 
+def test_share_cooldown_is_silent_but_other_share_errors_are_delivered():
+    async def run():
+        r, sent, _ = reporter()
+        try:
+            r.submit(None, "phone_share_to_user", "error: 距上次向该会话分享不足冷却时长（还需约 3 分钟）")
+            assert r.task is None and not r.pending
+            r.submit(None, "phone_share_to_user", "error: 消息发送失败")
+            await r.task
+            assert len(sent) == 1 and "消息发送失败" in sent[0][1]
+        finally:
+            await r.close()
+    asyncio.run(run())
+
+
+def test_tap_failure_notification_excludes_internal_experience_hint():
+    assert safe_summary("error: 点击失败\n\n【App 经验更新】经验已失效") == "error: 点击失败"
+
+
 def test_cron_uses_last_real_platform_for_private_owner_notification():
     assert owner_targets(
         target="",

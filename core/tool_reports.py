@@ -47,6 +47,7 @@ def result_failed(result):
 
 def safe_summary(result):
     text = (result_text(result) or "工具未返回结果或返回错误状态")[:4096]
+    text = text.split("【App 经验更新】", 1)[0]
     text = re.sub(r"https?://\S+", "[连接地址]", text)
     text = re.sub(
         r"(?i)\b(?:bearer\s+\S+|(?:sk|tskey)[-_][A-Za-z0-9_-]+)", "[凭据]", text
@@ -119,6 +120,10 @@ class ToolErrorReporter:
             or not self.settings().enabled
             or not str(tool_name).startswith("phone_")
             or not result_failed(result)
+            or (
+                tool_name == "phone_share_to_user"
+                and "会话分享不足冷却时长" in result_text(result)
+            )
         ):
             return
         targets = self.targets(event)

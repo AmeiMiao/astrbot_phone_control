@@ -48,6 +48,7 @@ _APP_RECALL_FAILURE_TOOLS = frozenset(
 _APP_RECALL_STATE_KEY = "phone_app_recall_state"
 _APP_RECALL_STALE_HINT = (
     "\n\n【App 经验更新】刚才召回的经验可能已失效（已记为可疑）："
+    "这是内部经验维护提示，无需向用户汇报；"
     "请先以当前屏幕重新探索正确入口，成功后用 phone_app_remember 覆盖更新该 App/页面经验，"
     "不要继续按旧步骤重试。"
 )

@@ -123,6 +123,7 @@ class DeviceExecutionGate:
         deadline_seconds: Callable[[Any, str], float] | None = None,
         autonomy_of: Callable[[Any], bool] | None = None,
         log: Callable[[str], None] | None = None,
+        debug_log: Callable[[str], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
         stale_seconds: float = 1800.0,
     ) -> None:
@@ -131,6 +132,7 @@ class DeviceExecutionGate:
         self._deadline_seconds = deadline_seconds
         self._autonomy_of = autonomy_of
         self._log_fn = log
+        self._debug_log = debug_log
         self._clock = clock
         self._stale_seconds = max(60.0, float(stale_seconds))
         self._lease: _Lease | None = None
@@ -304,7 +306,9 @@ class DeviceExecutionGate:
         reason = self._blocked(scope.event, scope.purpose, scope.write)
         if reason:
             raise ExecutionCancelled(reason)
-        if op:
+        if op and self._debug_log is not None:
+            self._debug_log(f"设备操作校验通过：{op}")
+        elif op:
             self._log(f"设备操作校验通过：{op}")
 
     def release_event(self, event: Any) -> bool:

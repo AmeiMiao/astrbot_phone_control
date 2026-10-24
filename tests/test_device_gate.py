@@ -511,6 +511,22 @@ def test_checkpoint_ok_and_logs_operation():
     gate.release_event(event)
 
 
+def test_sampling_checkpoints_use_debug_and_still_check_authorization():
+    info, debug = [], []
+    denied = [None]
+    gate = _gate(log=info.append, debug_log=debug.append, authorize=lambda e: denied[0])
+    event = FakeEvent()
+    with gate.scope(event, purpose="watch"):
+        for _ in range(30):
+            gate.checkpoint("content_sample")
+            gate.checkpoint("capture")
+        denied[0] = "权限已撤销"
+        with pytest.raises(ExecutionCancelled, match="权限已撤销"):
+            gate.checkpoint("capture")
+    assert len(debug) == 60
+    assert not any("设备操作校验通过" in line for line in info)
+
+
 def test_checkpoint_outside_scope_passes_even_when_blocked():
     # 后台基础设施（实时屏幕/抓包等）不持有租约，也不经 contextvar 作用域。
     clock = FakeClock()
