@@ -318,3 +318,64 @@ def test_agent_lifecycle_resets_light_interaction_quota_and_releases_pending(tmp
         finally:
             await plugin.terminate()
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('origin', ['phone_random_play', 'phone_continuous'])
+def test_activity_window_stops_model_run_on_boundary(tmp_path, monkeypatch, origin):
+    """结束时段可取消正在等待模型的 run，且无需等下一次手机工具调用。"""
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        taskmod = sys.modules[plugin_main.PhoneControlPlugin._watch_activity_window.__module__]
+        allowed = True
+        monkeypatch.setattr(taskmod, 'activity_allowed', lambda *args: allowed)
+        event = types.SimpleNamespace(get_extra=lambda key: {'origin': origin, 'play_task': True} if key == 'cron_payload' else None)
+        cleaned = asyncio.Event()
+        started = asyncio.Event()
+        async def model_run():
+            try:
+                started.set()
+                await asyncio.Event().wait()
+            finally:
+                cleaned.set()
+        run = asyncio.create_task(model_run())
+        await started.wait()
+        try:
+            plugin._track_activity_window(event, run)
+            await asyncio.sleep(0)
+            assert not run.done()
+            allowed = False
+            await asyncio.wait_for(cleaned.wait(), 2)
+            await asyncio.gather(run, return_exceptions=True)
+            assert run.cancelled()
+        finally:
+            run.cancel()
+            await asyncio.gather(run, return_exceptions=True)
+            await plugin.terminate()
+        assert not plugin._activity_window_tasks
+    asyncio.run(scenario())
+
+
+def test_manual_play_is_not_tracked_by_activity_window(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        event = types.SimpleNamespace(get_extra=lambda key: {'origin':'phone_play','play_task':True} if key == 'cron_payload' else None)
+        try:
+            plugin._track_activity_window(event, asyncio.current_task())
+            assert not plugin._activity_window_tasks
+        finally:
+            await plugin.terminate()
+    asyncio.run(scenario())
+
+
+def test_invalid_activity_window_keeps_saved_and_running_config(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        before = plugin._plain_config(plugin.raw_config)
+        try:
+            notes = await plugin._apply_config_patch({'auto':{'random_windows':['25:00-26:00']}})
+            assert any('时间段无效' in note for note in notes)
+            assert plugin._plain_config(plugin.raw_config) == before
+            assert not plugin._config_file_path().exists()
+        finally:
+            await plugin.terminate()
+    asyncio.run(scenario())

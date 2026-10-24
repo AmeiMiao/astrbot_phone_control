@@ -404,6 +404,30 @@
         "default": 30,
         "description": "同一目标会话分享冷却（分钟）",
         "hint": "自刷/随机/持续刷任务两次向同一个群或人主动分享的最小间隔；0=不限制；默认 30。冷却内分享工具会拒绝并提示剩余时间，避免刷屏；用户直接任务不受限。"
+      },
+      "random_windows": {
+        "type": "list",
+        "default": [],
+        "description": "随机玩每日时间段",
+        "hint": "每项填写 HH:MM-HH:MM，例如 08:00-10:00、19:00-22:00；可添加多段，支持 23:00-02:00 跨午夜；开始包含、结束排除。空列表=全天，到结束时间自动停止本类任务。",
+        "condition": {
+          "random_enabled": true
+        }
+      },
+      "continuous_windows": {
+        "type": "list",
+        "default": [],
+        "description": "自动刷每日时间段",
+        "hint": "每项填写 HH:MM-HH:MM，例如 08:00-10:00、19:00-22:00；可添加多段，支持 23:00-02:00 跨午夜；开始包含、结束排除。空列表=全天，到结束时间自动停止本类任务。",
+        "condition": {
+          "continuous_enabled": true
+        }
+      },
+      "play_timezone": {
+        "type": "string",
+        "default": "Asia/Shanghai",
+        "description": "自主活动时间段时区",
+        "hint": "随机玩与自动刷的每日时段使用此 IANA 时区，默认 Asia/Shanghai（中国时间）。"
       }
     },
     "hint": "依次配置定时浏览、随机玩手机、持续刷手机和分享时段。"

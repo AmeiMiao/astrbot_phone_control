@@ -483,6 +483,7 @@ class PhoneControlPlugin(
             umo = str(getattr(event, "unified_msg_origin", "") or "")
             if umo:
                 self._active_agent_tasks[umo] = (task, job_id, origin)
+                self._track_activity_window(event, task)
         except Exception:  # noqa: BLE001 - 记录失败不影响任务
             pass
 

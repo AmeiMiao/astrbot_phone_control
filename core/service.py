@@ -572,6 +572,10 @@ class PhoneService:
                 return origin
         return ""
 
+    def activity_allowed(self, event: Any) -> bool:
+        from .play_window import activity_allowed
+        return activity_allowed(self.config.auto, self.task_origin(event))
+
     def is_task_session(self, event: Any) -> bool:
         """当前会话是否为玩手机/后台任务（决定实时屏幕是否按需启动）。"""
         return bool(self.task_origin(event))

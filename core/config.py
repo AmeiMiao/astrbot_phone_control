@@ -20,6 +20,7 @@ from .flexibility import FlexibilitySettings
 from .mesh_config import MeshSettings, mesh_settings
 from .tool_reports import ReportSettings
 from .network_config import runtime_cards
+from .play_window import parse_windows, validate_timezone
 
 import math
 from collections.abc import Callable, Mapping
@@ -468,6 +469,9 @@ class AutoSettings:
     share_user_recent_hours: int = DEFAULT_USER_RECENT_HOURS
     share_cooldown_minutes: int = DEFAULT_SHARE_COOLDOWN_MINUTES
     """同一目标会话两次主动分享的最小间隔（分钟，0=不限制）。"""
+    play_timezone: str = "Asia/Shanghai"
+    random_windows: tuple[str, ...] = ()
+    continuous_windows: tuple[str, ...] = ()
     random_enabled: bool = True
     random_interval_min: int = DEFAULT_RANDOM_INTERVAL_MIN
     random_interval_max: int = DEFAULT_RANDOM_INTERVAL_MAX
@@ -1368,6 +1372,9 @@ class PhoneConfig:
             warn_fn,
         ).replace("，", ",")
         auto = AutoSettings(
+            play_timezone=validate_timezone((auto_card or {}).get("play_timezone", "Asia/Shanghai")),
+            random_windows=parse_windows((auto_card or {}).get("random_windows"), "auto.random_windows"),
+            continuous_windows=parse_windows((auto_card or {}).get("continuous_windows"), "auto.continuous_windows"),
             enabled=_as_bool(
                 _pick(auto_card, source, "enabled"),
                 False,

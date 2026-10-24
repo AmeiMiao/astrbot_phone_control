@@ -559,6 +559,7 @@ class BootstrapMixin:
             config_provider=lambda: self.service.config,
             run_browse=self._auto_browse,
         )
+        self._activity_window_tasks: set[asyncio.Task] = set()
         self._random_task: asyncio.Task | None = None
         self._random_stop = asyncio.Event()
         # 持续刷手机：配置开启时后台循环一轮接一轮创建静默任务；/phone stop 停止。
@@ -801,6 +802,11 @@ class BootstrapMixin:
             except Exception:  # noqa: BLE001 - 还原失败不影响卸载
                 pass
             self._agent_usage_patch_installed = False
+        monitors = list(getattr(self, "_activity_window_tasks", ()))
+        for monitor in monitors:
+            monitor.cancel()
+        if monitors:
+            await asyncio.gather(*monitors, return_exceptions=True)
         random_task = getattr(self, "_random_task", None)
         self._random_task = None
         self._random_stop.set()
@@ -1080,6 +1086,11 @@ class BootstrapMixin:
         except Exception as exc:  # noqa: BLE001
             logger.warning("停止 WireGuard 失败：%s", exc)
         self._random_stop.set()
+        monitors = list(getattr(self, "_activity_window_tasks", ()))
+        for monitor in monitors:
+            monitor.cancel()
+        if monitors:
+            await asyncio.gather(*monitors, return_exceptions=True)
         random_task = getattr(self, "_random_task", None)
         self._random_task = None
         if random_task is not None and not random_task.done():
@@ -1337,6 +1348,7 @@ class BootstrapMixin:
             current = self._plain_config(self.raw_config)
             patch = normalize_network_patch(current, patch)
             merged = self._deep_merge(current, patch)
+            PhoneConfig.from_mapping(merged)
             self._persist_config(merged)
             await self._apply_runtime_config(previous, result)
             saved = True

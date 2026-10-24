@@ -247,6 +247,9 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
             raise _PermissionDenied(denied)
         if not config.adb.configured:
             raise AdbNotConfiguredError(UNCONFIGURED_MESSAGE)
+        allowed = getattr(self.service, "activity_allowed", None)
+        if callable(allowed) and not allowed(event):
+            raise _ToolNotice("自主活动当前不在允许时间段内，请结束本轮任务。")
         quota_error = self.service.quota_error_text()
         if quota_error:
             raise _ToolNotice(quota_error)

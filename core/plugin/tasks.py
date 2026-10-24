@@ -80,6 +80,7 @@ from ..continuous import (
     normalize_continuous_apps,
     normalize_gap_seconds,
 )
+from ..play_window import activity_allowed, WINDOW_ORIGINS
 from ..random_play import (
     build_play_note,
     build_random_play_note,
@@ -504,6 +505,24 @@ class TasksMixin:
             if acquired:
                 self.device_gate.release_event(event)
 
+    async def _watch_activity_window(self, event, task) -> None:
+        """活动结束或配置变更后取消对应 Agent，等待原有收尾释放资源。"""
+        while not task.done():
+            if not activity_allowed(self.service.config.auto, self.service.task_origin(event)):
+                logger.info("自主活动到达结束时间，中止任务：%s", self.service.task_origin(event))
+                task.cancel()
+                return
+            await asyncio.sleep(1)
+
+    def _track_activity_window(self, event, task) -> None:
+        if self.service.task_origin(event) not in WINDOW_ORIGINS:
+            return
+        monitors = self._activity_window_tasks
+        monitor = asyncio.create_task(self._watch_activity_window(event, task))
+        monitors.add(monitor)
+        monitor.add_done_callback(monitors.discard)
+        task.add_done_callback(lambda _: monitor.cancel())
+
     def _start_random_play_loop(self) -> None:
         """启动单实例随机玩手机循环（配置 random_enabled 关闭时循环空转等待）。"""
         if self._random_task is not None and not self._random_task.done():
@@ -563,6 +582,10 @@ class TasksMixin:
                 if await self._sleep_or_stop(60):
                     return
                 continue
+            if not activity_allowed(auto, "phone_random_play"):
+                if await self._sleep_or_stop(1):
+                    return
+                continue
             delay = next_random_delay(
                 auto.random_interval_min, auto.random_interval_max
             )
@@ -575,6 +598,8 @@ class TasksMixin:
                 return
             auto = self.service.config.auto
             if not auto.random_enabled:
+                continue
+            if not activity_allowed(auto, "phone_random_play"):
                 continue
             if not should_play(auto.random_probability):
                 logger.info("随机玩手机：本次未命中概率，跳过")
@@ -603,6 +628,8 @@ class TasksMixin:
 
     async def _schedule_random_play(self, auto: Any) -> None:
         """创建 run_once 的 active_agent 任务（payload.session 为空 = 静默）。"""
+        if not activity_allowed(self.service.config.auto, "phone_random_play"):
+            return
         cron_manager = getattr(self.context, "cron_manager", None)
         if cron_manager is None:
             logger.warning("随机玩手机：cron 管理器不可用，本次跳过")
@@ -804,6 +831,9 @@ class TasksMixin:
                         await asyncio.sleep(10)
                         continue
                 auto = self.service.config.auto
+                if not activity_allowed(auto, CONTINUOUS_JOB_ORIGIN):
+                    await asyncio.sleep(1)
+                    continue
                 gap = normalize_gap_seconds(auto.continuous_gap_seconds)
                 delay = next_run_delay(
                     gap,
@@ -822,6 +852,8 @@ class TasksMixin:
 
     async def _start_continuous_round(self, auto: Any) -> None:
         """创建一轮持续刷手机静默任务。"""
+        if not activity_allowed(self.service.config.auto, CONTINUOUS_JOB_ORIGIN):
+            return
         cron_manager = getattr(self.context, "cron_manager", None)
         target = int(getattr(auto, "continuous_target_tokens", 0) or 0)
         if target <= 0:
