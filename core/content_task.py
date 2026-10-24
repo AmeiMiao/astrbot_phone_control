@@ -512,18 +512,9 @@ class ContentTasks:
             raise PhoneControlError(f"未找到视频识别模型「{provider_id}」")
         prompt = f"这是手机屏幕按 2 FPS 采样的视频片段，时间 {start:.1f}–{end:.1f} 秒。只描述本段实际画面、动作与文字。\n" + task["question"]
         if audio is None:
-            prompt += "\n本段无音频，不得推测声音。"
+            prompt += "\n本段未提供原音频；MP4 的音轨为生成的静音占位，不得推测声音。"
         else:
-            configured_asr = str(self.service.config.model.asr_provider_id or self.service.config.media.asr_provider_id).strip()
-            if configured_asr:
-                provider = self.providers.provider(configured_asr)
-                if provider is None:
-                    raise PhoneControlError(f"未找到语音识别模型「{configured_asr}」")
-                prompt += "\n【语音转写】" + await self.transcribe(event, audio, provider, configured_asr)
-                # 指定语音模型负责声音，视频模型接收静音画面与转写。
-                audio = None
-            else:
-                prompt += "\n片段包含设备声音，仅描述实际听到的内容；音频已归一化，不据此判断响度。"
+            prompt += "\n片段包含设备原音轨，由你同时理解画面与声音；仅描述实际听到的内容。音频已做峰值归一化，不据此判断设备实际响度。"
         path = self.root / task["id"] / f"video-{start:g}-{end:g}.mp4"
         try:
             await encode_segment(list(task["frames"]), start, end, audio, path)

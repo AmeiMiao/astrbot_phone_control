@@ -407,3 +407,33 @@ def test_invalid_segment_does_not_destroy_active_media(tmp_path):
             assert m.current(e) is t and path.read_bytes() == b'capture'
         await m.close()
     asyncio.run(run())
+
+
+def test_video_model_receives_original_audio_even_when_asr_is_configured(tmp_path, monkeypatch):
+    async def run():
+        s = service(tmp_path)
+        s.config = PhoneConfig.from_mapping({'model': {'asr_provider_id': 'unused-asr', 'video_provider_id': 'video'}})
+        s.app_context = SimpleNamespace(get_provider_by_id=lambda id: SimpleNamespace() if id=='video' else None)
+        s.record_internal_usage = lambda *a, **k: None
+        manager = ContentTasks(s)
+        t = await manager.begin(SimpleNamespace(unified_msg_origin='owner'), kind='post', content_id='fixture')
+        t['video_provider_id']='video'
+        audio=tmp_path/'original.wav';audio.write_bytes(b'original-audio')
+        calls=[]
+        async def encode(frames,start,end,source,out):
+            calls.append(('encode',source.read_bytes()))
+            out.write_bytes(b'video-with-original-audio')
+            return out
+        async def generate(**kwargs):
+            calls.append(('model', kwargs['chat_provider_id']))
+            assert kwargs['video_path'].read_bytes() == b'video-with-original-audio'
+            assert '语音转写' not in kwargs['prompt']
+            return SimpleNamespace(completion_text='画面与声音',usage=None)
+        monkeypatch.setattr('core.media_video.encode_segment',encode)
+        manager.providers.generate=generate
+        result=await manager.understand_video(None,t,0,3,audio)
+        assert calls == [('encode',b'original-audio'),('model','video')]
+        assert '画面与声音' in result
+        assert not (manager.root/t['id']/'video-0-3.mp4').exists()
+        await manager.close()
+    asyncio.run(run())

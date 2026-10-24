@@ -62,7 +62,9 @@ async def encode_segment(frames, start: float, end: float, audio: Path | None, o
     if audio is not None:
         args += ["-i", str(audio), "-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "48k"]
     else:
-        args += ["-an"]
+        # 全模态视频解码器通过音轨建立时间轴；无声音素材使用明确的静音轨。
+        args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=16000",
+                 "-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "24k"]
     args += ["-vf", "scale=480:480:force_original_aspect_ratio=decrease,pad=480:480:(ow-iw)/2:(oh-ih)/2", "-r", "2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p", "-threads", "1", "-t", f"{duration:.6f}", "-movflags", "+faststart", "-fs", str(MAX_VIDEO_BYTES + 65536), str(output)]
     process = None
     succeeded = False
