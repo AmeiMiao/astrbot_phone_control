@@ -8,6 +8,53 @@ from pathlib import Path
 from core.config import PhoneConfig
 
 
+def test_models_migrate_before_framework_schema_pruning_and_preserve_backup(tmp_path):
+    from core.model_config import migrate_model_file, migrate_models
+    original = {"model": {"asr_provider_id": "new-stt"}, "media": {"asr_provider_id": "old-stt", "vision_provider_id": "vision"}, "perception": {"ocr_provider_id": "ocr"}, "prompt": {"app_memory_embedding_provider_id": "app-embed"}, "recall": {"embedding_provider_id": "chat-embed"}, "auto": {"share_target": "old-target"}}
+    path = tmp_path / "plugin_config.json"
+    content = json.dumps(original).encode()
+    path.write_bytes(content)
+    assert migrate_model_file(path)
+    assert path.with_name(path.name + ".models-backup").read_bytes() == content
+    raw = json.loads(path.read_text())
+    assert raw["model"] == {"asr_provider_id": "new-stt", "vision_provider_id": "vision", "app_memory_embedding_provider_id": "app-embed", "embedding_provider_id": "chat-embed"}
+    assert not raw["media"] and not raw["perception"] and not raw["auto"]
+    assert not migrate_model_file(path) and not migrate_models(raw)
+    config = PhoneConfig.from_mapping(raw)
+    assert config.perception.ocr_provider_id == config.media.vision_provider_id == "vision"
+    assert config.model.asr_provider_id == config.media.asr_provider_id == "new-stt"
+    assert config.prompt.app_memory_embedding_provider_id == "app-embed"
+    assert config.recall.embedding_provider_id == "chat-embed"
+
+
+def test_app_embedding_inherits_shared_selection_and_can_override():
+    config = PhoneConfig.from_mapping({"model": {"embedding_provider_id": "embed", "app_memory_embedding_provider_id": ""}})
+    assert config.prompt.app_memory_embedding_provider_id == "embed"
+    override = PhoneConfig.from_mapping({"model": {"embedding_provider_id": "embed", "app_memory_embedding_provider_id": "app-embed"}})
+    assert override.prompt.app_memory_embedding_provider_id == "app-embed"
+    assert override.recall.embedding_provider_id == "embed"
+
+
+def test_share_target_is_selected_from_chat_instead_of_unused_configuration():
+    config = PhoneConfig.from_mapping({"auto": {"share_target": "unused:FriendMessage:1"}})
+    assert not hasattr(config.auto, "share_target")
+    schema = json.loads((Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text())
+    assert "share_target" not in schema["auto"]["items"]
+
+
+def test_embedding_dropdown_uses_actual_embedding_providers():
+    from types import SimpleNamespace
+    from core.model_config import populate_embedding_options
+    schema = json.loads((Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text())
+    config = SimpleNamespace(schema=schema)
+    context = SimpleNamespace(get_all_embedding_providers=lambda: [SimpleNamespace(provider_config={"id": "embedding-b"}), SimpleNamespace(provider_config={"id": "embedding-a"})])
+    populate_embedding_options(config, context)
+    for key in ("embedding_provider_id", "app_memory_embedding_provider_id"):
+        assert schema["model"]["items"][key]["options"] == ["", "embedding-a", "embedding-b"]
+    for group, key in (("media", "asr_provider_id"), ("media", "vision_provider_id"), ("perception", "ocr_provider_id"), ("prompt", "app_memory_embedding_provider_id"), ("recall", "embedding_provider_id"), ("auto", "share_target")):
+        assert key not in schema[group]["items"]
+
+
 def test_model_provider_defaults_empty():
     config = PhoneConfig.from_mapping(None)
     assert config.model.provider_id == ""

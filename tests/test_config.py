@@ -332,7 +332,6 @@ def test_new_config_keys_defaults():
     assert auto.random_interval_max == 120
     assert auto.random_probability == 0.5
     assert auto.share_only_interesting is True
-    assert auto.share_target == ""
 
 
 def test_new_config_keys_parsing():
@@ -345,7 +344,6 @@ def test_new_config_keys_parsing():
                 "screenshot_slow_ms": 1500,
             },
             "auto": {
-                "share_target": "aiocqhttp:FriendMessage:10086",
                 "random_enabled": False,
                 "random_interval_min": 300,
                 "random_interval_max": 100,
@@ -358,7 +356,6 @@ def test_new_config_keys_parsing():
     assert config.security.auto_clean_after_browse is False
     assert config.perception.screenshot_mode == "raw"
     assert config.perception.screenshot_slow_ms == 1500
-    assert config.auto.share_target == "aiocqhttp:FriendMessage:10086"
     assert config.auto.random_enabled is False
     # 最大间隔小于最小间隔 → 收敛为最小间隔
     assert config.auto.random_interval_min == 300
@@ -1399,7 +1396,6 @@ def test_conf_schema_recall_card():
     items = card["items"]
     expected = {
         "enabled": ("bool", False),
-        "embedding_provider_id": ("string", ""),
         "top_k": ("int", 5),
         "min_score": ("float", 0.25),
         "max_chars": ("int", 1200),
@@ -1416,9 +1412,12 @@ def test_conf_schema_recall_card():
         assert items[name]["default"] == default, name
         assert items[name].get("description")
         assert items[name].get("hint")
-    # 留空=自动选择 Embedding Provider 的口径写在 hint 里
-    assert "Embedding Provider" in items["embedding_provider_id"]["hint"]
-    assert "留空" in items["embedding_provider_id"]["hint"]
+    model_embedding = schema["model"]["items"]["embedding_provider_id"]
+    assert "embedding_provider_id" not in items
+    assert model_embedding["type"] == "string" and model_embedding["default"] == ""
+    assert model_embedding["options"] == [""]
+    assert "Embedding" in model_embedding["hint"]
+    assert "留空" in model_embedding["hint"]
     # 学习/浏览日志来源开关默认全部索引；App 经验使用独立索引
     assert items["include_learning"]["default"] is True
     assert items["include_diary"]["default"] is True

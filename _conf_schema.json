@@ -468,12 +468,6 @@
         "default": 30,
         "description": "同一目标会话分享冷却（分钟）",
         "hint": "自刷/随机/持续刷任务两次向同一个群或人主动分享的最小间隔；0=不限制；默认 30。冷却内分享工具会拒绝并提示剩余时间，避免刷屏；用户直接任务不受限。"
-      },
-      "share_target": {
-        "type": "string",
-        "default": "",
-        "description": "分享目标兼容字段",
-        "hint": "分享目标由 AI 依据 phone_recent_chat 的最近聊天内容与群/人喜好自行选择；本字段为兼容保留，当前不参与分享目标选择，留空即可。"
       }
     },
     "hint": "依次配置定时浏览、随机玩手机、持续刷手机和分享时段。"
@@ -481,7 +475,7 @@
   "model": {
     "type": "object",
     "description": "任务与媒体模型",
-    "hint": "自主任务、语音识别与视频识别分别选择；默认视频和原音轨一起交给视频模型，视频音轨单独识别由开关控制。",
+    "hint": "集中选择任务、图片、语音、视频和向量模型。可全部留空继承 AstrBot 默认；视频模型负责视频原画面与声音，单独语音识别由开关控制。",
     "items": {
       "provider_id": {
         "type": "string",
@@ -495,7 +489,7 @@
         "default": "",
         "_special": "select_provider_stt",
         "description": "语音识别模型",
-        "hint": "选择 AstrBot 已配置的语音识别（STT）模型，在只听音频、未选视频模型或开启视频音轨单独识别时优先使用。留空时音频/关键帧链路使用 media.asr_provider_id 或 AstrBot 当前 STT；视频单独识别需显式指定本字段或 media.asr_provider_id。"
+        "hint": "用于只听音频、视频模型留空时的音频转写，或开启视频音轨单独识别时的声音识别。留空使用 AstrBot 当前 STT；视频默认由视频模型同时理解声音，无需重复配置。"
       },
       "video_provider_id": {
         "type": "string",
@@ -509,6 +503,31 @@
         "default": false,
         "description": "视频音轨单独识别",
         "hint": "默认关闭：视频与原音轨一起交给视频模型。开启后：使用本组配置的语音识别模型转写音轨，视频模型接收原视频与转写文字，声音理解以转写为准，适合只能看视频画面的模型；需选择语音识别模型。只看画面模式不转写。"
+      },
+      "app_memory_embedding_provider_id": {
+        "type": "string",
+        "default": "",
+        "description": "App 经验向量模型",
+        "hint": "操作前按 App 与页面检索使用经验，使用独立索引；留空继承聊天记忆向量模型，再自动选择 AstrBot 默认，无需重复选择。未配置向量模型仍可按关键词查找经验。新增模型后重载插件。",
+        "options": [
+          ""
+        ]
+      },
+      "embedding_provider_id": {
+        "type": "string",
+        "default": "",
+        "description": "聊天记忆向量模型",
+        "hint": "按聊天语义找回学习档案与浏览日志；留空自动选择已配置的 Embedding 模型。下拉列出插件加载时可用的向量模型，新增模型后重载插件。",
+        "options": [
+          ""
+        ]
+      },
+      "vision_provider_id": {
+        "type": "string",
+        "default": "",
+        "description": "图片与画面理解模型",
+        "hint": "用于屏幕 OCR、图片理解、图文正文和媒体关键帧，也用于视觉验证。留空依次使用 AstrBot 图片描述模型、当前会话模型；已选视频模型时，视频原画面与音轨交给视频模型。",
+        "_special": "select_provider"
       }
     }
   },
@@ -662,15 +681,6 @@
         "description": "启用聊天语义找回",
         "hint": "默认关闭；开启后插件空闲时在后台建立/增量更新索引，普通聊天按语义注入相关记忆。只对授权用户的私聊生效，任务/定时/群聊不注入。"
       },
-      "embedding_provider_id": {
-        "type": "string",
-        "default": "",
-        "description": "Embedding Provider ID",
-        "hint": "留空自动选择 AstrBot 已配置的 Embedding Provider（若存在默认标记则优先使用默认）；填写后按 ID 精确匹配。找不到 Provider 时禁用找回并在日志记录一次警告。",
-        "condition": {
-          "enabled": true
-        }
-      },
       "top_k": {
         "type": "int",
         "default": 5,
@@ -769,15 +779,6 @@
         "default": true,
         "description": "开启 App 使用经验记录",
         "hint": "记录、查询与注入 App 布局及操作经验；经验只保存在插件本地。打开 App 与读取屏幕后会自动按当前 App/页面召回相关经验；操作失败累计两次后标记可能失效，提示重新探索并覆盖更新。"
-      },
-      "app_memory_embedding_provider_id": {
-        "type": "string",
-        "default": "",
-        "condition": {
-          "app_memory_enabled": true
-        },
-        "description": "App 经验向量模型（Embedding Provider ID）",
-        "hint": "用于操作前按当前 App/页面语义召回经验；留空自动使用 AstrBot 已配置的默认 Embedding Provider。未配置向量模型时按页面关键词与更新时间查找经验，不影响记录与操作。索引目录与聊天语义找回分开，互不共用。"
       },
       "app_memory_limit": {
         "type": "int",
@@ -919,12 +920,6 @@
         "default": "adb",
         "description": "感知帧来源",
         "hint": "adb=用 ADB 截图（默认；scrcpy 只开控制通道、无 H264 编码/解码，开销低）；auto=实时屏幕开启且 scrcpy 视频帧可用时优先、否则回退 adb；scrcpy=始终启用视频镜像（不可用时回退 adb）。"
-      },
-      "ocr_provider_id": {
-        "type": "string",
-        "default": "",
-        "description": "OCR/图片理解 Provider ID",
-        "hint": "phone_read_screen 使用；留空用 AstrBot「图片描述 Provider」，再回退当前会话 Provider。"
       },
       "ocr_timeout_seconds": {
         "type": "int",
@@ -1287,23 +1282,11 @@
         "description": "关键帧数量上限",
         "hint": "范围 1-8，默认 4；实际帧数还受录制时长与间隔限制，画面在整段时长内均匀抓取。"
       },
-      "asr_provider_id": {
-        "type": "string",
-        "default": "",
-        "description": "语音识别 Provider ID",
-        "hint": "留空使用 AstrBot 当前语音识别 Provider；Provider 不可用或超时会在降级说明中提示并只返回画面"
-      },
       "asr_timeout_seconds": {
         "type": "int",
         "default": 60,
         "description": "语音转写超时（秒）",
         "hint": "范围 5-300，默认 60。"
-      },
-      "vision_provider_id": {
-        "type": "string",
-        "default": "",
-        "description": "画面理解 Provider ID",
-        "hint": "留空依次使用 perception.ocr_provider_id → AstrBot 图片描述 Provider → 当前会话 Provider"
       },
       "vision_timeout_seconds": {
         "type": "int",

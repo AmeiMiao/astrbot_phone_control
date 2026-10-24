@@ -458,7 +458,6 @@ class AutoSettings:
     session: str = ""
     max_items: int = 6
     prompt: str = ""
-    share_target: str = ""
     """自主浏览任务的显式分享目标；自刷/随机/持续刷的分享目标由 AI 根据最近聊天自行判断。"""
     share_quiet_hours_enabled: bool = True
     """白天时段外不主动分享（免打扰）。"""
@@ -840,6 +839,10 @@ class PhoneConfig:
             node = source.get(name)
             return node if isinstance(node, Mapping) else None
 
+        def model_value(key: str, fallback: Any) -> Any:
+            models = card("model") or {}
+            return models[key] if key in models else fallback
+
         adb_card = card("adb")
         adb = AdbSettings(
             host=_as_str(
@@ -1091,7 +1094,7 @@ class PhoneConfig:
                 maximum=600,
             ),
             ocr_provider_id=_as_str(
-                _pick(perception_card, source, "ocr_provider_id"),
+                model_value("vision_provider_id", _pick(perception_card, source, "ocr_provider_id")),
                 DEFAULT_OCR_PROVIDER_ID,
                 "perception.ocr_provider_id",
                 warn_fn,
@@ -1181,13 +1184,13 @@ class PhoneConfig:
                 maximum=8,
             ),
             asr_provider_id=_as_str(
-                _pick(media_card, source, "asr_provider_id"),
+                model_value("asr_provider_id", _pick(media_card, source, "asr_provider_id")),
                 "",
                 "media.asr_provider_id",
                 warn_fn,
             ),
             vision_provider_id=_as_str(
-                _pick(media_card, source, "vision_provider_id"),
+                model_value("vision_provider_id", _pick(media_card, source, "vision_provider_id")),
                 "",
                 "media.vision_provider_id",
                 warn_fn,
@@ -1379,12 +1382,6 @@ class PhoneConfig:
             ),
             prompt=_as_str(
                 _pick(auto_card, source, "prompt"), "", "auto.prompt", warn_fn
-            ),
-            share_target=_as_str(
-                _pick(auto_card, source, "share_target"),
-                "",
-                "auto.share_target",
-                warn_fn,
             ),
             share_quiet_hours_enabled=_as_bool(
                 _pick(auto_card, source, "share_quiet_hours_enabled"),
@@ -1701,7 +1698,7 @@ class PhoneConfig:
                 warn_fn,
             ),
             asr_provider_id=_as_str(
-                _pick(model_card, source, "asr_provider_id"),
+                _pick(model_card, source, "asr_provider_id") or _pick(media_card, source, "asr_provider_id"),
                 "",
                 "model.asr_provider_id",
                 warn_fn,
@@ -1828,7 +1825,7 @@ class PhoneConfig:
                 warn_fn,
             ),
             app_memory_embedding_provider_id=_as_str(
-                _pick(prompt_card, source, "app_memory_embedding_provider_id"),
+                model_value("app_memory_embedding_provider_id", _pick(prompt_card, source, "app_memory_embedding_provider_id")) or model_value("embedding_provider_id", ""),
                 "",
                 "prompt.app_memory_embedding_provider_id",
                 warn_fn,
@@ -1875,7 +1872,7 @@ class PhoneConfig:
                 warn_fn,
             ),
             embedding_provider_id=_as_str(
-                _pick(recall_card, source, "embedding_provider_id"),
+                model_value("embedding_provider_id", _pick(recall_card, source, "embedding_provider_id")),
                 DEFAULT_RECALL_EMBEDDING_PROVIDER_ID,
                 "recall.embedding_provider_id",
                 warn_fn,

@@ -45,6 +45,10 @@ except ImportError:  # pragma: no cover - AstrBot 版本或单测环境没有该
     GreedyStr = str  # type: ignore[assignment,misc]
 
 from .core.network_config import migrate_network_file
+from .core.model_config import migrate_model_file
+
+if migrate_model_file(Path(get_astrbot_config_path()) / (Path(__file__).parent.name + "_config.json")):
+    logger.info("模型选择配置已归入任务与媒体模型")
 
 # 框架导入入口后按 schema 整理配置，先保存统一组网字段与备份。
 if migrate_network_file(Path(get_astrbot_config_path()) / (Path(__file__).parent.name + "_config.json")):

@@ -98,7 +98,6 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "image.save_images_both",
         "browse.diary_max_entries",
         "browse.diary_protect_rounds",
-        "auto.share_target",
         "auto.share_quiet_hours_enabled",
         "auto.share_start_hour",
         "auto.share_end_hour",
