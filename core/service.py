@@ -1163,7 +1163,7 @@ class PhoneService:
 
     async def _resolve_media_stt_provider(self, event: Any, config: PhoneConfig) -> tuple[Any, str]:
         """选语音识别 Provider：插件指定 → AstrBot 当前 STT；返回 ``(实例, 说明)``。"""
-        configured = str(config.media.asr_provider_id or "").strip()
+        configured = str(config.model.asr_provider_id or config.media.asr_provider_id or "").strip()
         app_context = self.app_context
         if app_context is None:
             return None, "AstrBot 上下文不可用"
@@ -1171,6 +1171,8 @@ class PhoneService:
             provider = app_context.get_provider_by_id(configured)
             if provider is None:
                 return None, f"未找到语音识别 Provider「{configured}」"
+            if not callable(getattr(provider, "get_text", None)):
+                return None, f"语音识别 Provider「{configured}」需要使用音频对话模型转写"
             return provider, f"插件配置 {configured}"
         getter = getattr(app_context, "get_using_stt_provider_async", None)
         if not callable(getter):

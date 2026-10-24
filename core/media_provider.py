@@ -26,6 +26,10 @@ def audio_adapter_config(provider):
 
 
 def audio_transport(provider):
+    config = getattr(provider, "provider_config", {})
+    modalities = config.get("modalities")
+    if isinstance(modalities, list) and "audio" not in modalities:
+        return "transcript"
     names = {base.__name__ for base in type(provider).__mro__}
     if "ProviderXiaomiTokenPlan" in names:
         return "xiaomi_openai"

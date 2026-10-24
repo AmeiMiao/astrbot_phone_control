@@ -361,6 +361,24 @@ class ContentTasks:
             prompt += "\n本次未提供音频，不得推测或编造声音内容。"
         if audio is not None:
             prompt += "\n音频已做峰值归一化，不据此判断设备实际响度。"
+        audio_note = ""
+        configured_asr = str(self.service.config.model.asr_provider_id or config.asr_provider_id).strip()
+        if audio is not None and configured_asr:
+            selected_asr = self.providers.provider(configured_asr)
+            if selected_asr is None:
+                raise PhoneControlError(f"未找到语音识别模型「{configured_asr}」")
+            transcript = await self.transcribe(event, audio, selected_asr, configured_asr)
+            prompt += "\n【语音转写；音乐与语气信息可能不完整】" + transcript
+            audio_note = f"【语音识别模型】{configured_asr}；已使用语音转写。"
+            audio = None
+        elif audio is not None:
+            resolver = getattr(self.service, "_resolve_media_stt_provider", None)
+            stt, stt_note = await resolver(event, self.service.config) if callable(resolver) else (None, "")
+            if stt is not None:
+                transcript = await asyncio.wait_for(stt.get_text(str(audio)), config.asr_timeout_seconds)
+                prompt += "\n【语音转写；音乐与语气信息可能不完整】" + str(transcript)
+                audio_note = "【音频输入】已使用语音转写。"
+                audio = None
         result = []
         limit = max(1, config.max_frames)
         for offset in range(0, max(1, len(images)), limit):
@@ -386,7 +404,6 @@ class ContentTasks:
             from .media_provider import audio_transport
 
             native_supported = audio_transport(selected) != "transcript"
-            audio_note = ""
             if native and not native_supported:
                 stt, stt_note = await self.service._resolve_media_stt_provider(
                     event, self.service.config
@@ -457,6 +474,27 @@ class ContentTasks:
             )
             result.append((audio_note + "\n" if audio_note else "") + value)
         return "\n".join(result)
+
+    async def transcribe(self, event, audio, provider, provider_id):
+        """显式语音模型优先处理音频，画面请求只携带转写文字。"""
+        config = self.service.config.media
+        get_text = getattr(provider, "get_text", None)
+        if callable(get_text):
+            value = await asyncio.wait_for(get_text(str(audio)), config.asr_timeout_seconds)
+        else:
+            prompt = "请将音频中的人声准确转写为原文，不补充画面、剧情或未听到的内容；无人声时说明无人声。"
+            response = await asyncio.wait_for(
+                self.providers.generate(chat_provider_id=provider_id, prompt=prompt, audio_urls=[str(audio)]),
+                config.asr_timeout_seconds,
+            )
+            value = getattr(response, "completion_text", "")
+            self.service.record_internal_usage(
+                getattr(response, "usage", None), source="internal:media_asr", event=event,
+                prompt_text=prompt, completion_text=str(value or ""), image_count=0,
+            )
+        if not str(value or "").strip():
+            raise PhoneControlError(f"语音识别模型「{provider_id}」未返回转写文字")
+        return str(value).strip()
 
     def post_material(self, task):
         from .post_material import load_post_material

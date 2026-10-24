@@ -312,3 +312,51 @@ def test_slow_analysis_keeps_sampling_and_continues_from_cursor(tmp_path):
         assert t["_sampler"].done()
 
     asyncio.run(run())
+
+@pytest.mark.parametrize("stt", [True, False])
+def test_explicit_audio_model_receives_audio_before_vision(tmp_path, stt):
+    async def run():
+        s = service(tmp_path)
+        s.config = PhoneConfig.from_mapping({"model": {"asr_provider_id": "ears"}, "media": {"asr_provider_id": "legacy", "max_frames": 1}})
+        calls = []
+        class Ears:
+            async def get_text(self, path):
+                calls.append(("stt", path))
+                return "先听见的原文"
+        ears = Ears() if stt else SimpleNamespace()
+        class Context:
+            def get_provider_by_id(self, id):
+                return ears if id == "ears" else SimpleNamespace()
+            async def llm_generate(self, **kw):
+                calls.append(kw)
+                return SimpleNamespace(completion_text="先听见的原文" if kw['chat_provider_id'] == 'ears' else "画面理解", usage=None)
+        async def vision(*args):
+            return "eyes", ""
+        s.app_context = Context()
+        s._resolve_media_vision_provider_id = vision
+        s.record_internal_usage = lambda *a, **k: None
+        m = ContentTasks(s)
+        result = await m.understand(None, {"question": ""}, "内容", [tmp_path/'1.png', tmp_path/'2.png'], tmp_path/'audio.wav')
+        assert 'ears' in result
+        assert len(calls) == 3
+        if not stt:
+            assert calls[0]['chat_provider_id'] == 'ears'
+            assert calls[0]['audio_urls'] == [str(tmp_path/'audio.wav')]
+        for call in calls[1:]:
+            assert call['chat_provider_id'] == 'eyes'
+            assert 'audio_urls' not in call
+            assert '先听见的原文' in call['prompt']
+    asyncio.run(run())
+
+
+def test_missing_explicit_asr_does_not_send_audio_to_vision(tmp_path):
+    async def run():
+        s = service(tmp_path)
+        s.config = PhoneConfig.from_mapping({"model": {"asr_provider_id": "deleted"}})
+        s.app_context = SimpleNamespace(get_provider_by_id=lambda _: None)
+        async def vision(*args): return "eyes", ""
+        s._resolve_media_vision_provider_id = vision
+        m = ContentTasks(s)
+        with pytest.raises(PhoneControlError, match="未找到语音识别模型"):
+            await m.understand(None, {"question": ""}, "内容", [], tmp_path/'audio.wav')
+    asyncio.run(run())

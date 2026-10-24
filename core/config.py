@@ -592,9 +592,10 @@ class TrafficSettings:
 
 @dataclass(frozen=True)
 class ModelSettings:
-    """自主任务（刷手机/学习）使用的模型供应商。"""
+    """自主任务与媒体识别使用的模型供应商。"""
 
     provider_id: str = ""
+    asr_provider_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -1689,6 +1690,12 @@ class PhoneConfig:
                 _pick(model_card, source, "provider_id"),
                 "",
                 "model.provider_id",
+                warn_fn,
+            ),
+            asr_provider_id=_as_str(
+                _pick(model_card, source, "asr_provider_id"),
+                "",
+                "model.asr_provider_id",
                 warn_fn,
             ),
         )
