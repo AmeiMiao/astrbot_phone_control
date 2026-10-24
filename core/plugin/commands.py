@@ -28,7 +28,7 @@ try:  # AstrBot 内置命令的写法：一个 GreedyStr 参数吃下命令后�
 except ImportError:  # pragma: no cover - AstrBot 版本或单测环境没有该类型
     GreedyStr = str  # type: ignore[assignment,misc]
 
-from ..command_card import COMMAND_CARD_TEMPLATE
+from ..command_card import COMMAND_CARD_TEMPLATE, download_command_image
 from ..actions import DeviceActions
 from ..adb import AdbClient
 from ..app_memory import AppMemoryStore
@@ -302,14 +302,15 @@ class CommandsMixin:
             await self._say(event, text)
             return
         try:
-            image_path = await self.html_render(
+            image_url = await self.html_render(
                 COMMAND_CARD_TEMPLATE,
                 {"title": "手机操控 · " + ("帮助" if sub == "help" else "状态"), "text": text},
-                return_url=False,
+                return_url=True,
                 options={"type": "png", "full_page": True},
             )
-            if not image_path:
-                raise ValueError("文字转图服务未返回图片")
+            if not image_url:
+                raise ValueError("文字转图服务未返回图片资源地址")
+            image_path = await download_command_image(str(image_url))
         except Exception as exc:  # noqa: BLE001 - 图片服务错误向用户明确说明
             logger.warning("/phone %s 图片渲染失败：%s", sub, exc)
             await self._say(event, "图片渲染失败，请检查 AstrBot 文字转图服务。\n" + text)
