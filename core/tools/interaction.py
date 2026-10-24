@@ -239,14 +239,9 @@ class PhoneInteractionRecordTool(_PhoneToolBase):
             state = "成功" if success else "失败并释放名额"
             return (f"已记录{label}{state}（本轮点赞/收藏合计 {used}/{security.max_likes_per_session}，"
                     f"待完成 {pending}）：{entry['summary']}。请核对状态，不要重复操作。")
-        if kind == KIND_COMMENT:
-            limit = security.max_comments_per_day
-        elif kind == KIND_PASSIVE_REPLY:
-            limit = security.max_passive_replies_per_day
-        else:
-            limit = security.max_posts_per_day
+        limit, _ = interaction_limits(security, config.flexibility, kind)
         used = self.service.interactions.used_today(kind)
-        used_text = f"今日 {used}，不限次数" if int(limit) <= 0 else f"今日 {used}/{limit}"
+        used_text = f"今日 {used}，不限次数" if int(limit) < 0 else f"今日 {used}/{limit}"
         if success:
             return (
                 f"已记录 1 次{label}成功（{used_text}）：{entry['summary']}。"

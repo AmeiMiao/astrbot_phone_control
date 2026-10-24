@@ -1165,3 +1165,24 @@ def test_flexibility_limits_and_cooldown_reach_real_tool(tmp_path, kind, limit_k
     raw["security"][allow_key] = False
     service.config = PhoneConfig.from_mapping(raw)
     assert "未开启" in run(tool.call(ctx, kind=kind))
+
+
+def test_recoverable_record_summary_keeps_reservation_and_uses_elastic_limit(tmp_path):
+    from core.interactions import InteractionStore, interaction_run
+    raw = {"adb": {"host": "127.0.0.1", "port": 5555}, "security": {"allow_posts": True, "max_posts_per_day": 0},
+           "flexibility": {"enabled": True, "max_posts_per_day": 2}}
+    service = FakeService(config=PhoneConfig.from_mapping(raw))
+    service.interactions = InteractionStore(tmp_path)
+    ctx = FakeToolContext(FakeEvent())
+    gate = tools_mod.PhoneInteractionGateTool(service=service)
+    record = tools_mod.PhoneInteractionRecordTool(service=service)
+    assert "已预留" in run(gate.call(ctx, kind="post"))
+    assert "summary 过长" in run(record.call(ctx, kind="post", success=True, summary="长" * 145))
+    assert len(service.interactions.reservations()) == 1
+    assert "今日 1/2" in run(record.call(ctx, kind="post", success=True, summary="月面观察心得"))
+    assert not service.interactions.reservations()
+    assert service.interactions.used_today("post") == 1
+    assert "已预留" in run(gate.call(ctx, kind="post"))
+    service.interactions.finish_run(interaction_run(ctx.context.event))
+    assert not service.interactions.reservations()
+    assert "已预留" in run(gate.call(FakeToolContext(FakeEvent()), kind="post"))

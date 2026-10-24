@@ -371,10 +371,10 @@ class InteractionStore:
         return used, pending
 
     def finish_run(self, run: str) -> None:
-        """任务结束释放本轮尚未完成的点赞与收藏预约。"""
+        """任务结束释放本轮各类未完成预约，其他轮次保持独立。"""
         if run:
             reservations = self._load_reservations()
-            kept = [r for r in reservations if r.run != run or r.kind not in LIGHT_KINDS]
+            kept = [r for r in reservations if r.run != run]
             if len(kept) != len(reservations):
                 self._save_reservations(kept)
 

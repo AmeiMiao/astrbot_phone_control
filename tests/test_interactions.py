@@ -816,3 +816,17 @@ def test_daily_minus_one_unlimited_and_zero_denied(tmp_path, kind):
     assert unlimited.allowed and "不限次数" in unlimited.message
     denied = evaluate_gate(store, kind=kind, allow=False, max_per_day=-1, cooldown_seconds=0)
     assert not denied.allowed
+
+
+@pytest.mark.parametrize("kind", [KIND_COMMENT, KIND_PASSIVE_REPLY, KIND_POST])
+def test_finished_run_releases_pending_daily_quota_without_touching_other_run(tmp_path, kind):
+    store = InteractionStore(tmp_path)
+    first = evaluate_gate(store, kind=kind, allow=True, max_per_day=1, cooldown_seconds=0, session="first", run="aborted")
+    assert first.allowed
+    assert not evaluate_gate(store, kind=kind, allow=True, max_per_day=1, cooldown_seconds=0, session="second", run="next").allowed
+    store.reserve(kind="like", session="other", run="other")
+    store.finish_run("aborted")
+    assert store.get_reservation("first", kind) is None
+    assert store.get_reservation("other", "like") is not None
+    assert evaluate_gate(store, kind=kind, allow=True, max_per_day=1, cooldown_seconds=0, session="second", run="next").allowed
+    assert store.used_today(kind) == 0
