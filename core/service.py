@@ -787,19 +787,23 @@ class PhoneService:
                 desc=desc or None,
             )
             if matches and await self._ui_cache_foreground_matches(cached):
-                return await self._visible_node(matches)
+                return await self._visible_node(matches, text=text, desc=desc)
         _, snapshot = await self.screen()
         matches = snapshot.find(
             text=text or None,
             desc=desc or None,
         )
-        return await self._visible_node(matches)
+        return await self._visible_node(matches, text=text, desc=desc)
 
-    async def _visible_node(self, matches: list[UiNode]) -> UiNode | None:
+    async def _visible_node(self, matches: list[UiNode], *, text="", desc="") -> UiNode | None:
         if not matches:
             return None
         width, height = await self.actions.screen_size()
-        return next((node for node in matches if node.enabled and node.bounds.visible_center(width, height) is not None), matches[0])
+        visible = [node for node in matches if node.enabled and node.bounds.visible_center(width, height) is not None]
+        def rank(node):
+            exact = (not text or node.text.casefold() == text.casefold()) and (not desc or node.desc.casefold() == desc.casefold())
+            return not exact, not node.clickable, node.bounds.width * node.bounds.height
+        return min(visible, key=rank) if visible else matches[0]
 
     async def node_click_point(self, node: UiNode) -> tuple[int, int]:
         """按当前屏幕与控件的交集定位触摸点。"""
