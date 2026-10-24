@@ -8,7 +8,8 @@ description: 单篇图文与音视频任务，先理解正文或试看，再独�
 以下精读流程适用于默认模式；自由浏览开启时按文末自由浏览规则操作。
 
 - 图文：打开详情前 `phone_content(action="begin", kind="post", content_id="帖子ID")`，再打开匹配详情并 `read`。抓包按 ID 关联正文和原图；抓不到时只理解可见页面，不宣称读完全部。
-- 视频：先打开并确认播放起点，再 `begin(kind="video", content_id="视频ID")`；首次 `read` 默认 8 秒。仅根据素材理解内容，不能用标题、弹幕和评论代替正文。
+- 点播视频：先打开并确认播放起点，再 `begin(kind="video", content_id="视频ID")`；首次 `read` 默认 8 秒。仅根据素材理解内容，不能用标题、弹幕和评论代替正文。
+- 直播：按兴趣选择直播入口，`phone_watch_media(stream_kind="live")` 从当前时刻分段理解，不需要0秒起点、完整文件或总时长。直播按游标连续观看，processing 时轮询同段，离开时 action=finish。
 - 感兴趣再 `decide(decision="continue", reason="原因")`，随后 `read` 顺序续看默认 20 秒。模型判断期间仍缓存素材，已读时间范围由工具返回，不重复读同一段。
 - 无兴趣用 `decide(decision="skip", reason="原因")`；读完 `finish`，切换内容前结束当前任务。用户明确要求看完时遵循指令并受任务预算约束。
 - 理解正文后，只有对讨论感兴趣才 `decide(read_comments)`，通过 `phone_screen` 或 `phone_read_screen` 读取评论；想回复具体已读评论时再 `decide(reply_comment, target="评论原文片段")`，另用 `phone_interaction_gate` 申请名额。看评论不等于回复。

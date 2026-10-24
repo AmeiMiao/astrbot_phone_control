@@ -127,3 +127,9 @@ def render_flexibility(note, settings):
         note = note.replace(FLOW_RULE, INTEREST_FLEX_FLOW).replace(
             "按自己的兴趣看，不感兴趣直接退出；分享/互动结束后再判断。", INTEREST_FLEX_FLOW)
     return note + flexibility_hint(settings)
+
+
+LIVE_BROWSE_FLOW = (
+    "可按兴趣主动看直播；直播没有可回放的0秒起点。phone_watch_media(stream_kind=live)"
+    "分段看，processing轮询同段，finish离开。"
+)

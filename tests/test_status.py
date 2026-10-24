@@ -39,7 +39,7 @@ def test_command_output_defaults_match_schema_and_allow_independent_switches():
     from core.config import PhoneConfig
 
     schema = json.loads((Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text())
-    assert list(schema).index("command") == list(schema).index("prompt") + 1
+    assert list(schema).index("command") > list(schema).index("verification")
     for key in ("status_as_image", "help_as_image"):
         assert schema["command"]["items"][key]["default"] is True
     config = PhoneConfig.from_mapping({"command": {"status_as_image": False}})

@@ -1,6 +1,6 @@
 ---
 name: phone-autonomy
-description: 人格化自主浏览手册：先观察再行动、进 App 先查收件箱、按人格决定看什么、理解内容并用 phone_learn 记录所学、视频/直播/音乐用一次 phone_watch_media、人机验证优先 phone_solve_verification。
+description: 人格化自主浏览手册：先观察再行动、进 App 先查收件箱、按人格决定看什么、理解内容并用 phone_learn 记录所学、视频/直播/音乐用 phone_watch_media 按游标分段理解、人机验证优先 phone_solve_verification。
 ---
 
 # 手机自主浏览手册
@@ -72,6 +72,8 @@ image.auto_save_images 开启时，图文 read 后按兴趣调用 phone_save_ima
 
 ## 流媒体内容识别（phone_watch_media）
 
+直播可按兴趣主动进入，使用 `phone_watch_media(stream_kind="live")` 从当前时刻分段观看，无需寻找0秒起点或等待结束。返回 processing 时继续领取同段结果；下一段按当前精读或自由浏览规则续看，离开时 action=finish。
+
 默认精读模式每篇内容独立使用 `phone_content`：理解正文或试看后才决定续看；看评论兴趣与回复具体评论的兴趣分别判断，点赞收藏可选。详细流程先读 `phone-media`，结束 `finish` 后再换内容。
 
 ## 实时页面与验证码
@@ -99,7 +101,7 @@ image.auto_save_images 开启时，图文 read 后按兴趣调用 phone_save_ima
 
 ## Token 额度、预算与用户任务优先
 
-- 默认**不限制**额度与频率；只有主人显式配置正数才生效（`/phone quota` 可查）。
+- 默认**不限制**额度与频率；Token 额度按 quota 配置，每日互动 -1 不限、0 禁止、正数限额（`/phone quota` 可查）。
 - 若配置了玩手机预算，未完成继续玩，提示预算已完成时立即收尾（可分享一次）。
 - **用户任务优先**：自刷期间用户提出手机任务时，插件会中止自刷轮次并让工具调用收尾
   让路；用户任务完成后自动恢复持续刷，不用手动重启。
@@ -130,7 +132,7 @@ image.auto_save_images 开启时，图文 read 后按兴趣调用 phone_save_ima
 ## 互动（需主人开启）
 
 - 三类：主动评论（kind="comment"）、被动回复（kind="passive_reply"）、发帖
-  （kind="post"）；开关、每日限额与冷却各自独立。
+  （kind="post"）；开关、每日限额与冷却各自独立。权限开启时可以自主评论或发帖，无需等用户下达发布任务；静默指不向聊天汇报过程。每轮结束前独立判断是否有适合社区的主题想发，不为次数编造内容。
 - 每次进 App 先 `phone_check_inbox`；读到别人回复，不想回/看不懂/有风险就跳过，不占限额。
 - 互动先 `phone_interaction_gate` 申请名额，再用低层工具完成，最后
   `phone_interaction_record` 记录（放弃名额也要 record 释放）；有真实感触才发，每轮

@@ -302,7 +302,11 @@ class AutoBrowseScheduler:
         if extra:
             note += f" 附加偏好：{extra}"
         from .interactions import interaction_plan
-        note += "\n" + interaction_plan(self.config.security)
+        from .play_flow import LIVE_BROWSE_FLOW, content_rule_text, flow_rule_text, render_flexibility
+        free = self.config.flexibility.free_browse_active
+        note += "\n" + LIVE_BROWSE_FLOW + content_rule_text(free) + flow_rule_text(free)
+        note += "\n" + interaction_plan(self.config.security, self.config.flexibility)
+        note = render_flexibility(note, self.config.flexibility)
         return note
 
     # ---- 原生 cron 模式 -----------------------------------------------

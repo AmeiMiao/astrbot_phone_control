@@ -12,7 +12,7 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 
-from .play_flow import render_flexibility, CONTENT_FLOW, content_rule_text, FLOW_RULE, flow_rule_text, break_rule_hint, share_rule_text
+from .play_flow import LIVE_BROWSE_FLOW, render_flexibility, CONTENT_FLOW, content_rule_text, FLOW_RULE, flow_rule_text, break_rule_hint, share_rule_text
 
 MIN_INTERVAL_MINUTES = 1.0
 # 随机间隔不设上限（用户可配置任意低频率）
@@ -125,7 +125,7 @@ def build_play_note(
         + _CONCISE_REPLY
         + break_rule_hint(break_rule)
     )
-    return render_flexibility(note, flexibility)
+    return render_flexibility(note + LIVE_BROWSE_FLOW, flexibility)
 
 
 def build_random_play_note(
@@ -202,4 +202,4 @@ def build_random_play_note(
     if break_rule:
         note = note.replace(FLOW_RULE, flow_rule_text(True)).replace(CONTENT_FLOW, content_rule_text(True))
         note += break_rule_hint(True)
-    return render_flexibility(note, flexibility)
+    return render_flexibility(note + LIVE_BROWSE_FLOW, flexibility)

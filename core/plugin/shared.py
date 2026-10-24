@@ -16,7 +16,7 @@ from ..plugin_shared import (
 )
 from ..config import PhoneConfig
 from ..identity import PLUGIN_NAME
-from ..play_flow import render_flexibility, DIRECT_BROWSE_FLOW, FLOW_RULE, flow_rule_text, break_rule_hint, share_cooldown_text
+from ..play_flow import LIVE_BROWSE_FLOW, render_flexibility, DIRECT_BROWSE_FLOW, FLOW_RULE, flow_rule_text, break_rule_hint, share_cooldown_text
 from ..share_policy import share_window_text
 
 
@@ -142,7 +142,7 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
             "刷到同类内容时降低打开/停留概率，优先换主题或换 App",
             "新鲜感阈值作参考，可按真实意愿继续看同类内容",
         )
-    parts = [guidance, mood]
+    parts = [guidance, mood, LIVE_BROWSE_FLOW]
     if config is not None:
         auto = config.auto
         window = share_window_text(
