@@ -131,6 +131,9 @@ async def video_info(path: Path) -> tuple[float, dict]:
     if not ffprobe:
         raise PhoneControlError("完整视频观看需要 FFmpeg 与 ffprobe")
     data = json.loads(await run_media_process([ffprobe, "-v", "error", "-protocol_whitelist", "file,pipe", "-show_format", "-show_streams", "-of", "json", str(path)], 15))
+    formats = set(str(data.get("format", {}).get("format_name") or "").split(","))
+    if not formats.intersection({"mov", "mp4", "matroska", "webm", "avi", "flv", "mpegts", "mpeg", "asf", "ogg"}):
+        raise PhoneControlError("原地址返回的不是可直接观看的完整视频文件")
     import math
     try:
         duration = float(data.get("format", {}).get("duration") or 0)
@@ -323,7 +326,7 @@ class FullVideoWatch:
             if not ffmpeg:
                 raise PhoneControlError("完整视频仅画面模式需要 FFmpeg")
             try:
-                await run_media_process([ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(path), "-map", "0:v:0", "-c:v", "copy", "-an", str(visual)])
+                await run_media_process([ffmpeg, "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file,pipe", "-i", str(path), "-map", "0:v:0", "-c:v", "copy", "-an", str(visual)])
                 task["_full_audio_available"] = False
                 return await self.analyse_file(event, task, visual, duration, source=source)
             finally:
@@ -347,7 +350,7 @@ class FullVideoWatch:
                 ffmpeg = shutil.which("ffmpeg")
                 if not ffmpeg:
                     raise PhoneControlError("提取完整音轨需要 FFmpeg")
-                await run_media_process([ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", "-t", str(duration), str(audio)])
+                await run_media_process([ffmpeg, "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file,pipe", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", "-t", str(duration), str(audio)])
                 prompt += "\n【音轨单独识别】\n" + await self.transcribe_chunks(event, audio, provider, asr_id)
                 prompt += "\n声音含义以转写为准，不编造未转写的音乐或语气。"
             finally:

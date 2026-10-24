@@ -195,3 +195,16 @@ def test_masked_video_url_resolves_only_unique_observed_signature(tmp_path,monke
             await download_video(masked,tmp_path/'ambiguous.mp4',maximum=6,observed={raw,'https://cdn.invalid/video.mp4?token=other-fixture'})
         assert seen==[raw]
     asyncio.run(run())
+
+
+def test_original_metadata_rejects_playlists_with_finite_duration(tmp_path,monkeypatch):
+    async def run():
+        import json
+        from core.full_video import video_info
+        monkeypatch.setattr('core.full_video.shutil.which',lambda _: '/test/ffprobe')
+        async def inspect(*a,**kw):
+            return json.dumps({'format':{'format_name':'concat','duration':'9'},'streams':[{'codec_type':'video'}]}).encode()
+        monkeypatch.setattr('core.full_video.run_media_process',inspect)
+        with pytest.raises(PhoneControlError,match='完整视频文件'):
+            await video_info(tmp_path/'source.mp4')
+    asyncio.run(run())
