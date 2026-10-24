@@ -71,6 +71,16 @@ def test_click_center_uses_visible_intersection(rect, expected):
     assert rect.visible_center(100, 200) == expected
 
 
+def test_empty_web_input_is_visible_to_agent_even_without_clickable_flag():
+    snapshot = ScreenSnapshot(width=720, height=1280, nodes=[
+        UiNode(ref=1, class_name="android.widget.EditText", bounds=Rect(40, 702, 664, 758)),
+        UiNode(ref=2, class_name="android.widget.FrameLayout", bounds=Rect(0, 0, 720, 1280)),
+    ])
+    text = render_ui(snapshot)
+    assert "[1] editable unfocused" in text and "@(352,730)" in text
+    assert "[2]" not in text
+
+
 class FakeAdb:
     """最小化的 AdbClient 鸭子类型，用于 dump_ui 测试。"""
 

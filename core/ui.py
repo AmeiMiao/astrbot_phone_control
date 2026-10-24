@@ -304,15 +304,15 @@ def render_ui(
     for node in snapshot.nodes:
         if not include_system and node.package in _SYSTEM_PACKAGES:
             continue
-        # 跳过既无文本/描述、又不可点击的纯容器节点
-        if not node.text and not node.desc and not node.clickable:
+        editable = "EditText" in node.class_name or "AutoCompleteTextView" in node.class_name
+        # 输入框即使为空且未标记 clickable，也需要展示位置与焦点状态。
+        if not node.text and not node.desc and not node.hint and not node.clickable and not editable:
             continue
         if rendered >= max(0, max_nodes):
             truncated = True
             break
         rendered += 1
         parts = [f"[{node.ref}]"]
-        editable = "EditText" in node.class_name or "AutoCompleteTextView" in node.class_name
         if node.text:
             label = "placeholder" if node.showing_hint is True else "text"
             parts.append(f"{label}={_quote(_shorten(node.text, max_text_len))}")
