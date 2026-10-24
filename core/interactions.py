@@ -68,6 +68,28 @@ class InteractionError(Exception):
     """可预期的互动校验、名额或记录错误（工具层转成 ``error:`` 文本）。"""
 
 
+def interaction_plan(security):
+    """将实际授权与可执行的独立决策入口交给自主 Agent。"""
+    states = []
+    for kind, enabled, limit in (
+        (KIND_COMMENT, security.allow_comments, security.max_comments_per_day),
+        (KIND_PASSIVE_REPLY, security.allow_passive_replies, security.max_passive_replies_per_day),
+        (KIND_POST, security.allow_posts, security.max_posts_per_day),
+    ):
+        quota = f"每日上限{limit}条" if limit > 0 else "每日不限次数"
+        states.append(f"{kind}：{'已授权，' + quota if enabled else '未授权'}")
+    return (
+        "【自主互动决策】" + "；".join(states) + "。"
+        "进入 App 后，有被动回复授权时先 phone_check_inbox 阅读实际消息并决定是否回应。"
+        "理解正文后独立判断是否有具体感想，想评论则 phone_content decide comment；"
+        "想回复某条评论则先 read_comments 并阅读目标，再 decide reply_comment(target=具体评论)。"
+        "本轮结束前也判断是否有适合当前社区的独立主题值得发帖（post），无需等待用户另外下任务。"
+        "只对已授权类型申请 phone_interaction_gate，通过后操作并 phone_interaction_record；"
+        "限额与冷却以 gate 实时结果为准，评论/回评/发帖每轮合计最多一条。"
+        "没有合适内容可以不发；静默指不向聊天逐步汇报，App 内已授权互动按上述规则独立决定。"
+    )
+
+
 def _now(now: float | None = None) -> float:
     return float(now) if now is not None else time.time()
 

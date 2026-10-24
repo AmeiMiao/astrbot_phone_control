@@ -145,6 +145,22 @@ def test_comments_and_reply_decisions_are_separate(tmp_path):
     asyncio.run(run())
 
 
+def test_original_post_comment_needs_understanding_but_not_an_existing_comment(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        e = SimpleNamespace(unified_msg_origin="owner")
+        task = await m.begin(e, kind="post", content_id="post-1")
+        with pytest.raises(PhoneControlError, match="先理解正文"):
+            await m.decide(e, "comment", "我有具体感想")
+        task["summaries"].append("已理解这篇正文")
+        result = await m.decide(e, "comment", "对正文有具体感想")
+        assert result["decision"] == "comment" and result["permission_granted"] is False
+        with pytest.raises(PhoneControlError, match="具体评论"):
+            await m.decide(e, "reply_comment", "回复", target="尚未读到的评论")
+        await m.close()
+    asyncio.run(run())
+
+
 def test_restart_reclaims_abandoned_tasks_and_preserves_completed(tmp_path):
     root = tmp_path / "content_tasks"
     a = root / ("a" * 32)

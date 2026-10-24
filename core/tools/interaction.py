@@ -93,8 +93,8 @@ class PhoneInteractionGateTool(_PhoneToolBase):
         cooldown_kind: str | None = None
         if kind == KIND_COMMENT and hasattr(self.service, "_contents"):
             task = self.service.contents.active.get(self.service.contents.owner(event))
-            if task is not None and not any(d["decision"] == "reply_comment" for d in task["decisions"]):
-                return "error: 阅读评论不等于回复；请先针对已读评论独立 decide reply_comment"
+            if task is not None and not any(d["decision"] in {"comment", "reply_comment"} for d in task["decisions"]):
+                return "error: 请先独立 decide comment 发表正文感想，或针对已读具体评论 decide reply_comment；阅读评论不等于回复"
         if kind in LIGHT_KINDS:
             allow = security.allow_interactions
             max_per_day = 0

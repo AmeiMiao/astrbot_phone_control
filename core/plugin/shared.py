@@ -172,6 +172,8 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
             "自己完成后 record，评论/回复/发帖每轮最多 1 条。"
         )
     if security is not None:
+        from ..interactions import interaction_plan
+        parts.append(interaction_plan(security))
         limit = security.max_likes_per_session
         parts.append(
             f"点赞/收藏：{'已授权' if security.allow_interactions else '未授权'}；"

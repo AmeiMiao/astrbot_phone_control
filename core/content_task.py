@@ -261,6 +261,7 @@ class ContentTasks:
             "continue",
             "read_comments",
             "reply_comment",
+            "comment",
             "like",
             "favorite",
             "skip",
@@ -426,7 +427,7 @@ class ContentTasks:
                 "captured_until": self.captured_until(task),
                 "content_complete": bool(task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"]),
                 "note": ("整条录制已结束，按固定缓存和时间游标顺序续看。" if task.get("_recorded_until") is not None else "分析期间持续采集；续看从 understood_until 继续，包含分析期间的素材。"),
-                "next": ("本条视频缓存已完整理解，请结束观看。" if task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"] else "可直接续看或自由浏览；phone_watch_media(action=finish) 结束观看，本轮结束也会自动清理" if self.service.config.auto.break_rule else "独立判断 continue/read_comments/like/favorite/skip，结束调用 finish；看评论不等于回复"),
+                "next": ("本条视频缓存已完整理解，请结束观看。" if task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"] else "可直接续看或自由浏览；phone_watch_media(action=finish) 结束观看，本轮结束也会自动清理" if self.service.config.auto.break_rule else "独立判断 continue/read_comments/comment/like/favorite/skip；comment 表示对正文发表自己的评论，reply_comment 表示回复已读具体评论，互动先 gate 后 record；结束调用 finish"),
             }
 
     async def understand(self, event, task, text, images, audio):

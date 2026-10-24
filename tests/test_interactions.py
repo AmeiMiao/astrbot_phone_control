@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+
+def test_autonomous_plan_reports_configured_permissions_and_separate_actions():
+    from core.config import PhoneConfig
+    from core.interactions import interaction_plan
+    security = PhoneConfig.from_mapping({"security": {"allow_posts": True, "max_posts_per_day": 2, "allow_comments": False, "allow_passive_replies": True}}).security
+    plan = interaction_plan(security)
+    assert "post：已授权，每日上限2条" in plan
+    assert "comment：未授权" in plan and "passive_reply：已授权" in plan
+    assert "无需等待用户另外下任务" in plan
+    assert "decide comment" in plan and "decide reply_comment" in plan
+
 import time
 from pathlib import Path
 

@@ -301,6 +301,8 @@ class AutoBrowseScheduler:
         extra = str(prompt or "").strip()
         if extra:
             note += f" 附加偏好：{extra}"
+        from .interactions import interaction_plan
+        note += "\n" + interaction_plan(self.config.security)
         return note
 
     # ---- 原生 cron 模式 -----------------------------------------------

@@ -627,6 +627,8 @@ class TasksMixin:
             "play_task": True,
             "target_tokens": target_tokens,
         }
+        from ..interactions import interaction_plan
+        payload["note"] += "\n" + interaction_plan(security)
         try:
             job = await cron_manager.add_active_job(
                 name="phone-random-play",
@@ -865,6 +867,8 @@ class TasksMixin:
                 "\n注意：上一轮你没有用 phone_learn 记录学到的东西。本轮请认真理解内容，"
                 "结束前至少调用一次 phone_learn 记录 1 条真正理解到的内容，别刷完就忘。"
             )
+        from ..interactions import interaction_plan
+        note += "\n" + interaction_plan(self.service.config.security)
         try:
             job = await create_continuous_task(
                 cron_manager,

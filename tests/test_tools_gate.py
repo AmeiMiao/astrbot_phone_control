@@ -920,6 +920,24 @@ def test_light_interaction_switch_and_content_decision(tmp_path):
     assert "已预留" in run(tool.call(ctx, kind="favorite"))
 
 
+def test_original_content_comment_decision_reaches_real_quota_gate(tmp_path):
+    from core.interactions import InteractionStore
+    service = FakeService(config=PhoneConfig.from_mapping({"adb": {"host": "127.0.0.1", "port": 5555}, "security": {"allow_comments": True}}))
+    service.interactions = InteractionStore(tmp_path)
+    task = {"decisions": []}
+    service._contents = types.SimpleNamespace(active={"o": task}, owner=lambda e: "o")
+    service.contents = service._contents
+    tool = tools_mod.PhoneInteractionGateTool(service=service)
+    ctx = FakeToolContext(FakeEvent())
+    assert "decide comment" in run(tool.call(ctx, kind="comment"))
+    task["decisions"].append({"decision": "comment", "reason": "正文感想"})
+    assert "已预留" in run(tool.call(ctx, kind="comment"))
+    assert len(service.interactions.reservations()) == 1
+    service.interactions.finish_run(ctx.context.event.get_extra("phone_interaction_run"))
+    service.config = dataclasses.replace(service.config, security=dataclasses.replace(service.config.security, allow_comments=False))
+    assert "未开启评论" in run(tool.call(ctx, kind="comment"))
+
+
 def test_tool_wrapper_appends_app_experience_recall_for_open_app():
     """操作前召回接线：phone_open_app 结果后会追加当前 App 经验（真实 wrapper 路径）。"""
     from core.app_memory import AppMemoryEntry
