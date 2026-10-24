@@ -636,8 +636,9 @@ class ContentTasks:
         task = self.active.pop(owner, None)
         if task is not None:
             task["status"] = "failed" if abnormal else "completed"
-        pending = self.watches.pop(owner, None)
+        pending = self.watches.get(owner)
         if pending is not None and pending is not asyncio.current_task():
+            self.watches.pop(owner, None)
             pending.cancel()
             with suppress(asyncio.CancelledError):
                 await pending

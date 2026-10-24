@@ -76,6 +76,28 @@ def test_finish_cancels_pending_watch_before_material_is_ready(tmp_path):
     asyncio.run(run())
 
 
+def test_watch_switching_its_own_material_keeps_one_poll_request(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        e = SimpleNamespace(unified_msg_origin="owner")
+        ready = asyncio.Event()
+        calls = []
+        async def watch():
+            calls.append(1)
+            await m.finish_owner("owner", abnormal=False)
+            await ready.wait()
+            return "same-watch-result"
+        await m.poll_watch(e, watch, wait_seconds=0)
+        await asyncio.sleep(0)
+        await m.poll_watch(e, watch, wait_seconds=0)
+        assert calls == [1]
+        ready.set()
+        assert await m.poll_watch(e, watch, wait_seconds=1) == "same-watch-result"
+        assert not m.watches
+        await m.close()
+    asyncio.run(run())
+
+
 def test_expired_assets_survive_active_task_and_clean_after_finish(tmp_path):
     async def run():
         m = ContentTasks(service(tmp_path))
