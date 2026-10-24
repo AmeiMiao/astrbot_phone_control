@@ -1,5 +1,4 @@
-# 可选：手机流量抓包（mitmproxy）。不随插件自动安装。
-# AstrBot Core 固定 cryptography==50.0.1，而 mitmproxy 12.x 要求 cryptography<=48.1，
-# 不能装进 AstrBot 核心环境；请用独立 venv 安装，并在插件配置 traffic.mitmdump_path
-# 指向该 venv/bin/mitmdump（详见 docs/使用手册.md「手机流量抓包识别」）。
+# 可选手机流量抓包组件，使用独立 venv 管理依赖。
+# 配置 traffic.mitmdump_path 指向该环境的 bin/mitmdump。
+# 具体设置见 docs/使用手册.md 的手机流量抓包识别章节。
 mitmproxy>=12,<13

@@ -79,6 +79,11 @@ async def download_video(url: str, path: Path, *, maximum: int, observed: set[st
         timeout = aiohttp.ClientTimeout(total=25, connect=8, sock_read=10)
         async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(resolver=resolver), trust_env=True) as session:
             for _ in range(4):
+                if url not in observed:
+                    from .traffic import mask_url
+                    matches = [candidate for candidate in observed if mask_url(candidate) == url]
+                    if len(matches) == 1:
+                        url = matches[0]
                 validate_source_url(url, observed)
                 async with session.get(url, allow_redirects=False) as response:
                     if response.status in {301, 302, 303, 307, 308}:

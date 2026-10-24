@@ -508,3 +508,24 @@ def test_next_video_request_carries_previous_summary_without_resending_video(tmp
         assert '开门' in result
         await m.close()
     asyncio.run(run())
+
+
+def test_recorded_cache_last_segment_reports_complete_without_live_claim(tmp_path):
+    async def run():
+        from contextlib import suppress
+        s=service(tmp_path)
+        s.config=PhoneConfig.from_mapping({'auto':{'break_rule':True},'media':{'audio_enabled':False,'frame_interval_seconds':1}})
+        m=ContentTasks(s);e=SimpleNamespace(unified_msg_origin='owner')
+        t=await m.begin(e,kind='post',content_id='fixture')
+        t['_sampler'].cancel()
+        with suppress(asyncio.CancelledError):await t['_sampler']
+        t.update(kind='video',mode='frames',cursor=3,_recorded_until=6,_start=time.monotonic()-10,frames=[[3,str(tmp_path/'f.jpg')],[5.5,str(tmp_path/'g.jpg')]])
+        async def understand(*a):return '视频尾段'
+        m.understand=understand
+        r=await m.read(e,seconds=3)
+        assert r['understood_until']==6 and r['content_complete']
+        assert '固定缓存' in r['note'] and '结束观看' in r['next']
+        with pytest.raises(PhoneControlError,match='完整理解'):await m.read(e,seconds=3)
+        assert m.current(e) is t
+        await m.close()
+    asyncio.run(run())

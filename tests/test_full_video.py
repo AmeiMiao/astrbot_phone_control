@@ -168,3 +168,30 @@ def test_finishing_owner_cancels_inflight_whole_video_request(tmp_path,monkeypat
         with pytest.raises(asyncio.CancelledError):await pending
         assert not m.active and not list(m.root.glob('*/original-video.mp4'))
     asyncio.run(run())
+
+
+def test_masked_video_url_resolves_only_unique_observed_signature(tmp_path,monkeypatch):
+    async def run():
+        import aiohttp
+        from core.traffic import mask_url
+        raw='https://cdn.invalid/video.mp4?token=test-fixture'
+        masked=mask_url(raw);seen=[]
+        class Content:
+            async def iter_chunked(self,size):yield b'data'
+        class Response:
+            status=200;headers={};content_length=4;content=Content()
+            async def __aenter__(self):return self
+            async def __aexit__(self,*a):pass
+        class Session:
+            def __init__(self,**kw):self.connector=kw['connector']
+            async def __aenter__(self):return self
+            async def __aexit__(self,*a):await self.connector.close()
+            def get(self,url,**kw):seen.append(url);return Response()
+        monkeypatch.setattr(aiohttp,'ClientSession',Session)
+        path=tmp_path/'video.mp4'
+        await download_video(masked,path,maximum=6,observed={raw})
+        assert seen==[raw] and path.read_bytes()==b'data'
+        with pytest.raises(PhoneControlError,match='观测'):
+            await download_video(masked,tmp_path/'ambiguous.mp4',maximum=6,observed={raw,'https://cdn.invalid/video.mp4?token=other-fixture'})
+        assert seen==[raw]
+    asyncio.run(run())

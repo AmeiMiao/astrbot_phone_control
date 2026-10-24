@@ -1239,7 +1239,7 @@
   "media": {
     "type": "object",
     "description": "流媒体内容识别",
-    "hint": "录制手机当前正在播放的声音并用 AstrBot STT Provider 转写、按间隔抓关键帧交给视觉 Provider 描述，用于看懂视频/直播/音乐；依赖已配置的语音识别 Provider，DRM/禁录 App 可能只能拿到静音并降级为仅画面。",
+    "hint": "按配置理解视频、直播与声音：完整点播优先原文件、获取不到从头录制，直播及超阈值视频分段；识别模型在任务与媒体模型分组选择。",
     "items": {
       "enabled": {
         "type": "bool",
@@ -1250,8 +1250,8 @@
       "audio_enabled": {
         "type": "bool",
         "default": true,
-        "description": "录制设备播放声音并转写",
-        "hint": "开启后采集设备正在播放的声音并交给 STT Provider 转写；关闭后只抓关键帧做画面描述"
+        "description": "采集与理解音轨",
+        "hint": "开启时包含设备或原文件音轨，视频模型直接理解，或按音轨单独识别开关使用语音模型；关闭时仅理解画面。"
       },
       "audio_source": {
         "type": "string",
