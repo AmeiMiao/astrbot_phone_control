@@ -228,62 +228,28 @@
     "type": "object",
     "description": "自主浏览、随机玩与持续刷手机",
     "items": {
-      "enabled": {
-        "type": "bool",
-        "default": false,
-        "description": "启用定时自主浏览",
-        "hint": "插件启动时按本卡片配置自动创建定时浏览任务；默认关闭。"
-      },
-      "cron": {
-        "type": "string",
-        "default": "0 */2 * * *",
-        "description": "定时表达式",
-        "hint": "5 段：分 时 日 月 周；例如 0 */2 * * * 表示每 2 小时一次；默认 0 */2 * * *。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "apps": {
-        "type": "string",
-        "default": "douyin",
-        "description": "定时浏览的 App（逗号分隔）",
-        "hint": "多个用逗号分隔，例如 douyin,bilibili；默认 douyin。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "session": {
-        "type": "string",
-        "default": "",
-        "description": "定时任务汇报会话",
-        "hint": "unified_msg_origin；留空则用 /phone auto on 创建时所在会话。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "max_items": {
-        "type": "int",
-        "default": 6,
-        "description": "定时任务每次采集条数",
-        "hint": "范围 1-50，默认 6。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "prompt": {
-        "type": "text",
-        "default": "",
-        "description": "定时浏览附加提示词",
-        "hint": "例如关注的主题；会拼进唤醒主 Agent 的任务说明。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "random_enabled": {
+      "activity_enabled": {
         "type": "bool",
         "default": true,
-        "description": "启用随机玩手机",
-        "hint": "插件按随机间隔以设定概率唤醒主 Agent 自由玩手机；默认静默，不投递过程到聊天；默认开启。"
+        "description": "启用自主活动",
+        "hint": "开启后按所选模式运行；关闭时停止自主活动。"
+      },
+      "mode": {
+        "type": "string",
+        "default": "随机玩",
+        "options": [
+          "随机玩",
+          "自动刷",
+          "定时玩"
+        ],
+        "description": "自主活动模式",
+        "hint": "随机玩按间隔与概率发起；自动刷逐轮活动并用 phone_learn 记录理解；定时玩按 cron 创建任务。每次运行一种模式。"
+      },
+      "play_timezone": {
+        "type": "string",
+        "default": "Asia/Shanghai",
+        "description": "自主活动时间段时区",
+        "hint": "随机玩与自动刷的每日时段使用此 IANA 时区，默认 Asia/Shanghai（中国时间）。"
       },
       "random_interval_min": {
         "type": "int",
@@ -291,7 +257,7 @@
         "description": "随机玩手机最短间隔（分钟）",
         "hint": "至少 1，不设上限；默认 45。",
         "condition": {
-          "random_enabled": true
+          "mode": "随机玩"
         }
       },
       "random_interval_max": {
@@ -300,7 +266,7 @@
         "description": "随机玩手机最长间隔（分钟）",
         "hint": "至少 1，不设上限；默认 120；小于最短间隔时按最短间隔处理。",
         "condition": {
-          "random_enabled": true
+          "mode": "随机玩"
         }
       },
       "random_probability": {
@@ -309,7 +275,16 @@
         "description": "每次到点开始玩的概率",
         "hint": "范围 0-1，默认 0.5。",
         "condition": {
-          "random_enabled": true
+          "mode": "随机玩"
+        }
+      },
+      "random_windows": {
+        "type": "list",
+        "default": [],
+        "description": "随机玩每日时间段",
+        "hint": "每项填写 HH:MM-HH:MM，例如 08:00-10:00、19:00-22:00；可添加多段，支持 23:00-02:00 跨午夜；开始包含、结束排除。空列表=全天，到结束时间自动停止本类任务。",
+        "condition": {
+          "mode": "随机玩"
         }
       },
       "share_only_interesting": {
@@ -318,14 +293,8 @@
         "description": "随机玩手机分享门槛",
         "hint": "开启时只在内容确实值得分享时才用 phone_share_to_user 分享（看与分享是两次独立判断）；关闭则允许结束时分享；默认开启。",
         "condition": {
-          "random_enabled": true
+          "mode": "随机玩"
         }
-      },
-      "continuous_enabled": {
-        "type": "bool",
-        "default": false,
-        "description": "启用持续刷手机",
-        "hint": "自动一轮接一轮地自由活动（浏览/看视频/查收件箱/按需互动），每轮结束用 phone_learn 记录学到的内容，直到 /phone stop 或关闭；默认关闭。"
       },
       "continuous_gap_seconds": {
         "type": "int",
@@ -333,7 +302,7 @@
         "description": "持续刷手机两轮间隔秒数",
         "hint": "至少 1 秒，不设上限；默认 60。",
         "condition": {
-          "continuous_enabled": true
+          "mode": "自动刷"
         }
       },
       "continuous_target_tokens": {
@@ -342,7 +311,7 @@
         "description": "持续刷手机每轮预算",
         "hint": "目标 token 预算；0=不限制（默认），也可用 quota.play_task_tokens。",
         "condition": {
-          "continuous_enabled": true
+          "mode": "自动刷"
         }
       },
       "continuous_apps": {
@@ -351,7 +320,61 @@
         "description": "持续刷手机偏好 App",
         "hint": "多个用逗号分隔，支持中文名/别名（如 哔哩哔哩,抖音 或 bilibili,douyin）；留空=AI 按人格自选；填写后会自动解析成已安装 App，未安装的会提示跳过。",
         "condition": {
-          "continuous_enabled": true
+          "mode": "自动刷"
+        }
+      },
+      "continuous_windows": {
+        "type": "list",
+        "default": [],
+        "description": "自动刷每日时间段",
+        "hint": "每项填写 HH:MM-HH:MM，例如 08:00-10:00、19:00-22:00；可添加多段，支持 23:00-02:00 跨午夜；开始包含、结束排除。空列表=全天，到结束时间自动停止本类任务。",
+        "condition": {
+          "mode": "自动刷"
+        }
+      },
+      "cron": {
+        "type": "string",
+        "default": "0 */2 * * *",
+        "description": "定时表达式",
+        "hint": "5 段：分 时 日 月 周；例如 0 */2 * * * 表示每 2 小时一次；默认 0 */2 * * *。",
+        "condition": {
+          "mode": "定时玩"
+        }
+      },
+      "apps": {
+        "type": "string",
+        "default": "douyin",
+        "description": "定时浏览的 App（逗号分隔）",
+        "hint": "多个用逗号分隔，例如 douyin,bilibili；默认 douyin。",
+        "condition": {
+          "mode": "定时玩"
+        }
+      },
+      "session": {
+        "type": "string",
+        "default": "",
+        "description": "定时任务汇报会话",
+        "hint": "unified_msg_origin；留空则用 /phone auto on 创建时所在会话。",
+        "condition": {
+          "mode": "定时玩"
+        }
+      },
+      "max_items": {
+        "type": "int",
+        "default": 6,
+        "description": "定时任务每次采集条数",
+        "hint": "范围 1-50，默认 6。",
+        "condition": {
+          "mode": "定时玩"
+        }
+      },
+      "prompt": {
+        "type": "text",
+        "default": "",
+        "description": "定时浏览附加提示词",
+        "hint": "例如关注的主题；会拼进唤醒主 Agent 的任务说明。",
+        "condition": {
+          "mode": "定时玩"
         }
       },
       "user_priority": {
@@ -404,30 +427,6 @@
         "default": 30,
         "description": "同一目标会话分享冷却（分钟）",
         "hint": "自刷/随机/持续刷任务两次向同一个群或人主动分享的最小间隔；0=不限制；默认 30。冷却内分享工具会拒绝并提示剩余时间，避免刷屏；用户直接任务不受限。"
-      },
-      "random_windows": {
-        "type": "list",
-        "default": [],
-        "description": "随机玩每日时间段",
-        "hint": "每项填写 HH:MM-HH:MM，例如 08:00-10:00、19:00-22:00；可添加多段，支持 23:00-02:00 跨午夜；开始包含、结束排除。空列表=全天，到结束时间自动停止本类任务。",
-        "condition": {
-          "random_enabled": true
-        }
-      },
-      "continuous_windows": {
-        "type": "list",
-        "default": [],
-        "description": "自动刷每日时间段",
-        "hint": "每项填写 HH:MM-HH:MM，例如 08:00-10:00、19:00-22:00；可添加多段，支持 23:00-02:00 跨午夜；开始包含、结束排除。空列表=全天，到结束时间自动停止本类任务。",
-        "condition": {
-          "continuous_enabled": true
-        }
-      },
-      "play_timezone": {
-        "type": "string",
-        "default": "Asia/Shanghai",
-        "description": "自主活动时间段时区",
-        "hint": "随机玩与自动刷的每日时段使用此 IANA 时区，默认 Asia/Shanghai（中国时间）。"
       }
     },
     "hint": "依次配置定时浏览、随机玩手机、持续刷手机和分享时段。"

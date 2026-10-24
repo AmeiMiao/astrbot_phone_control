@@ -1371,6 +1371,12 @@ class PhoneConfig:
             "auto.continuous_apps",
             warn_fn,
         ).replace("，", ",")
+        effective_auto = dict(auto_card or {})
+        if "mode" in effective_auto:
+            from .autonomy_config import selected_mode, FLAGS
+            mode, active = selected_mode(effective_auto)
+            effective_auto.update({key: active and mode == label for key, label in FLAGS.items()})
+        auto_card = effective_auto
         auto = AutoSettings(
             play_timezone=validate_timezone((auto_card or {}).get("play_timezone", "Asia/Shanghai")),
             random_windows=parse_windows((auto_card or {}).get("random_windows"), "auto.random_windows"),

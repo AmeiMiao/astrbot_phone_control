@@ -388,6 +388,10 @@ class CommandsMixin:
                 return
             apps = rest[1]
             cron = " ".join(rest[2:]) if len(rest) > 2 else config.auto.cron
+            notes = await self._apply_config_patch({"auto": {"mode": "定时玩", "activity_enabled": True, "apps": apps, "cron": cron, "session": event.unified_msg_origin}})
+            if any("失败" in note for note in notes):
+                await self._say(event, "\n".join(notes))
+                return
             jobs = await self.scheduler.enable(
                 umo=event.unified_msg_origin,
                 apps=apps,
@@ -404,6 +408,8 @@ class CommandsMixin:
         elif action == "off":
             job_id = rest[1] if len(rest) > 1 else None
             removed = await self.scheduler.disable(job_id)
+            if not await self.scheduler.list_jobs():
+                await self._apply_config_patch({"auto": {"enabled": False}})
             await self._say(event, f"已取消 {removed} 个自主浏览任务")
         elif action == "list":
             jobs = await self.scheduler.list_jobs()
@@ -626,7 +632,7 @@ class CommandsMixin:
         self._continuous_enabled = False
         self._continuous_active_job_id = ""
         await self._apply_config_patch({
-            "auto": {"enabled": False, "continuous_enabled": False, "random_enabled": False},
+            "auto": {"activity_enabled": False},
             "traffic": {"enabled": False},
         })
         auto_task = getattr(self, "_auto_config_task", None)
@@ -720,7 +726,7 @@ class CommandsMixin:
             )
             return
         if action in {"on", "start", "开启"}:
-            patch: dict[str, Any] = {"auto": {"continuous_enabled": True}}
+            patch: dict[str, Any] = {"auto": {"mode": "自动刷", "activity_enabled": True}}
             auto_patch: dict[str, Any] = {}
             if len(rest) > 1:
                 try:
@@ -761,7 +767,7 @@ class CommandsMixin:
                 {"auto": {"continuous_enabled": False}}
             )
             await self._say(
-                event, "已关闭持续刷手机（当前这一轮跑完后不再开新轮）；要立即停用发 /phone stop。"
+                event, "已关闭持续刷手机，相关自主任务已停止。"
             )
         elif action in {"status", "状态"}:
             await self._say(event, self._continuous_status_text())

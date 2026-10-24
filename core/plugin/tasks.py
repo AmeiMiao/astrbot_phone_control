@@ -505,17 +505,36 @@ class TasksMixin:
             if acquired:
                 self.device_gate.release_event(event)
 
+    async def _sync_activity_jobs(self) -> None:
+        """删除已关闭模式或已超出时段的待执行轮次与定时排程。"""
+        manager = getattr(self.context, "cron_manager", None)
+        if manager is None:
+            return
+        auto = self.service.config.auto
+        for job in await list_plugin_jobs(manager):
+            origin = job.get("origin", "")
+            if origin not in {*WINDOW_ORIGINS, AUTO_BROWSE_JOB_ORIGIN}:
+                continue
+            if activity_allowed(auto, origin):
+                continue
+            job_id = job["job_id"]
+            await self._abort_running_cron_event(job_id)
+            await manager.delete_job(job_id)
+            if job_id == self._continuous_active_job_id:
+                self._continuous_active_job_id = ""
+                self._continuous_active_since = 0.0
+
     async def _watch_activity_window(self, event, task) -> None:
         """活动结束或配置变更后取消对应 Agent，等待原有收尾释放资源。"""
         while not task.done():
             if not activity_allowed(self.service.config.auto, self.service.task_origin(event)):
-                logger.info("自主活动到达结束时间，中止任务：%s", self.service.task_origin(event))
+                logger.info("自主活动时段结束或模式已切换，中止任务：%s", self.service.task_origin(event))
                 task.cancel()
                 return
             await asyncio.sleep(1)
 
     def _track_activity_window(self, event, task) -> None:
-        if self.service.task_origin(event) not in WINDOW_ORIGINS:
+        if self.service.task_origin(event) not in {*WINDOW_ORIGINS, AUTO_BROWSE_JOB_ORIGIN}:
             return
         monitors = self._activity_window_tasks
         monitor = asyncio.create_task(self._watch_activity_window(event, task))
@@ -715,7 +734,7 @@ class TasksMixin:
         lines = [
             "持续刷手机：",
             f"- 状态：{'已开启' if self._continuous_enabled else '未开启'}"
-            "（配置 auto.continuous_enabled 控制开机自动启动）",
+            "（自主活动选择自动刷并启用时自动启动）",
             f"- 轮次间隔：{gap} 秒；每轮 token 预算：{target}",
             f"- 偏好 App：{apps_text}",
             f"- 本轮任务：{self._continuous_active_job_id[:8] if self._continuous_active_job_id else '空闲'}",

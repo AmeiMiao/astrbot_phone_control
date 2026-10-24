@@ -44,6 +44,10 @@ try:  # AstrBot 内置命令的写法：一个 GreedyStr 参数吃下命令后�
 except ImportError:  # pragma: no cover - AstrBot 版本或单测环境没有该类型
     GreedyStr = str  # type: ignore[assignment,misc]
 
+from .core.autonomy_config import migrate_autonomy_file
+
+migrate_autonomy_file(Path(get_astrbot_config_path()) / (Path(__file__).parent.name + "_config.json"))
+
 from .core.network_config import migrate_network_file
 from .core.model_config import migrate_model_file
 from .core.interaction_config import migrate_interaction_file
@@ -456,6 +460,8 @@ class PhoneControlPlugin(
         run_context: Any = None,
     ) -> None:
         """记录插件任务 Agent 的运行 task，供 /phone stop 取消。"""
+        if not self.service.activity_allowed(event):
+            raise asyncio.CancelledError("自主模式已关闭或当前不在允许时间段内")
         try:
             from .core.interactions import interaction_run
 

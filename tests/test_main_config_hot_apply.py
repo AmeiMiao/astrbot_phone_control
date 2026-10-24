@@ -124,7 +124,8 @@ def test_patch_starts_continuous_play_immediately(tmp_path, monkeypatch):
             saved = json.loads(
                 (tmp_path / "plugin_config.json").read_text(encoding="utf-8")
             )
-            assert saved["auto"]["continuous_enabled"] is True
+            assert saved["auto"]["mode"] == "自动刷"
+            assert saved["auto"]["activity_enabled"] is True
         finally:
             await _cleanup(plugin)
 
@@ -376,6 +377,47 @@ def test_invalid_activity_window_keeps_saved_and_running_config(tmp_path, monkey
             assert any('时间段无效' in note for note in notes)
             assert plugin._plain_config(plugin.raw_config) == before
             assert not plugin._config_file_path().exists()
+        finally:
+            await plugin.terminate()
+    asyncio.run(scenario())
+
+
+def test_mode_switch_removes_pending_other_jobs_and_keeps_user_play(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        origins=['phone_random_play','phone_continuous',plugin_main.AUTO_BROWSE_JOB_ORIGIN,'phone_play']
+        pending=[SimpleNamespace(job_id=str(i),name='test',payload={'origin':origin}) for i,origin in enumerate(origins)]
+        deleted=[]
+        class Manager:
+            async def list_jobs(self,*args):
+                return list(pending)
+            async def delete_job(self,job_id):
+                deleted.append(job_id)
+                pending[:]=[job for job in pending if job.job_id!=job_id]
+        plugin.context.cron_manager=Manager()
+        plugin.raw_config['auto'].update(mode='随机玩',activity_enabled=True)
+        try:
+            await plugin._sync_activity_jobs()
+            assert deleted==['1','2']
+            assert [job.payload['origin'] for job in pending]==['phone_random_play','phone_play']
+            plugin.raw_config['auto']['activity_enabled']=False
+            await plugin._sync_activity_jobs()
+            assert [job.payload['origin'] for job in pending]==['phone_play']
+        finally:
+            plugin.context.cron_manager=None
+            await plugin.terminate()
+    asyncio.run(scenario())
+
+
+def test_agent_begin_rejects_inactive_mode_before_model(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        event=types.SimpleNamespace(get_extra=lambda key: {'origin':'phone_continuous','play_task':True} if key=='cron_payload' else None)
+        try:
+            with pytest.raises(asyncio.CancelledError,match='自主模式已关闭'):
+                await plugin.track_task_agent_begin(event)
+            assert not plugin._active_agent_tasks
         finally:
             await plugin.terminate()
     asyncio.run(scenario())

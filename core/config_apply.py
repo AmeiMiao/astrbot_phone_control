@@ -383,7 +383,7 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
     if continuous_action == ACTION_START:
         notes.append("持续刷手机：已开启，后台循环立即开始排程")
     elif continuous_action == ACTION_STOP:
-        notes.append("持续刷手机：已关闭，当前一轮结束后不再开新轮")
+        notes.append("持续刷手机：已关闭，相关任务已停止")
     if live_screen_action == ACTION_START:
         notes.append("任务期间持续截图：已开启")
     elif live_screen_action == ACTION_STOP:
@@ -393,7 +393,7 @@ def build_apply_plan(previous: PhoneConfig, current: PhoneConfig) -> ConfigApply
             notes.append("自主浏览：已按新配置同步 cron 任务")
         else:
             notes.append(
-                "自主浏览：已关闭自动创建，已有 cron 任务可用 /phone auto off 删除"
+                "自主浏览：已关闭并同步删除定时排程"
             )
     if random_changed:
         notes.append("随机玩手机：已按新配置重新排程")

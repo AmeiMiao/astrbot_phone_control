@@ -297,11 +297,13 @@ class BootstrapMixin:
         self._terminated = False
         self._live_instance_registered = False
         self.raw_config: Any = config if config is not None else {}
+        from ..autonomy_config import migrate_autonomy
+        autonomy_changed = migrate_autonomy(self.raw_config)
         from ..flexibility import migrate_flexibility
         flexibility_changed = migrate_flexibility(self.raw_config)
         from ..model_config import migrate_models, populate_embedding_options
 
-        if migrate_models(self.raw_config) or flexibility_changed:
+        if migrate_models(self.raw_config) or flexibility_changed or autonomy_changed:
             save = getattr(self.raw_config, "save_config", None)
             if callable(save):
                 save()
@@ -699,6 +701,7 @@ class BootstrapMixin:
         self._start_wireguard_keepalive()
         self.service.contents
         self._on_backends_started()
+        await self._sync_activity_jobs()
         if not self._verification.paused:
             self._start_random_play_loop()
             self._start_screenshot_cleanup_loop()
@@ -1194,6 +1197,8 @@ class BootstrapMixin:
         elif plan.backends_changed:
             await self._reset_backends(notes)
 
+        await self._sync_activity_jobs()
+
         # 3) 持续刷手机开关。
         if plan.continuous_action == ACTION_START:
             self._continuous_enabled = True
@@ -1206,7 +1211,7 @@ class BootstrapMixin:
                 notes.append(f"持续刷手机已保存，但循环启动失败：{exc}")
         elif plan.continuous_action == ACTION_STOP:
             self._continuous_enabled = False
-            logger.info("配置热应用：持续刷手机已关闭（当前一轮结束后不再开新轮）")
+            logger.info("配置热应用：自动刷已关闭，相关任务已停止")
 
         # 4) 任务期间持续截图（实时屏幕 watcher）。
         if plan.live_screen_action == ACTION_STOP:
@@ -1231,10 +1236,14 @@ class BootstrapMixin:
         if plan.random_changed:
             await self._restart_random_play_loop()
 
-        # 6) 自主浏览 cron：按新配置同步任务（关闭时不删除已有任务）。
-        if plan.scheduler_changed and current.auto.enabled:
+        # 6) 定时模式切换时同步排程与在途任务。
+        if plan.scheduler_changed:
             try:
-                await self.scheduler.apply_config()
+                if current.auto.enabled:
+                    await self.scheduler.apply_config()
+                else:
+                    await self.scheduler.disable()
+                    await self.scheduler.close()
                 logger.info("配置热应用：自主浏览 cron 任务已按新配置同步")
             except Exception as exc:  # noqa: BLE001 - 同步失败只记录
                 logger.warning("配置热应用：同步自主浏览任务失败：%s", exc)
@@ -1346,6 +1355,8 @@ class BootstrapMixin:
         try:
             previous = self._config_snapshot()
             current = self._plain_config(self.raw_config)
+            from ..autonomy_config import normalize_autonomy_patch
+            patch = normalize_autonomy_patch(current, patch)
             patch = normalize_network_patch(current, patch)
             merged = self._deep_merge(current, patch)
             PhoneConfig.from_mapping(merged)

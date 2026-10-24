@@ -4,6 +4,7 @@ from datetime import datetime
 import re
 import time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from .identity import PLUGIN_NAME
 
 
 WINDOW_ORIGINS = {"phone_random_play": "random_windows", "phone_continuous": "continuous_windows"}
@@ -60,5 +61,8 @@ def in_windows(windows, tz_name="Asia/Shanghai", now=None):
 
 def activity_allowed(auto, origin, now=None):
     """用户任务独立执行，自主随机与持续轮次受各自时间段约束。"""
+    switches = {"phone_random_play": auto.random_enabled, "phone_continuous": auto.continuous_enabled, PLUGIN_NAME: auto.enabled}
+    if origin in switches and not switches[origin]:
+        return False
     field = WINDOW_ORIGINS.get(origin)
     return field is None or in_windows(getattr(auto, field), auto.play_timezone, now)

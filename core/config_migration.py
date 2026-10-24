@@ -126,6 +126,10 @@ def prepare_migration(
         from .model_config import migrate_models
         migrate_models(original)
         migrate_models(current)
+    if "mode" in schema.get("auto", {}).get("items", {}):
+        from .autonomy_config import migrate_autonomy
+        migrate_autonomy(original)
+        migrate_autonomy(current)
     if "network" in schema:
         from .network_config import migrate_network
         migrate_network(original)

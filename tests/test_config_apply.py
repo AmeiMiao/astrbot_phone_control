@@ -237,7 +237,7 @@ def test_scheduler_settings_change_requests_sync(patch):
     assert plan.scheduler_changed is True
 
 
-def test_scheduler_disabled_note_mentions_manual_cleanup():
+def test_scheduler_disabled_note_mentions_schedule_sync():
     previous = _config(auto={"enabled": True, "cron": "0 */1 * * *"})
     current = _config(auto={"enabled": False, "cron": "0 */3 * * *"})
     plan = build_apply_plan(previous, current)

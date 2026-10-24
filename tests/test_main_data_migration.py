@@ -155,8 +155,10 @@ def test_running_writer_guards_preserve_target(tmp_path, monkeypatch, condition)
                 monkeypatch.setattr(p.context, "get_registered_star", None)
             elif condition == "wireguard":
                 p.raw_config["network"].update(enabled=True, provider="wireguard")
-            elif condition in {"auto", "traffic"}:
-                p.raw_config[condition]["enabled"] = True
+            elif condition == "auto":
+                p.raw_config["auto"].update(mode="定时玩", activity_enabled=True)
+            elif condition == "traffic":
+                p.raw_config["traffic"]["enabled"] = True
             elif condition == "busy":
                 p.device_gate._lease = object()
             else:

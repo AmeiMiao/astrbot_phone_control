@@ -742,9 +742,9 @@ def test_conf_schema_passive_reply_and_continuous_fields():
     assert "独立" in security["passive_reply_cooldown_seconds"]["hint"]
 
     auto = schema["auto"]["items"]
-    assert auto["continuous_enabled"]["type"] == "bool"
-    assert auto["continuous_enabled"]["default"] is False
-    assert "phone_learn" in auto["continuous_enabled"]["hint"]
+    assert auto["mode"]["type"] == "string"
+    assert auto["mode"]["options"] == ["随机玩", "自动刷", "定时玩"]
+    assert "phone_learn" in auto["mode"]["hint"]
     assert auto["continuous_gap_seconds"]["type"] == "int"
     assert auto["continuous_gap_seconds"]["default"] == 60
     assert "至少 1 秒" in auto["continuous_gap_seconds"]["hint"]
@@ -758,7 +758,7 @@ def test_conf_schema_passive_reply_and_continuous_fields():
         "continuous_target_tokens",
         "continuous_apps",
     ):
-        assert auto[key]["condition"] == {"continuous_enabled": True}
+        assert auto[key]["condition"] == {"mode": "自动刷"}
 
 
 def test_wait_and_verify_timeout_config_defaults_and_parsing():
