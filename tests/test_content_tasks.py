@@ -439,7 +439,7 @@ def test_video_model_receives_original_audio_even_when_asr_is_configured(tmp_pat
     asyncio.run(run())
 
 
-def test_video_separate_audio_switch_uses_selected_asr_and_mutes_video(tmp_path, monkeypatch):
+def test_video_separate_audio_switch_uses_selected_asr_and_preserves_video(tmp_path, monkeypatch):
     async def run():
         s=service(tmp_path)
         s.config=PhoneConfig.from_mapping({'model':{'video_audio_separate':True,'asr_provider_id':'ears','video_provider_id':'eyes'}})
@@ -455,9 +455,9 @@ def test_video_separate_audio_switch_uses_selected_asr_and_mutes_video(tmp_path,
         t['video_provider_id']='eyes'
         audio=tmp_path/'source.wav';audio.write_bytes(b'original-audio')
         async def encode(frames,start,end,source,out):
-            assert source is None
-            calls.append(('video','silent'))
-            out.write_bytes(b'encoded-silent-mp4')
+            assert source.read_bytes() == b'original-audio'
+            calls.append(('video','original'))
+            out.write_bytes(b'encoded-original-mp4')
             return out
         async def generate(**kw):
             assert kw['chat_provider_id']=='eyes' and '音轨原文' in kw['prompt']
@@ -467,7 +467,7 @@ def test_video_separate_audio_switch_uses_selected_asr_and_mutes_video(tmp_path,
         monkeypatch.setattr('core.media_video.encode_segment',encode)
         m.providers.generate=generate
         result=await m.understand_video(None,t,0,3,audio)
-        assert calls==[('asr',b'original-audio'),('video','silent'),('model','eyes')]
+        assert calls==[('asr',b'original-audio'),('video','original'),('model','eyes')]
         assert '音轨单独识别' in result and 'ears' in result
         await m.close()
     asyncio.run(run())

@@ -524,9 +524,8 @@ class ContentTasks:
                 raise PhoneControlError(f"未找到语音识别模型「{asr_id}」")
             transcript = await self.transcribe(event, audio, provider, asr_id)
             prompt += "\n【视频音轨转写】" + transcript
-            prompt += "\n视频音轨为生成的静音占位，声音内容仅依据转写，不得编造音乐或语气。"
+            prompt += "\n视频保留设备原音轨；本次声音识别由上述语音模型负责，声音内容以转写为准，不得编造音乐或语气。"
             audio_note = f"【视频音轨单独识别】{asr_id}；已使用语音转写。\n"
-            audio = None
         else:
             prompt += "\n片段包含设备原音轨，由你同时理解画面与声音；仅描述实际听到的内容。音频已做峰值归一化，不据此判断设备实际响度。"
         path = self.root / task["id"] / f"video-{start:g}-{end:g}.mp4"
