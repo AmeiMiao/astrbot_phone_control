@@ -76,7 +76,7 @@ def interaction_plan(security):
         (KIND_PASSIVE_REPLY, security.allow_passive_replies, security.max_passive_replies_per_day),
         (KIND_POST, security.allow_posts, security.max_posts_per_day),
     ):
-        quota = f"每日上限{limit}条" if limit > 0 else "每日不限次数"
+        quota = "每日不限次数" if limit < 0 else f"每日上限{limit}条"
         states.append(f"{kind}：{'已授权，' + quota if enabled else '未授权'}")
     return (
         "【自主互动决策】" + "；".join(states) + "。"
@@ -568,7 +568,7 @@ def evaluate_gate(
 
     ``cooldown_kind`` 为空时沿用「任意成功互动」的全局冷却（主动评论/发帖）；
     传入具体 kind（如 ``KIND_PASSIVE_REPLY``）时只按该类型的最近成功时间计算
-    独立冷却。``max_per_day <= 0`` 表示不限次数、``cooldown_seconds <= 0`` 表示
+    独立冷却。``max_per_day == -1`` 表示不限次数、0 表示禁止、``cooldown_seconds <= 0`` 表示
     无冷却（均为默认值）。token 全局额度与 owner 门禁在工具层更早校验（本函数只
     负责互动规则）。
     """
@@ -594,20 +594,19 @@ def evaluate_gate(
                             "请观察按钮状态后操作一次，确认成功后 phone_interaction_record 记录结果；失败或放弃记录 success=false。",
                             reservation)
     try:
-        max_per_day = max(0, int(max_per_day))
+        max_per_day = max(-1, int(max_per_day))
         cooldown = max(0, int(cooldown_seconds))
     except (TypeError, ValueError):
-        max_per_day = 0
-        cooldown = 0
+        return GateDecision(False, "互动次数或冷却配置无效")
     used = store.used_today(kind, current)
     pending = store.pending_count(kind, current)
-    # 上限 <= 0 表示不限次数（默认值），只有用户显式配置正数时才执行每日用量限制。
-    if max_per_day > 0 and used >= max_per_day:
+    # 每日 0 次同样属于有限额度，待完成预约计入用量。
+    if max_per_day >= 0 and used >= max_per_day:
         return GateDecision(
             False,
             f"今日{label}已达上限 {max_per_day} 次，请明天再试",
         )
-    if max_per_day > 0 and used + pending >= max_per_day:
+    if max_per_day >= 0 and used + pending >= max_per_day:
         return GateDecision(
             False,
             (
@@ -638,7 +637,7 @@ def evaluate_gate(
     except InteractionError as exc:
         return GateDecision(False, str(exc))
     remaining = max(0, max_per_day - used - pending - 1)
-    quota_text = "不限次数" if max_per_day <= 0 else f"今日剩余 {remaining} 次"
+    quota_text = "不限次数" if max_per_day < 0 else f"今日剩余 {remaining} 次"
     return GateDecision(
         True,
         (

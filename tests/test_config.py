@@ -448,8 +448,8 @@ def test_interaction_config_defaults_and_parsing():
     security = config.security
     assert security.allow_comments is False
     assert security.allow_posts is False
-    assert security.max_comments_per_day == 0
-    assert security.max_posts_per_day == 0
+    assert security.max_comments_per_day == -1
+    assert security.max_posts_per_day == -1
     assert security.interaction_cooldown_seconds == 0
 
     warnings: list[str] = []
@@ -468,7 +468,7 @@ def test_interaction_config_defaults_and_parsing():
     assert tuned.security.allow_comments is True
     assert tuned.security.allow_posts is True
     assert tuned.security.max_comments_per_day == 99
-    assert tuned.security.max_posts_per_day == 0
+    assert tuned.security.max_posts_per_day == -1
     # 冷却没有硬编码上限
     assert tuned.security.interaction_cooldown_seconds == 99999
     assert warnings
@@ -603,11 +603,11 @@ def test_passive_reply_config_defaults_and_parsing():
     config = PhoneConfig.from_mapping({})
     security = config.security
     assert security.allow_passive_replies is False
-    assert security.max_passive_replies_per_day == 0
+    assert security.max_passive_replies_per_day == -1
     assert security.passive_reply_cooldown_seconds == 0
     # 主动评论/发帖字段保持各自默认，互不串值
     assert security.allow_comments is False
-    assert security.max_comments_per_day == 0
+    assert security.max_comments_per_day == -1
     assert security.interaction_cooldown_seconds == 0
 
     warnings: list[str] = []
@@ -731,8 +731,8 @@ def test_conf_schema_passive_reply_and_continuous_fields():
     assert security["allow_passive_replies"]["type"] == "bool"
     assert security["allow_passive_replies"]["default"] is False
     assert security["max_passive_replies_per_day"]["type"] == "int"
-    assert security["max_passive_replies_per_day"]["default"] == 0
-    assert "0=不限制" in security["max_passive_replies_per_day"]["hint"]
+    assert security["max_passive_replies_per_day"]["default"] == -1
+    assert "-1=不限制" in security["max_passive_replies_per_day"]["hint"]
     assert security["max_passive_replies_per_day"]["condition"] == {
         "allow_passive_replies": True
     }
@@ -1548,7 +1548,7 @@ def test_conf_schema_group_order_is_intentional():
     assert groups[:5] == ["adb", "security", "model", "auto", "quota"]
     assert groups.index("memory") < groups.index("recall") < groups.index("prompt")
     assert groups.index("network") > groups.index("perception")
-    assert groups[-1] == "debug"
+    assert [key for key in groups if not schema[key].get("invisible")][-1] == "debug"
     # 聊天语义找回未开启时隐藏其余配置项。
     recall_items = schema["recall"]["items"]
     for key, item in recall_items.items():

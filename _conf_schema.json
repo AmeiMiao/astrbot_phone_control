@@ -90,9 +90,9 @@
       },
       "max_comments_per_day": {
         "type": "int",
-        "default": 0,
+        "default": -1,
         "description": "每天最多评论/回复次数",
-        "hint": "按本地时区统计成功次数；0=不限制（默认）。",
+        "hint": "按本地时区统计成功次数；-1=不限制（默认），0=不允许，正数=每日上限。",
         "condition": {
           "allow_comments": true
         }
@@ -111,9 +111,9 @@
       },
       "max_passive_replies_per_day": {
         "type": "int",
-        "default": 0,
+        "default": -1,
         "description": "每天最多被动回复次数",
-        "hint": "按本地时区统计成功次数；与主动评论/发帖分开计数；0=不限制（默认）。",
+        "hint": "按本地时区统计成功次数；与主动评论/发帖分开计数；-1=不限制（默认），0=不允许，正数=每日上限。",
         "condition": {
           "allow_passive_replies": true
         }
@@ -135,9 +135,9 @@
       },
       "max_posts_per_day": {
         "type": "int",
-        "default": 0,
+        "default": -1,
         "description": "每天最多发帖次数",
-        "hint": "按本地时区统计成功次数；0=不限制（默认）。",
+        "hint": "按本地时区统计成功次数；-1=不限制（默认），0=不允许，正数=每日上限。",
         "condition": {
           "allow_posts": true
         }
@@ -1510,5 +1510,11 @@
         "hint": "覆盖点击/滑动/dump/截图；关闭后降为 debug 级别；默认开启。"
       }
     }
+  },
+  "interaction_limits_version": {
+    "type": "int",
+    "default": 1,
+    "description": "互动次数配置格式",
+    "invisible": true
   }
 }

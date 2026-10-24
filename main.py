@@ -46,6 +46,9 @@ except ImportError:  # pragma: no cover - AstrBot 版本或单测环境没有该
 
 from .core.network_config import migrate_network_file
 from .core.model_config import migrate_model_file
+from .core.interaction_config import migrate_interaction_file
+
+migrate_interaction_file(Path(get_astrbot_config_path()) / (Path(__file__).parent.name + "_config.json"))
 
 if migrate_model_file(Path(get_astrbot_config_path()) / (Path(__file__).parent.name + "_config.json")):
     logger.info("模型选择配置已归入任务与媒体模型")

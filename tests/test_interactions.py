@@ -83,14 +83,14 @@ def test_gate_disabled_switch():
     assert "security.allow_comments" in decision.message
 
 
-def test_gate_zero_limit_means_unlimited(tmp_path):
-    """每日上限 0（默认）表示不限次数，不再拦截。"""
+def test_gate_minus_one_limit_means_unlimited(tmp_path):
+    """每日上限 -1 表示不限次数。"""
     store = InteractionStore(tmp_path)
     decision = evaluate_gate(
         store,
         kind=KIND_POST,
         allow=True,
-        max_per_day=0,
+        max_per_day=-1,
         cooldown_seconds=0,
         session="u",
     )
@@ -728,7 +728,7 @@ def test_status_text_passive_line_and_backward_compatible_defaults(tmp_path):
 
 
 def test_gate_unlimited_and_no_cooldown(tmp_path):
-    """默认上限 0/冷却 0：连续多次互动都不被拦截。"""
+    """上限 -1、冷却 0：连续多次互动都可预约。"""
     store = InteractionStore(tmp_path)
     now = _now()
     for index in range(5):
@@ -736,7 +736,7 @@ def test_gate_unlimited_and_no_cooldown(tmp_path):
             store,
             kind=KIND_COMMENT,
             allow=True,
-            max_per_day=0,
+            max_per_day=-1,
             cooldown_seconds=0,
             session=f"unlimited-{index}",
             now=now + index,
@@ -756,7 +756,7 @@ def test_light_quota_reservations_failure_success_and_restart(tmp_path):
     from core.interactions import KIND_LIKE, KIND_FAVORITE
     store = InteractionStore(tmp_path)
     def gate(kind, run="r1", limit=1):
-        return evaluate_gate(store, kind=kind, allow=True, max_per_day=0, cooldown_seconds=0,
+        return evaluate_gate(store, kind=kind, allow=True, max_per_day=-1, cooldown_seconds=0,
                              run=run, session=run, max_per_session=limit)
     assert gate(KIND_LIKE).allowed
     assert not gate(KIND_FAVORITE).allowed
@@ -779,7 +779,7 @@ def test_light_success_does_not_trigger_comment_cooldown(tmp_path):
     store = InteractionStore(tmp_path)
     store.reserve(kind=KIND_LIKE, session="s", run="r")
     store.record_result(kind=KIND_LIKE, success=True, summary="点赞成功", session="s", run="r")
-    assert evaluate_gate(store, kind=KIND_COMMENT, allow=True, max_per_day=0, cooldown_seconds=100).allowed
+    assert evaluate_gate(store, kind=KIND_COMMENT, allow=True, max_per_day=-1, cooldown_seconds=100).allowed
 
 
 def test_reservation_save_failure_denies_and_record_failure_keeps_reservation(tmp_path, monkeypatch):
@@ -789,7 +789,7 @@ def test_reservation_save_failure_denies_and_record_failure_keeps_reservation(tm
         raise OSError("disk full")
     with monkeypatch.context() as patch:
         patch.setattr(Path, "write_text", fail)
-        decision = evaluate_gate(store, kind=KIND_LIKE, allow=True, max_per_day=0, cooldown_seconds=0, run="r")
+        decision = evaluate_gate(store, kind=KIND_LIKE, allow=True, max_per_day=-1, cooldown_seconds=0, run="r")
         assert not decision.allowed and "保存互动预约失败" in decision.message
     store.reserve(kind=KIND_LIKE, session="s", run="r")
     with monkeypatch.context() as patch:
@@ -805,3 +805,14 @@ def test_reservation_save_failure_denies_and_record_failure_keeps_reservation(tm
     store.record_result(kind=KIND_LIKE, success=True, summary="点赞", session="s", run="r")
     assert store.used_today(KIND_LIKE) == 1
     assert not store.reservations()
+
+
+@pytest.mark.parametrize("kind", [KIND_COMMENT, KIND_POST, KIND_PASSIVE_REPLY])
+def test_daily_minus_one_unlimited_and_zero_denied(tmp_path, kind):
+    store = InteractionStore(tmp_path)
+    zero = evaluate_gate(store, kind=kind, allow=True, max_per_day=0, cooldown_seconds=0)
+    assert not zero.allowed
+    unlimited = evaluate_gate(store, kind=kind, allow=True, max_per_day=-1, cooldown_seconds=0)
+    assert unlimited.allowed and "不限次数" in unlimited.message
+    denied = evaluate_gate(store, kind=kind, allow=False, max_per_day=-1, cooldown_seconds=0)
+    assert not denied.allowed

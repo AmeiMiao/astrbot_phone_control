@@ -100,17 +100,17 @@ DEFAULT_CONTINUOUS_TARGET_TOKENS = 0
 DEFAULT_CONTINUOUS_APPS = ""
 DEFAULT_QUOTA_ENABLED = False
 DEFAULT_QUOTA_WINDOW_HOURS = 24
-# 额度/预算/每日次数/冷却默认 0 = 不限制（用户显式配置大于 0 时才生效）
+# Token 额度与冷却默认 0 表示不限制；每日次数默认 -1 表示不限制。
 DEFAULT_QUOTA_MAX_TOKENS = 0
 DEFAULT_QUOTA_PLAY_TASK_TOKENS = 0
 DEFAULT_QUOTA_PER_STEP_TOKENS = 0
 DEFAULT_ALLOW_COMMENTS = False
 DEFAULT_ALLOW_POSTS = False
-DEFAULT_MAX_COMMENTS_PER_DAY = 0
-DEFAULT_MAX_POSTS_PER_DAY = 0
+DEFAULT_MAX_COMMENTS_PER_DAY = -1
+DEFAULT_MAX_POSTS_PER_DAY = -1
 DEFAULT_INTERACTION_COOLDOWN_SECONDS = 0
 DEFAULT_ALLOW_PASSIVE_REPLIES = False
-DEFAULT_MAX_PASSIVE_REPLIES_PER_DAY = 0
+DEFAULT_MAX_PASSIVE_REPLIES_PER_DAY = -1
 DEFAULT_PASSIVE_REPLY_COOLDOWN_SECONDS = 0
 DEFAULT_LIVE_SCREEN_ENABLED = False
 DEFAULT_LIVE_SCREEN_INTERVAL_MS = 1200
@@ -949,14 +949,14 @@ class PhoneConfig:
                 DEFAULT_MAX_COMMENTS_PER_DAY,
                 "security.max_comments_per_day",
                 warn_fn,
-                minimum=0,
+                minimum=-1,
             ),
             max_posts_per_day=_as_int(
                 _pick(security_card, source, "max_posts_per_day"),
                 DEFAULT_MAX_POSTS_PER_DAY,
                 "security.max_posts_per_day",
                 warn_fn,
-                minimum=0,
+                minimum=-1,
             ),
             interaction_cooldown_seconds=_as_int(
                 _pick(security_card, source, "interaction_cooldown_seconds"),
@@ -976,7 +976,7 @@ class PhoneConfig:
                 DEFAULT_MAX_PASSIVE_REPLIES_PER_DAY,
                 "security.max_passive_replies_per_day",
                 warn_fn,
-                minimum=0,
+                minimum=-1,
             ),
             passive_reply_cooldown_seconds=_as_int(
                 _pick(security_card, source, "passive_reply_cooldown_seconds"),
