@@ -1545,7 +1545,7 @@ def test_conf_schema_group_order_is_intentional():
         )
     )
     groups = list(schema)
-    assert groups[:5] == ["adb", "security", "model", "auto", "quota"]
+    assert groups[:6] == ["adb", "security", "model", "auto", "flexibility", "quota"]
     assert groups.index("memory") < groups.index("recall") < groups.index("prompt")
     assert groups.index("network") > groups.index("perception")
     assert [key for key in groups if not schema[key].get("invisible")][-1] == "debug"

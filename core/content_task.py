@@ -295,7 +295,7 @@ class ContentTasks:
             "permission_granted": False,
             "note": "兴趣判断不执行点赞、收藏或发布；回复另申请互动名额"
             + ("；break_rule 已开启，可如实记录心情、好奇心或单纯想看作为续看原因"
-               if self.service.config.auto.break_rule else ""),
+               if self.service.config.flexibility.interest_active else ""),
         }
 
     async def read(self, event, task_id="", seconds=0):
@@ -306,7 +306,7 @@ class ContentTasks:
             raise PhoneControlError("本条完整视频已识别，请结束观看后切换内容")
         # 流程参数错误可由下一次调用修正，检查阶段不占用 reader 或清理素材。
         if task["kind"] == "video":
-            if task["cursor"] and not self.service.config.auto.break_rule and not any(
+            if task["cursor"] and not self.service.config.flexibility.free_browse_active and not any(
                 i > task.get("_continuation_index", -1) and d["decision"] == "continue"
                 for i, d in enumerate(task["decisions"])
             ):
@@ -360,7 +360,7 @@ class ContentTasks:
                     if d["decision"] == "continue"
                     and i > task.get("_continuation_index", -1)
                 ]
-                if task["cursor"] and not available and not self.service.config.auto.break_rule:
+                if task["cursor"] and not available and not self.service.config.flexibility.free_browse_active:
                     raise PhoneControlError("续看前请独立决定 continue 并给出原因")
                 config = self.service.config.media
                 duration = float(
@@ -427,7 +427,7 @@ class ContentTasks:
                 "captured_until": self.captured_until(task),
                 "content_complete": bool(task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"]),
                 "note": ("整条录制已结束，按固定缓存和时间游标顺序续看。" if task.get("_recorded_until") is not None else "分析期间持续采集；续看从 understood_until 继续，包含分析期间的素材。"),
-                "next": ("本条视频缓存已完整理解，请结束观看。" if task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"] else "可直接续看或自由浏览；phone_watch_media(action=finish) 结束观看，本轮结束也会自动清理" if self.service.config.auto.break_rule else "独立判断 continue/read_comments/comment/like/favorite/skip；comment 表示对正文发表自己的评论，reply_comment 表示回复已读具体评论，互动先 gate 后 record；结束调用 finish"),
+                "next": ("本条视频缓存已完整理解，请结束观看。" if task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"] else "可直接续看或自由浏览；phone_watch_media(action=finish) 结束观看，本轮结束也会自动清理" if self.service.config.flexibility.free_browse_active else "独立判断 continue/read_comments/comment/like/favorite/skip；comment 表示对正文发表自己的评论，reply_comment 表示回复已读具体评论，互动先 gate 后 record；结束调用 finish"),
             }
 
     async def understand(self, event, task, text, images, audio):

@@ -312,12 +312,6 @@
           "random_enabled": true
         }
       },
-      "break_rule": {
-        "type": "bool",
-        "default": false,
-        "description": "自主规则弹性",
-        "hint": "开启后允许直接打开贴吧、小黑盒、抖音、快手等应用看屏幕或分段观看直播；phone_content 精读流程和学习记录按需使用。可按心情探索低兴趣、已看腻内容，单次任务 token 预算最多延展 20%。滚动总额度、互动授权/限额、分享冷却与设备停止规则继续生效。"
-      },
       "share_only_interesting": {
         "type": "bool",
         "default": true,
@@ -413,6 +407,81 @@
       }
     },
     "hint": "依次配置定时浏览、随机玩手机、持续刷手机和分享时段。"
+  },
+  "flexibility": {
+    "type": "object",
+    "description": "自主规则弹性",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "开启自主规则弹性",
+        "hint": "开启后按本组的次数与能力调整自主行为；互动权限、滚动总额度、分享策略及停止规则继续生效。"
+      },
+      "max_comments_per_day": {
+        "type": "int",
+        "default": -1,
+        "description": "每天最多评论/回复次数",
+        "hint": "规则弹性开启时替代权限组中的同类每日上限；-1=不限，0=禁止，正数=每日上限。成功与待完成预约共用计数。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "max_passive_replies_per_day": {
+        "type": "int",
+        "default": -1,
+        "description": "每天最多被动回复次数",
+        "hint": "规则弹性开启时替代权限组中的同类每日上限；-1=不限，0=禁止，正数=每日上限。成功与待完成预约共用计数。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "max_posts_per_day": {
+        "type": "int",
+        "default": -1,
+        "description": "每天最多发帖次数",
+        "hint": "规则弹性开启时替代权限组中的同类每日上限；-1=不限，0=禁止，正数=每日上限。成功与待完成预约共用计数。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "ignore_interaction_cooldown": {
+        "type": "bool",
+        "default": true,
+        "description": "打破评论/回复与发帖冷却",
+        "hint": "开启时三类互动不受主动或被动冷却限制；分享冷却仍按分享配置执行。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "free_browse": {
+        "type": "bool",
+        "default": true,
+        "description": "自由浏览与按需学习",
+        "hint": "允许直接看屏幕、连续分段看视频/直播；精读决定与学习记录按需使用。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "relax_interest_novelty": {
+        "type": "bool",
+        "default": true,
+        "description": "兴趣与新鲜感弹性",
+        "hint": "低兴趣或已看腻的内容也可按真实心情继续；曝光记录照常保存。",
+        "condition": {
+          "enabled": true
+        }
+      },
+      "extend_task_budget": {
+        "type": "bool",
+        "default": true,
+        "description": "单任务预算延展 20%",
+        "hint": "允许本次任务 Token 预算延展最多 20%；保留原目标与已用量，滚动总额度继续生效。",
+        "condition": {
+          "enabled": true
+        }
+      }
+    }
   },
   "quota": {
     "type": "object",

@@ -321,7 +321,7 @@ class _PhoneToolBase(FunctionTool[AstrAgentContext]):
 
     def _novelty_bored_note(self, match: Any) -> str:
         """新鲜的「已看腻」提示文本。"""
-        return _novelty_bored_note(match, break_rule=self.service.config.auto.break_rule)
+        return _novelty_bored_note(match, break_rule=self.service.config.flexibility.interest_active)
 
     # ---- 操作前 App 经验召回 / 失败更新 ------------------------------
 

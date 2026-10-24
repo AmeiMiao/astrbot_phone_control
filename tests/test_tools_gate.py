@@ -1127,3 +1127,41 @@ def test_break_rule_guard_stops_at_extended_budget_and_global_limit(tmp_path):
     service.record_tokens(100, session=event.unified_msg_origin)
     with pytest.raises(tools_mod._ToolNotice, match="额度已用完"):
         run(tool._guard(context))
+
+
+@pytest.mark.parametrize("kind,limit_key,allow_key", [
+    ("comment", "max_comments_per_day", "allow_comments"),
+    ("passive_reply", "max_passive_replies_per_day", "allow_passive_replies"),
+    ("post", "max_posts_per_day", "allow_posts"),
+])
+def test_flexibility_limits_and_cooldown_reach_real_tool(tmp_path, kind, limit_key, allow_key):
+    from core.interactions import InteractionStore
+    raw = {"adb": {"host": "127.0.0.1", "port": 5555},
+           "security": {allow_key: True, limit_key: 1, "interaction_cooldown_seconds": 999, "passive_reply_cooldown_seconds": 999},
+           "flexibility": {"enabled": False, limit_key: 2}}
+    service = FakeService(config=PhoneConfig.from_mapping(raw))
+    service.interactions = InteractionStore(tmp_path)
+    service.interactions.reserve(kind=kind, session="seed")
+    service.interactions.record_result(kind=kind, success=True, summary="已发布", session="seed")
+    tool = tools_mod.PhoneInteractionGateTool(service=service)
+    ctx = FakeToolContext(FakeEvent())
+    assert "上限" in run(tool.call(ctx, kind=kind))
+    raw["flexibility"]["enabled"] = True
+    raw["flexibility"]["ignore_interaction_cooldown"] = False
+    service.config = PhoneConfig.from_mapping(raw)
+    assert "操作太快" in run(tool.call(ctx, kind=kind))
+    raw["flexibility"]["ignore_interaction_cooldown"] = True
+    service.config = PhoneConfig.from_mapping(raw)
+    assert "已预留" in run(tool.call(ctx, kind=kind))
+    assert "名额已满" in run(tool.call(ctx, kind=kind))
+    record = tools_mod.PhoneInteractionRecordTool(service=service)
+    assert "成功" in run(record.call(ctx, kind=kind, success=True, summary="确认发布"))
+    raw["flexibility"][limit_key] = -1
+    service.config = PhoneConfig.from_mapping(raw)
+    assert "已预留" in run(tool.call(ctx, kind=kind))
+    raw["flexibility"][limit_key] = 0
+    service.config = PhoneConfig.from_mapping(raw)
+    assert "上限 0" in run(tool.call(ctx, kind=kind))
+    raw["security"][allow_key] = False
+    service.config = PhoneConfig.from_mapping(raw)
+    assert "未开启" in run(tool.call(ctx, kind=kind))

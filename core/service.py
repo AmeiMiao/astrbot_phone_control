@@ -338,7 +338,7 @@ class PhoneService:
         if not settings.enabled:
             return ""
         try:
-            return self.novelty.render_for_prompt(settings, break_rule=self.config.auto.break_rule)
+            return self.novelty.render_for_prompt(settings, break_rule=self.config.flexibility.interest_active)
         except Exception as exc:  # noqa: BLE001 - 读取失败不影响提示词
             logger.warning("新鲜感状态读取失败：%s", exc)
             return ""
@@ -594,7 +594,7 @@ class PhoneService:
         budget = self.play_budgets.get(session)
         if budget is None or budget.target_tokens != target:
             budget = self.play_budgets.begin(session, target)
-        budget.break_rule = self.config.auto.break_rule
+        budget.break_rule = self.config.flexibility.budget_active
         return budget
 
     def record_tokens(
@@ -1265,7 +1265,7 @@ class PhoneService:
         existing = manager.active.get(owner)
         if existing and existing.get("_full_request") and not existing.get("_segmented_reason"):
             await manager.finish_owner(owner, abnormal=False)
-        if self.config.auto.break_rule and owner in manager.active:
+        if self.config.flexibility.free_browse_active and owner in manager.active:
             package, _ = await self.actions.foreground()
             current = manager.current(event)
             if current["kind"] != "video" or current["package"] != package:

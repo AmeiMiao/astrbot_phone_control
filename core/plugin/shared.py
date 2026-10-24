@@ -16,7 +16,7 @@ from ..plugin_shared import (
 )
 from ..config import PhoneConfig
 from ..identity import PLUGIN_NAME
-from ..play_flow import DIRECT_BROWSE_FLOW, FLOW_RULE, flow_rule_text, break_rule_hint, share_cooldown_text
+from ..play_flow import render_flexibility, DIRECT_BROWSE_FLOW, FLOW_RULE, flow_rule_text, break_rule_hint, share_cooldown_text
 from ..share_policy import share_window_text
 
 
@@ -76,7 +76,7 @@ _GUIDANCE = (
     "（用户要求详情除外）。\n"
     "存图：开关开启后图文 read 按兴趣 phone_save_image，填写描述/标签/理由，按配置存服务端/手机/两地；phone_saved_images 可查询服务端/手机本地图片；发帖/回复按语义决定是否配图，相关时 search 阅读描述、gate 预约，再 prepare(kind/reason) 并在 App 选图核对预览，无合适图片用文字。保存与分享独立。\n"
     "静默：仅主人可用；搜索/点按/失败重试过程不发文字。完成后仅一次简短结果，分享前总结为1–2句且≤100字；分享成功后静默收尾。\n"
-    "额度/频率默认不限制（在配置 quota/互动限额里显式填正数才生效）。\n"
+    "Token 额度按 quota 配置；每日互动 -1 不限、0 禁止、正数限额。\n"
     "App 经验：打开 App/读取屏幕后会自动按当前 App、当前页面召回经验，按召回内容操作；界面与经验不符或操作报错说明经验可能失效，先重新探索，再用 phone_app_remember 覆盖更新（成功后清除失效标记）。\n"
     "内容任务：图文打开前begin，视频确认起点后begin；phone_content 分段read、独立决定续看/看评论/回复，完成finish。看评论不等于回复。\n"
     "任务优先：用户手机任务优先于 AI 自刷/随机/后台任务；自刷被暂停时立即收尾让路。\n"
@@ -130,13 +130,14 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
         mood = "心情：按陪伴插件注入的状态表达，不暴露数值。"
     else:
         mood = "心情：按人格与最近记忆推断，不编造数值。"
-    enabled = bool(config and config.auto.break_rule)
+    enabled = bool(config and config.flexibility.free_browse_active)
     guidance = _GUIDANCE.replace(FLOW_RULE, flow_rule_text(enabled))
     if enabled:
         guidance = guidance.replace(
             "内容任务：图文打开前begin，视频确认起点后begin；phone_content 分段read、独立决定续看/看评论/回复，完成finish。看评论不等于回复。",
             DIRECT_BROWSE_FLOW,
         )
+    if config and config.flexibility.interest_active:
         guidance = guidance.replace(
             "刷到同类内容时降低打开/停留概率，优先换主题或换 App",
             "新鲜感阈值作参考，可按真实意愿继续看同类内容",
@@ -173,7 +174,7 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
         )
     if security is not None:
         from ..interactions import interaction_plan
-        parts.append(interaction_plan(security))
+        parts.append(interaction_plan(security, config.flexibility))
         limit = security.max_likes_per_session
         parts.append(
             f"点赞/收藏：{'已授权' if security.allow_interactions else '未授权'}；"
@@ -186,7 +187,7 @@ def _build_guidance(config: PhoneConfig | None = None) -> str:
         )
     if enabled:
         parts.append(break_rule_hint(True))
-    return "\n".join(parts)
+    return render_flexibility("\n".join(parts), config.flexibility if config else None)
 
 
 _HELP_TEXT = """手机操控插件指令：

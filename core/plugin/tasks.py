@@ -618,7 +618,8 @@ class TasksMixin:
             ),
             share_hint=self.service.share_policy_hint(),
             novelty_hint=self.service.novelty_prompt(),
-            break_rule=self.service.config.auto.break_rule,
+            break_rule=self.service.config.flexibility.free_browse_active,
+            flexibility=self.service.config.flexibility,
         )
         payload = {
             "session": "",
@@ -628,7 +629,7 @@ class TasksMixin:
             "target_tokens": target_tokens,
         }
         from ..interactions import interaction_plan
-        payload["note"] += "\n" + interaction_plan(security)
+        payload["note"] += "\n" + interaction_plan(security, self.service.config.flexibility)
         try:
             job = await cron_manager.add_active_job(
                 name="phone-random-play",
@@ -854,7 +855,8 @@ class TasksMixin:
                 recent_learning=recent_learning,
                 share_hint=self.service.share_policy_hint(),
                 novelty_hint=self.service.novelty_prompt(),
-                break_rule=self.service.config.auto.break_rule,
+                break_rule=self.service.config.flexibility.free_browse_active,
+                flexibility=self.service.config.flexibility,
             )
         except TypeError:
             note = build_continuous_note(
@@ -862,13 +864,13 @@ class TasksMixin:
                 apps=apps,
                 learn_tool_available=True,
             )
-        if self._continuous_missing_learn:
+        if self._continuous_missing_learn and not self.service.config.flexibility.free_browse_active:
             note += (
                 "\n注意：上一轮你没有用 phone_learn 记录学到的东西。本轮请认真理解内容，"
                 "结束前至少调用一次 phone_learn 记录 1 条真正理解到的内容，别刷完就忘。"
             )
         from ..interactions import interaction_plan
-        note += "\n" + interaction_plan(self.service.config.security)
+        note += "\n" + interaction_plan(self.service.config.security, self.service.config.flexibility)
         try:
             job = await create_continuous_task(
                 cron_manager,

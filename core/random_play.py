@@ -12,7 +12,7 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 
-from .play_flow import CONTENT_FLOW, content_rule_text, FLOW_RULE, flow_rule_text, break_rule_hint, share_rule_text
+from .play_flow import render_flexibility, CONTENT_FLOW, content_rule_text, FLOW_RULE, flow_rule_text, break_rule_hint, share_rule_text
 
 MIN_INTERVAL_MINUTES = 1.0
 # 随机间隔不设上限（用户可配置任意低频率）
@@ -103,12 +103,13 @@ def build_play_note(
     share_hint: str = "",
     novelty_hint: str = "",
     break_rule: bool = False,
+    flexibility=None,
 ) -> str:
     """生成 /phone play 的提示词（带本轮 token 预算，静默运行）。"""
     budget = max(0, int(target_tokens))
     interaction_hint = _INTERACTION_HINT if interactions_enabled else ""
     novelty = str(novelty_hint or "").strip()
-    return (
+    note = (
         "现在是你的自由活动时间：用手机自己决定玩什么、看什么，按人格与当下心情来。"
         "先想你自己此刻想玩什么，再 phone_list_apps 或回桌面看图标决定玩哪个 App；"
         "不熟悉的界面用 phone_screen 边看边试（实时页面可用 mode=image）。"
@@ -124,6 +125,7 @@ def build_play_note(
         + _CONCISE_REPLY
         + break_rule_hint(break_rule)
     )
+    return render_flexibility(note, flexibility)
 
 
 def build_random_play_note(
@@ -136,6 +138,7 @@ def build_random_play_note(
     share_hint: str = "",
     novelty_hint: str = "",
     break_rule: bool = False,
+    flexibility=None,
 ) -> str:
     """生成唤醒主 Agent 的「随机玩手机」提示词（人格主导、默认静默）。
 
@@ -199,4 +202,4 @@ def build_random_play_note(
     if break_rule:
         note = note.replace(FLOW_RULE, flow_rule_text(True)).replace(CONTENT_FLOW, content_rule_text(True))
         note += break_rule_hint(True)
-    return note
+    return render_flexibility(note, flexibility)

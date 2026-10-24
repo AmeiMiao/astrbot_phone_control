@@ -20,6 +20,7 @@ from ..interactions import (
     interaction_run,
     InteractionError,
     evaluate_gate,
+    interaction_limits,
     normalize_kind,
     normalize_summary,
 )
@@ -91,7 +92,7 @@ class PhoneInteractionGateTool(_PhoneToolBase):
             return _error(exc)
         security = config.security
         cooldown_kind: str | None = None
-        if kind == KIND_COMMENT and hasattr(self.service, "_contents"):
+        if kind == KIND_COMMENT and not config.flexibility.free_browse_active and hasattr(self.service, "_contents"):
             task = self.service.contents.active.get(self.service.contents.owner(event))
             if task is not None and not any(d["decision"] in {"comment", "reply_comment"} for d in task["decisions"]):
                 return "error: 请先独立 decide comment 发表正文感想，或针对已读具体评论 decide reply_comment；阅读评论不等于回复"
@@ -100,7 +101,7 @@ class PhoneInteractionGateTool(_PhoneToolBase):
             max_per_day = 0
             cooldown_seconds = 0
             allow_key = "security.allow_interactions"
-            if hasattr(self.service, "_contents"):
+            if not config.flexibility.free_browse_active and hasattr(self.service, "_contents"):
                 task = self.service.contents.active.get(self.service.contents.owner(event))
                 if task is not None and not any(d["decision"] == kind for d in task["decisions"]):
                     return f"error: 请先针对当前内容独立 decide {kind}"
@@ -120,6 +121,8 @@ class PhoneInteractionGateTool(_PhoneToolBase):
             max_per_day = security.max_posts_per_day
             cooldown_seconds = security.interaction_cooldown_seconds
             allow_key = "security.allow_posts"
+        if kind not in LIGHT_KINDS:
+            max_per_day, cooldown_seconds = interaction_limits(security, config.flexibility, kind)
         label = KIND_LABELS[kind]
         if not allow:
             return f"error: 未开启{label}，需在插件配置 {allow_key} 打开"

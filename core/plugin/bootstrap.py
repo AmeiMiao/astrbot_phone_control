@@ -297,9 +297,11 @@ class BootstrapMixin:
         self._terminated = False
         self._live_instance_registered = False
         self.raw_config: Any = config if config is not None else {}
+        from ..flexibility import migrate_flexibility
+        flexibility_changed = migrate_flexibility(self.raw_config)
         from ..model_config import migrate_models, populate_embedding_options
 
-        if migrate_models(self.raw_config):
+        if migrate_models(self.raw_config) or flexibility_changed:
             save = getattr(self.raw_config, "save_config", None)
             if callable(save):
                 save()

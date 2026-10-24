@@ -30,10 +30,10 @@ def event(session="one", target=10000):
 
 
 def test_default_and_live_config():
-    assert not PhoneConfig.from_mapping({}).auto.break_rule
-    assert PhoneConfig.from_mapping({"auto": {"break_rule": "true"}}).auto.break_rule
-    assert not PhoneConfig.from_mapping({"auto": {"break_rule": "false"}}).auto.break_rule
-    assert "auto.break_rule" in LIVE_KEYS
+    assert not PhoneConfig.from_mapping({}).flexibility.enabled
+    assert PhoneConfig.from_mapping({"auto": {"break_rule": "true"}}).flexibility.enabled
+    assert not PhoneConfig.from_mapping({"auto": {"break_rule": "false"}}).flexibility.enabled
+    assert "flexibility.enabled" in LIVE_KEYS
 
 
 @pytest.mark.parametrize("target,limit", [(1, 2), (5, 6), (6, 8), (10000, 12000)])
@@ -99,3 +99,36 @@ def test_novelty_remains_recorded_but_threshold_is_advisory(tmp_path):
     assert "可按真实意愿继续看" in flexible
     assert "优先换主题" not in flexible
     assert store.entries(settings)[0].hits == 1
+
+
+def test_flexibility_migration_preserves_choice_and_original_file(tmp_path):
+    import json
+    from core.flexibility import migrate_flexibility_file
+    path = tmp_path / "config.json"
+    original = json.dumps({"auto": {"break_rule": True}, "flexibility": {"enabled": False, "max_posts_per_day": 3}}).encode()
+    path.write_bytes(original)
+    assert migrate_flexibility_file(path)
+    assert path.with_name(path.name + ".flexibility-backup").read_bytes() == original
+    raw = json.loads(path.read_text())
+    assert "break_rule" not in raw["auto"]
+    assert raw["flexibility"] == {"enabled": False, "max_posts_per_day": 3}
+    assert not migrate_flexibility_file(path)
+
+
+@pytest.mark.parametrize("builder", [build_play_note, build_random_play_note, build_continuous_note])
+@pytest.mark.parametrize("free,interest,budget", [(False,False,False), (True,False,False), (False,True,False), (False,False,True), (True,True,True)])
+def test_independent_flexibility_prompt_and_budget_flags(tmp_path, builder, free, interest, budget):
+    raw = {"flexibility": {"enabled": True, "free_browse": free,
+           "relax_interest_novelty": interest, "extend_task_budget": budget}}
+    config = PhoneConfig.from_mapping(raw)
+    note = builder(target_tokens=10000, break_rule=config.flexibility.free_browse_active, flexibility=config.flexibility)
+    assert ("自由浏览已开启" in note) is free
+    assert ("无需编造兴趣" in note) is interest
+    assert ("20%" in note) is budget
+    if not interest:
+        assert "不感兴趣直接退出" in note
+    if free:
+        assert "必须至少调用一次 phone_learn" not in note
+    s = PhoneService(raw_config=raw, adb=None, actions=None, diary=None, data_dir=tmp_path)
+    b = s.ensure_play_budget(event())
+    assert b.limit_tokens == (12000 if budget else 10000)

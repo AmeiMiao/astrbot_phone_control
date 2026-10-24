@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 
-from .play_flow import BREAK_RULE_FLOW, DIRECT_BROWSE_FLOW, break_rule_hint
+from .play_flow import render_flexibility, BREAK_RULE_FLOW, DIRECT_BROWSE_FLOW, break_rule_hint
 from collections.abc import Iterable
 
 DEFAULT_GAP_SECONDS = 60
@@ -122,6 +122,7 @@ def build_continuous_note(
     share_hint: str = "",
     novelty_hint: str = "",
     break_rule: bool = False,
+    flexibility=None,
 ) -> str:
     """生成一轮「持续刷手机」的中文静默任务提示词。
 
@@ -163,4 +164,4 @@ def build_continuous_note(
     if break_rule:
         note = note.replace("按自己的兴趣看，不感兴趣直接退出；分享/互动结束后再判断。", BREAK_RULE_FLOW)
         note += break_rule_hint(True)
-    return note
+    return render_flexibility(note, flexibility)

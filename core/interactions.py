@@ -68,7 +68,18 @@ class InteractionError(Exception):
     """可预期的互动校验、名额或记录错误（工具层转成 ``error:`` 文本）。"""
 
 
-def interaction_plan(security):
+def interaction_limits(security, flexibility, kind):
+    """选择当前每日上限与冷却；授权始终由权限组决定。"""
+    key = {KIND_COMMENT: "max_comments_per_day", KIND_PASSIVE_REPLY: "max_passive_replies_per_day", KIND_POST: "max_posts_per_day"}[kind]
+    enabled = flexibility is not None and flexibility.enabled
+    limit = getattr(flexibility if enabled else security, key)
+    cooldown = security.passive_reply_cooldown_seconds if kind == KIND_PASSIVE_REPLY else security.interaction_cooldown_seconds
+    if enabled and flexibility.ignore_interaction_cooldown:
+        cooldown = 0
+    return limit, cooldown
+
+
+def interaction_plan(security, flexibility=None):
     """将实际授权与可执行的独立决策入口交给自主 Agent。"""
     states = []
     for kind, enabled, limit in (
@@ -76,8 +87,9 @@ def interaction_plan(security):
         (KIND_PASSIVE_REPLY, security.allow_passive_replies, security.max_passive_replies_per_day),
         (KIND_POST, security.allow_posts, security.max_posts_per_day),
     ):
+        limit, cooldown = interaction_limits(security, flexibility, kind)
         quota = "每日不限次数" if limit < 0 else f"每日上限{limit}条"
-        states.append(f"{kind}：{'已授权，' + quota if enabled else '未授权'}")
+        states.append(f"{kind}：{'已授权，' + quota + f'，冷却{cooldown}秒' if enabled else '未授权'}")
     return (
         "【自主互动决策】" + "；".join(states) + "。"
         "进入 App 后，有被动回复授权时先 phone_check_inbox 阅读实际消息并决定是否回应。"

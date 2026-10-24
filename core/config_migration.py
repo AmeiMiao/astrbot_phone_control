@@ -114,6 +114,10 @@ def prepare_migration(
     target = base / f"{target_name}_config.json"
     original, source_bytes = _read(source)
     current, target_bytes = _read(target, optional=True)
+    if "flexibility" in schema:
+        from .flexibility import migrate_flexibility
+        migrate_flexibility(original)
+        migrate_flexibility(current)
     if "interaction_limits_version" in schema:
         from .interaction_config import migrate_interaction_limits
         migrate_interaction_limits(original)

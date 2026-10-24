@@ -16,6 +16,7 @@ ADB 主机/端口默认为空，表示「未配置」：插件仍可正常加载
 
 from __future__ import annotations
 
+from .flexibility import FlexibilitySettings
 from .mesh_config import MeshSettings, mesh_settings
 from .tool_reports import ReportSettings
 from .network_config import runtime_cards
@@ -472,8 +473,6 @@ class AutoSettings:
     random_interval_max: int = DEFAULT_RANDOM_INTERVAL_MAX
     random_probability: float = DEFAULT_RANDOM_PROBABILITY
     share_only_interesting: bool = True
-    break_rule: bool = False
-    """允许本次任务预算延展 20%，并按真实动机探索低兴趣或低新鲜感内容。"""
     continuous_enabled: bool = DEFAULT_CONTINUOUS_ENABLED
     continuous_gap_seconds: int = DEFAULT_CONTINUOUS_GAP_SECONDS
     continuous_target_tokens: int = DEFAULT_CONTINUOUS_TARGET_TOKENS
@@ -799,6 +798,7 @@ class PhoneConfig:
     browse: BrowseSettings = field(default_factory=BrowseSettings)
     image: ImageSettings = field(default_factory=ImageSettings)
     auto: AutoSettings = field(default_factory=AutoSettings)
+    flexibility: FlexibilitySettings = field(default_factory=FlexibilitySettings)
     model: ModelSettings = field(default_factory=ModelSettings)
     quota: QuotaSettings = field(default_factory=QuotaSettings)
     memory: MemorySettings = field(default_factory=MemorySettings)
@@ -873,6 +873,18 @@ class PhoneConfig:
                 maximum=300.0,
             ),
         )
+
+        flex_card = card("flexibility")
+        flex_values = {}
+        for key, default in FlexibilitySettings().__dict__.items():
+            value = _pick(flex_card, source, key)
+            if key == "enabled" and (not flex_card or "enabled" not in flex_card):
+                value = (card("auto") or {}).get("break_rule", value)
+            if key.startswith("max_"):
+                flex_values[key] = _as_int(value, default, "flexibility." + key, warn_fn, minimum=-1)
+            else:
+                flex_values[key] = _as_bool(value, default, "flexibility." + key, warn_fn)
+        flexibility = FlexibilitySettings(**flex_values)
 
         security_card = card("security")
         security = SecuritySettings(
@@ -1442,12 +1454,6 @@ class PhoneConfig:
                 minimum=0.0,
                 maximum=1.0,
             ),
-            break_rule=_as_bool(
-                _pick(auto_card, source, "break_rule"),
-                False,
-                "auto.break_rule",
-                warn_fn,
-            ),
             share_only_interesting=_as_bool(
                 _pick(auto_card, source, "share_only_interesting"),
                 True,
@@ -1959,6 +1965,7 @@ class PhoneConfig:
             browse=browse,
             image=image,
             auto=auto,
+            flexibility=flexibility,
             quota=quota,
             memory=memory,
             traffic=traffic,

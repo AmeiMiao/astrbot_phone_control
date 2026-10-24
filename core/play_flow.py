@@ -89,3 +89,41 @@ DIRECT_BROWSE_FLOW = (
 
 def content_rule_text(enabled: bool = False) -> str:
     return DIRECT_BROWSE_FLOW if enabled else CONTENT_FLOW
+
+
+INTEREST_FLEX_FLOW = (
+    "行动按你自己的心情、好奇心与真实意愿决定：低兴趣或已看腻的内容也可以继续看，"
+    "无需编造兴趣或对用户有用的理由。看和分享分别判断，曝光与用量照常记录。"
+)
+
+
+def flexibility_hint(settings):
+    """只向模型说明当前实际开启的弹性能力。"""
+    if not settings.enabled:
+        return ""
+    parts = ["【自主规则弹性已开启】"]
+    if settings.free_browse_active:
+        parts.append("【自由浏览已开启】" + DIRECT_BROWSE_FLOW)
+    if settings.interest_active:
+        parts.append(INTEREST_FLEX_FLOW)
+    if settings.budget_active:
+        parts.append("本次任务 Token 预算最多延展 20%，到执行上限后收尾；原目标与已用量保留。")
+    if settings.ignore_interaction_cooldown:
+        parts.append("评论、被动回复与发帖冷却已解除；每日次数按自主规则弹性配置执行。")
+    else:
+        parts.append("每日次数按自主规则弹性配置执行，互动冷却按权限配置执行。")
+    parts.append("互动授权、点赞收藏单轮上限、滚动总额度、分享目标/时段/冷却、金融应用限制、用户优先、取消、暂停与执行期限继续生效。")
+    return "".join(parts)
+
+
+def render_flexibility(note, settings):
+    """任务与主 Agent 指南复用同一能力范围，逐项反映独立开关。"""
+    if settings is None:
+        return note
+    note = note.replace(break_rule_hint(True), "")
+    if settings.free_browse_active:
+        note = note.replace(BREAK_RULE_FLOW, INTEREST_FLEX_FLOW if settings.interest_active else FLOW_RULE)
+    elif settings.interest_active:
+        note = note.replace(FLOW_RULE, INTEREST_FLEX_FLOW).replace(
+            "按自己的兴趣看，不感兴趣直接退出；分享/互动结束后再判断。", INTEREST_FLEX_FLOW)
+    return note + flexibility_hint(settings)
