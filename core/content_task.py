@@ -112,6 +112,7 @@ class ContentTasks:
                 summaries=[],
                 frames=[],
                 heartbeat=time.time(),
+                video_provider_id=str(self.service.config.model.video_provider_id or "") if kind == "video" and mode != "audio" else "",
             )
             self.active[task["owner"]] = task
             # 内容归属整次 Agent run；收尾由 finish、on_agent_done 和服务关闭执行。
@@ -167,9 +168,19 @@ class ContentTasks:
                 self.arm_capture(task)
                 elapsed = time.monotonic() - task.get("_start", time.monotonic())
                 if task["kind"] == "video" and task["mode"] != "audio":
+                    video = bool(task.get("video_provider_id"))
+                    options = dict(fast=True, quiet=True, record_metric=False, persist=False) if video else {}
                     data, path, meta = await self.service.capture(
-                        expected_package=task["package"]
+                        expected_package=task["package"], **options
                     )
+                    if video:
+                        from .media_video import compact_frame, MAX_BUFFER_BYTES, MAX_CAPTURE_SECONDS
+                        data = await asyncio.to_thread(compact_frame, data)
+                        task["_buffer_bytes"] = task.get("_buffer_bytes", 0) + len(data)
+                        stream = task.get("_audio")
+                        if (task["_buffer_bytes"] + (stream.size if stream else 0) > MAX_BUFFER_BYTES
+                                or time.monotonic() - task["_start"] > MAX_CAPTURE_SECONDS):
+                            raise PhoneControlError("视频采集达到 15 分钟或 128 MiB 缓存上限，请结束后开始新内容")
                     elapsed = time.monotonic() - task["_start"]
                     dest = self.root / task["id"] / f"frame-{elapsed:.3f}.jpg"
                     dest.write_bytes(data)
@@ -179,7 +190,8 @@ class ContentTasks:
                         await stream.task
                         raise PhoneControlError("内容音频流结束")
                 if task["kind"] == "video":
-                    interval = self.service.config.media.frame_interval_seconds
+                    from .media_video import VIDEO_INTERVAL
+                    interval = VIDEO_INTERVAL if task.get("video_provider_id") else self.service.config.media.frame_interval_seconds
                     elapsed = time.monotonic() - task["_start"]
                     next_at = task["_start"] + (int(elapsed / interval) + 1) * interval
                     await asyncio.sleep(max(0.01, next_at - time.monotonic()))
@@ -293,7 +305,9 @@ class ContentTasks:
                         config.preview_seconds if not task["cursor"] else config.seconds
                     )
                 )
-                if not 3 <= duration <= config.max_seconds:
+                maximum = min(config.max_seconds, 60) if task.get("video_provider_id") else config.max_seconds
+                duration = min(duration, maximum)
+                if not 3 <= duration <= maximum:
                     raise PhoneControlError(f"片段时长需 3–{config.max_seconds} 秒")
                 start = task["cursor"]
                 end = start + duration
@@ -318,13 +332,14 @@ class ContentTasks:
                         end,
                         self.root / task["id"] / f"audio-{start:g}-{end:g}.wav",
                     )
-                result = await self.understand(
-                    event,
-                    task,
-                    f"视频时间 {start:.1f}–{end:.1f} 秒；请只描述已提供内容。",
-                    images,
-                    audio,
-                )
+                if task.get("video_provider_id"):
+                    result = await self.understand_video(event, task, start, end, audio)
+                else:
+                    result = await self.understand(
+                        event, task,
+                        f"视频时间 {start:.1f}–{end:.1f} 秒；请只描述已提供内容。",
+                        images, audio,
+                    )
                 task["cursor"] = end
                 if available:
                     task["_continuation_index"] = available[-1]
@@ -474,6 +489,44 @@ class ContentTasks:
             )
             result.append((audio_note + "\n" if audio_note else "") + value)
         return "\n".join(result)
+
+    async def understand_video(self, event, task, start, end, audio):
+        from .media_video import encode_segment
+
+        provider_id = task["video_provider_id"]
+        if self.providers.provider(provider_id) is None:
+            raise PhoneControlError(f"未找到视频识别模型「{provider_id}」")
+        prompt = f"这是手机屏幕按 2 FPS 采样的视频片段，时间 {start:.1f}–{end:.1f} 秒。只描述本段实际画面、动作与文字。\n" + task["question"]
+        if audio is None:
+            prompt += "\n本段无音频，不得推测声音。"
+        else:
+            configured_asr = str(self.service.config.model.asr_provider_id or self.service.config.media.asr_provider_id).strip()
+            if configured_asr:
+                provider = self.providers.provider(configured_asr)
+                if provider is None:
+                    raise PhoneControlError(f"未找到语音识别模型「{configured_asr}」")
+                prompt += "\n【语音转写】" + await self.transcribe(event, audio, provider, configured_asr)
+                # 指定语音模型负责声音，视频模型接收静音画面与转写。
+                audio = None
+            else:
+                prompt += "\n片段包含设备声音，仅描述实际听到的内容；音频已归一化，不据此判断响度。"
+        path = self.root / task["id"] / f"video-{start:g}-{end:g}.mp4"
+        try:
+            await encode_segment(list(task["frames"]), start, end, audio, path)
+            response = await asyncio.wait_for(
+                self.providers.generate(chat_provider_id=provider_id, prompt=prompt, video_path=path),
+                self.service.config.media.vision_timeout_seconds,
+            )
+            value = str(getattr(response, "completion_text", "") or "").strip()
+            if not value:
+                raise PhoneControlError("视频识别模型未返回正文")
+            self.service.record_internal_usage(
+                getattr(response, "usage", None), source="internal:media_video", event=event,
+                prompt_text=prompt, completion_text=value, image_count=0,
+            )
+            return f"【分段视频模型】{provider_id}；{start:g}–{end:g} 秒\n" + value
+        finally:
+            path.unlink(missing_ok=True)
 
     async def transcribe(self, event, audio, provider, provider_id):
         """显式语音模型优先处理音频，画面请求只携带转写文字。"""

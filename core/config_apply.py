@@ -110,6 +110,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "auto.user_priority",
         "model.provider_id",
         "model.asr_provider_id",
+        "model.video_provider_id",
         "quota.enabled",
         "quota.window_hours",
         "quota.max_tokens",

@@ -481,7 +481,7 @@
   "model": {
     "type": "object",
     "description": "任务与媒体模型",
-    "hint": "自主任务使用独立对话模型；媒体语音模型优先转写声音，再由画面模型理解。",
+    "hint": "分别选择自主任务、语音识别和视频识别模型；媒体模型选择用于命令、工具及自主任务。",
     "items": {
       "provider_id": {
         "type": "string",
@@ -493,9 +493,16 @@
       "asr_provider_id": {
         "type": "string",
         "default": "",
-        "_special": "select_provider",
+        "_special": "select_provider_stt",
         "description": "语音识别模型",
-        "hint": "选择支持音频输入的对话模型，优先转写 phone_watch_media 和视频内容任务的声音；也可填写 STT Provider ID。留空使用 media.asr_provider_id 或 AstrBot 当前 STT；无可用 STT 时按画面模型音频能力处理。"
+        "hint": "选择 AstrBot 已配置的语音识别（STT）模型，优先转写 phone_watch_media 和视频内容任务的声音。留空使用 media.asr_provider_id 或 AstrBot 当前 STT。兼容通过 Provider ID 指定支持音频输入的对话模型。"
+      },
+      "video_provider_id": {
+        "type": "string",
+        "default": "",
+        "_special": "select_provider",
+        "description": "视频识别模型",
+        "hint": "选择支持 video_url 的 OpenAI 兼容视频模型；观看时回传 2 FPS、最长边 480 像素的分段 MP4。单段最多 60 秒、文件最多 6 MiB（Base64 8 MiB），超限返回错误；留空使用音频与关键帧。单次内容采集最多 15 分钟或 128 MiB 缓存。"
       }
     }
   },

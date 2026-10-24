@@ -65,3 +65,31 @@ def test_aliyun_audio_transport_checks_host_boundary():
         audio_transport(ProviderOpenAIOfficial("maas.aliyuncs.com.attacker.invalid"))
         == "native"
     )
+
+
+def test_video_transport_preserves_real_video_content_and_rejects_other_adapters(tmp_path):
+    import asyncio
+    import base64
+    from core.media_provider import MediaProviders
+    async def run():
+        calls = []
+        class ProviderOpenAIOfficial:
+            provider_config = {"api_base": "https://example.invalid/v1"}
+        class Context:
+            def get_provider_by_id(self, id):
+                return ProviderOpenAIOfficial() if id == 'video' else SimpleNamespace()
+            async def llm_generate(self, **kwargs):
+                calls.append(kwargs)
+                return 'answer'
+        path = tmp_path/'segment.mp4'
+        path.write_bytes(b'real-test-video-bytes')
+        providers = MediaProviders(Context())
+        assert await providers.generate(chat_provider_id='video', prompt='0–3秒', video_path=path) == 'answer'
+        content = calls[0]['contexts'][0]['content']
+        assert content[0]['text'] == '0–3秒'
+        assert base64.b64decode(content[1]['video_url']['url'].split(',')[1]) == path.read_bytes()
+        assert calls[0]['prompt'] is None and 'video_path' not in calls[0]
+        with pytest.raises(PhoneControlError, match='OpenAI'):
+            await providers.generate(chat_provider_id='other', prompt='clip', video_path=path)
+        assert len(calls) == 1
+    asyncio.run(run())

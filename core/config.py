@@ -596,6 +596,7 @@ class ModelSettings:
 
     provider_id: str = ""
     asr_provider_id: str = ""
+    video_provider_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -1697,6 +1698,9 @@ class PhoneConfig:
                 "",
                 "model.asr_provider_id",
                 warn_fn,
+            ),
+            video_provider_id=_as_str(
+                _pick(model_card, source, "video_provider_id"), "", "model.video_provider_id", warn_fn,
             ),
         )
 

@@ -58,8 +58,21 @@ class MediaProviders:
     async def generate(self, **kwargs):
         provider_id = kwargs["chat_provider_id"]
         selected = self.provider(provider_id)
+        video_path = kwargs.pop("video_path", None)
+        if video_path is not None:
+            from pathlib import Path
+            from .media_video import video_part
+
+            names = {base.__name__ for base in type(selected).__mro__}
+            if "ProviderOpenAIOfficial" not in names:
+                raise PhoneControlError("视频识别模型需使用支持 video_url 的 OpenAI 兼容 Provider")
+            kwargs["contexts"] = [{"role": "user", "content": [
+                {"type": "text", "text": kwargs.pop("prompt", "")},
+                video_part(Path(video_path)),
+            ]}]
+            kwargs["prompt"] = None
         transport = audio_transport(selected)
-        if kwargs.get("audio_urls") and transport in {"xiaomi_openai", "aliyun_openai"}:
+        if (kwargs.get("audio_urls") or video_path is not None) and transport in {"xiaomi_openai", "aliyun_openai"}:
             adapter = self.adapters.get(provider_id)
             if adapter is None:
                 from astrbot.core.provider.sources.openai_source import (
