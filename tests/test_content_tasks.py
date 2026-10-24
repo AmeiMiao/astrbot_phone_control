@@ -437,3 +437,48 @@ def test_video_model_receives_original_audio_even_when_asr_is_configured(tmp_pat
         assert not (manager.root/t['id']/'video-0-3.mp4').exists()
         await manager.close()
     asyncio.run(run())
+
+
+def test_video_separate_audio_switch_uses_selected_asr_and_mutes_video(tmp_path, monkeypatch):
+    async def run():
+        s=service(tmp_path)
+        s.config=PhoneConfig.from_mapping({'model':{'video_audio_separate':True,'asr_provider_id':'ears','video_provider_id':'eyes'}})
+        calls=[]
+        class Ears:
+            async def get_text(self,path):
+                calls.append(('asr',__import__('pathlib').Path(path).read_bytes()))
+                return '音轨原文'
+        s.app_context=SimpleNamespace(get_provider_by_id=lambda id:Ears() if id=='ears' else SimpleNamespace())
+        s.record_internal_usage=lambda *a,**kw:None
+        m=ContentTasks(s)
+        t=await m.begin(SimpleNamespace(unified_msg_origin='owner'),kind='post',content_id='fixture')
+        t['video_provider_id']='eyes'
+        audio=tmp_path/'source.wav';audio.write_bytes(b'original-audio')
+        async def encode(frames,start,end,source,out):
+            assert source is None
+            calls.append(('video','silent'))
+            out.write_bytes(b'encoded-silent-mp4')
+            return out
+        async def generate(**kw):
+            assert kw['chat_provider_id']=='eyes' and '音轨原文' in kw['prompt']
+            assert 'audio_urls' not in kw and kw['video_path'].exists()
+            calls.append(('model','eyes'))
+            return SimpleNamespace(completion_text='画面与转写',usage=None)
+        monkeypatch.setattr('core.media_video.encode_segment',encode)
+        m.providers.generate=generate
+        result=await m.understand_video(None,t,0,3,audio)
+        assert calls==[('asr',b'original-audio'),('video','silent'),('model','eyes')]
+        assert '音轨单独识别' in result and 'ears' in result
+        await m.close()
+    asyncio.run(run())
+
+
+def test_separate_video_audio_requires_explicit_asr(tmp_path):
+    async def run():
+        s=service(tmp_path)
+        s.config=PhoneConfig.from_mapping({'model':{'video_audio_separate':True}})
+        s.app_context=SimpleNamespace(get_provider_by_id=lambda _:SimpleNamespace())
+        m=ContentTasks(s)
+        with pytest.raises(PhoneControlError,match='选择语音识别模型'):
+            await m.understand_video(None,{'id':'fixture','video_provider_id':'video','question':''},0,3,tmp_path/'audio.wav')
+    asyncio.run(run())

@@ -1629,3 +1629,10 @@ def test_image_config_is_independent_and_legacy_browse_values_migrate():
     assert migrate_image_config(residual) is True
     assert residual == {"browse": {}}
     assert migrate_image_config({}) is False
+
+
+def test_video_audio_separate_is_opt_in_and_parses_with_media_models():
+    assert PhoneConfig.from_mapping({}).model.video_audio_separate is False
+    config=PhoneConfig.from_mapping({'model':{'asr_provider_id':'stt','video_provider_id':'video','video_audio_separate':True}})
+    assert config.model.video_audio_separate is True
+    assert config.model.asr_provider_id=='stt' and config.model.video_provider_id=='video'

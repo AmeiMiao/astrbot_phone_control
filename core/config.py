@@ -597,6 +597,7 @@ class ModelSettings:
     provider_id: str = ""
     asr_provider_id: str = ""
     video_provider_id: str = ""
+    video_audio_separate: bool = False
 
 
 @dataclass(frozen=True)
@@ -1701,6 +1702,9 @@ class PhoneConfig:
             ),
             video_provider_id=_as_str(
                 _pick(model_card, source, "video_provider_id"), "", "model.video_provider_id", warn_fn,
+            ),
+            video_audio_separate=_as_bool(
+                _pick(model_card, source, "video_audio_separate"), False, "model.video_audio_separate", warn_fn,
             ),
         )
 

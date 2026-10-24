@@ -481,7 +481,7 @@
   "model": {
     "type": "object",
     "description": "任务与媒体模型",
-    "hint": "选择视频模型时直接发送带原音轨的分段视频；独立语音模型用于音频模式或音频加关键帧识别。自主任务使用独立对话模型。",
+    "hint": "自主任务、语音识别与视频识别分别选择；默认视频和原音轨一起交给视频模型，视频音轨单独识别由开关控制。",
     "items": {
       "provider_id": {
         "type": "string",
@@ -495,14 +495,20 @@
         "default": "",
         "_special": "select_provider_stt",
         "description": "语音识别模型",
-        "hint": "选择 AstrBot 已配置的语音识别（STT）模型，在只听音频或未选视频模型时优先转写。留空使用 media.asr_provider_id 或 AstrBot 当前 STT。选择视频模型时画面和原音轨一起交给视频模型。"
+        "hint": "选择 AstrBot 已配置的语音识别（STT）模型，在只听音频、未选视频模型或开启视频音轨单独识别时优先使用。留空时音频/关键帧链路使用 media.asr_provider_id 或 AstrBot 当前 STT；视频单独识别需显式指定本字段或 media.asr_provider_id。"
       },
       "video_provider_id": {
         "type": "string",
         "default": "",
         "_special": "select_provider",
         "description": "视频识别模型",
-        "hint": "选择同时支持视频与音频的 OpenAI 兼容模型，直接接收带设备原音轨的分段 MP4；2 FPS、最长边 480 像素，单段最多 60 秒、文件最多 6 MiB（Base64 8 MiB）。留空使用音频与关键帧；单次内容采集最多 15 分钟或 128 MiB 缓存。"
+        "hint": "选择支持视频输入的 OpenAI 兼容模型，默认接收带设备原音轨的分段 MP4；不支持声音的模型可开启视频音轨单独识别。2 FPS、最长边 480 像素，单段最多 60 秒、文件最多 6 MiB（Base64 8 MiB）。留空使用音频与关键帧；单次内容采集最多 15 分钟或 128 MiB 缓存。"
+      },
+      "video_audio_separate": {
+        "type": "bool",
+        "default": false,
+        "description": "视频音轨单独识别",
+        "hint": "默认关闭：视频与原音轨一起交给视频模型。开启后：使用本组配置的语音识别模型转写音轨，视频模型接收静音视频与转写文字，适合只能看视频画面的模型；需选择语音识别模型。只看画面模式不转写。"
       }
     }
   },

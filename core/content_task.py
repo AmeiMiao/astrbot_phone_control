@@ -511,8 +511,22 @@ class ContentTasks:
         if self.providers.provider(provider_id) is None:
             raise PhoneControlError(f"未找到视频识别模型「{provider_id}」")
         prompt = f"这是手机屏幕按 2 FPS 采样的视频片段，时间 {start:.1f}–{end:.1f} 秒。只描述本段实际画面、动作与文字。\n" + task["question"]
+        audio_note = ""
         if audio is None:
             prompt += "\n本段未提供原音频；MP4 的音轨为生成的静音占位，不得推测声音。"
+        elif self.service.config.model.video_audio_separate:
+            config = self.service.config
+            asr_id = str(config.model.asr_provider_id or config.media.asr_provider_id).strip()
+            if not asr_id:
+                raise PhoneControlError("视频音轨单独识别已开启，请在任务与媒体模型中选择语音识别模型")
+            provider = self.providers.provider(asr_id)
+            if provider is None:
+                raise PhoneControlError(f"未找到语音识别模型「{asr_id}」")
+            transcript = await self.transcribe(event, audio, provider, asr_id)
+            prompt += "\n【视频音轨转写】" + transcript
+            prompt += "\n视频音轨为生成的静音占位，声音内容仅依据转写，不得编造音乐或语气。"
+            audio_note = f"【视频音轨单独识别】{asr_id}；已使用语音转写。\n"
+            audio = None
         else:
             prompt += "\n片段包含设备原音轨，由你同时理解画面与声音；仅描述实际听到的内容。音频已做峰值归一化，不据此判断设备实际响度。"
         path = self.root / task["id"] / f"video-{start:g}-{end:g}.mp4"
@@ -529,7 +543,7 @@ class ContentTasks:
                 getattr(response, "usage", None), source="internal:media_video", event=event,
                 prompt_text=prompt, completion_text=value, image_count=0,
             )
-            return f"【分段视频模型】{provider_id}；{start:g}–{end:g} 秒\n" + value
+            return f"【分段视频模型】{provider_id}；{start:g}–{end:g} 秒\n" + audio_note + value
         finally:
             path.unlink(missing_ok=True)
 
