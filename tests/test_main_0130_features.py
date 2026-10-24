@@ -1555,13 +1555,13 @@ def test_break_rule_runtime_guidance_and_budget_toggle(tmp_path, monkeypatch):
         plugin = _make_plugin(tmp_path, monkeypatch)
         try:
             raw = plugin.service._raw_config
-            raw["auto"]["break_rule"] = True
+            raw["flexibility"] = {"enabled": True}
             text = plugin_main._build_guidance(plugin.service.config)
-            assert "break_rule 已开启" in text and "20%" in text
+            assert "自由浏览已开启" in text and "20%" in text
             assert "中途不感兴趣直接退出" not in text
             assert "刷到同类内容时降低打开/停留概率" not in text
-            raw["auto"]["break_rule"] = False
-            assert "break_rule 已开启" not in plugin_main._build_guidance(plugin.service.config)
+            raw["flexibility"]["enabled"] = False
+            assert "自由浏览已开启" not in plugin_main._build_guidance(plugin.service.config)
         finally:
             await _cleanup(plugin)
     asyncio.run(scenario())
