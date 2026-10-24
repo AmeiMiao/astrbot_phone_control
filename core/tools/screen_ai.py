@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 
 import mcp
 from pydantic import Field
@@ -13,6 +14,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
+from ..errors import PhoneControlError
 from .base import _PhoneToolBase, _as_float, _as_int, _ok, _wrap_call
 from .perception import (
     DEFAULT_OCR_PROMPT,
@@ -197,12 +199,14 @@ class PhoneWatchMediaTool(_PhoneToolBase):
         "同时在录制期间抓关键画面交给视觉模型描述，返回『语音转写 + 画面描述』。"
         "标题/评论/弹幕不足以判断内容，或刷视频、看直播需要真正理解时使用；"
         "首次试看取 media.preview_seconds，后续默认需 phone_content decide continue；auto.break_rule 开启时可直接重复调用连续分段观看；可传 seconds。"
+        "action=finish 结束观看并释放本会话素材采集，不额外录制；默认 action=watch。"
         "只录设备播放声音（output），无音频/DRM 内容时只返回画面描述。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                "action": {"type": "string", "enum": ["watch", "finish"], "default": "watch", "description": "watch 观看下一段；finish 结束观看，不采集新片段。"},
                 "seconds": {
                     "type": "number",
                     "description": (
@@ -233,7 +237,14 @@ class PhoneWatchMediaTool(_PhoneToolBase):
 
     @_wrap_call
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        event = await self._guard(context)
+        action = str(kwargs.get("action") or "watch").strip()
+        event = await (self._guard_light(context) if action == "finish" else self._guard(context))
+        if action == "finish":
+            manager = self.service.contents
+            await manager.finish_owner(manager.owner(event), abnormal=False)
+            return _ok(json.dumps({"status": "completed"}, ensure_ascii=False))
+        if action != "watch":
+            raise PhoneControlError("观看 action 需为 watch 或 finish")
         seconds = _as_float(kwargs.get("seconds"), 0)
         question = str(kwargs.get("question") or "").strip()
         mode = str(kwargs.get("mode") or "auto").strip()

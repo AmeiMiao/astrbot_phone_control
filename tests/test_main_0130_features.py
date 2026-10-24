@@ -1565,3 +1565,24 @@ def test_break_rule_runtime_guidance_and_budget_toggle(tmp_path, monkeypatch):
         finally:
             await _cleanup(plugin)
     asyncio.run(scenario())
+
+
+def test_watch_finish_stops_owner_without_recording_or_device_access(tmp_path, monkeypatch):
+    import json
+    async def run():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        try:
+            event = FakeEvent()
+            async def foreground(): return 'fixture.app', 'Test'
+            monkeypatch.setattr(plugin.service.actions, 'foreground', foreground)
+            task = await plugin.service.contents.begin(event, kind='post', content_id='fixture')
+            async def unexpected(*a, **k): raise AssertionError('结束观看不应访问设备或采集')
+            monkeypatch.setattr(plugin.service, 'watch_media', unexpected)
+            monkeypatch.setattr(plugin.service.adb, 'ensure_ready', unexpected)
+            tool = _tools_ns['PhoneWatchMediaTool'](service=plugin.service)
+            result = await tool.call(FakeToolContext(event), action='finish')
+            assert json.loads(result)['status'] == 'completed'
+            assert not plugin.service.contents.active and task['status']=='completed'
+        finally:
+            await _cleanup(plugin)
+    asyncio.run(run())
