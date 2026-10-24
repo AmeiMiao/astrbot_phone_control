@@ -1794,7 +1794,11 @@ class PhoneConfig:
             ),
             minitouch=MinitouchSettings(
                 binary_path=_as_str(
-                    _pick(minitouch_card, source, "binary_path"),
+                    _pick(minitouch_card, source, "binary_path") if _as_bool(
+                        _pick(control_card, source, "minitouch_enabled"),
+                        bool(minitouch_card.get("binary_path")),
+                        "control.minitouch_enabled", warn_fn,
+                    ) else "",
                     DEFAULT_MINITOUCH_BINARY_PATH,
                     "control.minitouch.binary_path",
                     warn_fn,
@@ -1825,7 +1829,7 @@ class PhoneConfig:
                 warn_fn,
             ),
             app_memory_embedding_provider_id=_as_str(
-                model_value("app_memory_embedding_provider_id", _pick(prompt_card, source, "app_memory_embedding_provider_id")) or model_value("embedding_provider_id", ""),
+                model_value("app_memory_embedding_provider_id", _pick(prompt_card, source, "app_memory_embedding_provider_id")) or _pick(card("memory"), source, "embedding_provider_id") or model_value("embedding_provider_id", ""),
                 "",
                 "prompt.app_memory_embedding_provider_id",
                 warn_fn,
@@ -1872,7 +1876,7 @@ class PhoneConfig:
                 warn_fn,
             ),
             embedding_provider_id=_as_str(
-                model_value("embedding_provider_id", _pick(recall_card, source, "embedding_provider_id")),
+                _pick(card("memory"), source, "embedding_provider_id") or model_value("embedding_provider_id", _pick(recall_card, source, "embedding_provider_id")),
                 DEFAULT_RECALL_EMBEDDING_PROVIDER_ID,
                 "recall.embedding_provider_id",
                 warn_fn,

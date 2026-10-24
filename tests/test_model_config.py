@@ -17,7 +17,8 @@ def test_models_migrate_before_framework_schema_pruning_and_preserve_backup(tmp_
     assert migrate_model_file(path)
     assert path.with_name(path.name + ".models-backup").read_bytes() == content
     raw = json.loads(path.read_text())
-    assert raw["model"] == {"asr_provider_id": "new-stt", "vision_provider_id": "vision", "app_memory_embedding_provider_id": "app-embed", "embedding_provider_id": "chat-embed"}
+    assert raw["model"] == {"asr_provider_id": "new-stt", "vision_provider_id": "vision", "app_memory_embedding_provider_id": "app-embed"}
+    assert raw["memory"]["embedding_provider_id"] == "chat-embed"
     assert not raw["media"] and not raw["perception"] and not raw["auto"]
     assert not migrate_model_file(path) and not migrate_models(raw)
     config = PhoneConfig.from_mapping(raw)
@@ -49,8 +50,8 @@ def test_embedding_dropdown_uses_actual_embedding_providers():
     config = SimpleNamespace(schema=schema)
     context = SimpleNamespace(get_all_embedding_providers=lambda: [SimpleNamespace(provider_config={"id": "embedding-b"}), SimpleNamespace(provider_config={"id": "embedding-a"})])
     populate_embedding_options(config, context)
-    for key in ("embedding_provider_id", "app_memory_embedding_provider_id"):
-        assert schema["model"]["items"][key]["options"] == ["", "embedding-a", "embedding-b"]
+    for group, key in (("memory", "embedding_provider_id"), ("model", "app_memory_embedding_provider_id")):
+        assert schema[group]["items"][key]["options"] == ["", "embedding-a", "embedding-b"]
     for group, key in (("media", "asr_provider_id"), ("media", "vision_provider_id"), ("perception", "ocr_provider_id"), ("prompt", "app_memory_embedding_provider_id"), ("recall", "embedding_provider_id"), ("auto", "share_target")):
         assert key not in schema[group]["items"]
 
@@ -88,3 +89,27 @@ def test_config_field_paths_include_model_provider():
     assert "model.provider_id" in fields
     assert "model.provider_id" in LIVE_KEYS
     assert "model.provider_id" not in RECONCILE_KEYS
+
+
+def test_memory_embedding_migration_preserves_explicit_selection_and_visibility():
+    from core.model_config import migrate_models
+    raw = {"memory": {"local_enabled": False, "embedding_provider_id": "current"},
+           "model": {"embedding_provider_id": "previous"},
+           "control": {"minitouch": {"binary_path": "/touch"}}}
+    migrate_models(raw)
+    assert raw["memory"]["embedding_provider_id"] == "current"
+    assert "embedding_provider_id" not in raw["model"]
+    assert raw["control"]["minitouch_enabled"] is True
+    assert not migrate_models(raw)
+    parsed = PhoneConfig.from_mapping(raw)
+    assert parsed.recall.embedding_provider_id == "current"
+    assert parsed.prompt.app_memory_embedding_provider_id == "current"
+    assert parsed.control.minitouch.binary_path == "/touch"
+    raw["control"]["minitouch_enabled"] = False
+    assert PhoneConfig.from_mapping(raw).control.minitouch.binary_path == ""
+    schema = json.loads((Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text())
+    assert schema["memory"]["items"]["embedding_provider_id"]["condition"] == {"local_enabled": True}
+    assert schema["control"]["items"]["scrcpy"]["condition"] == {"backend": "scrcpy"}
+    assert schema["control"]["items"]["minitouch"]["condition"] == {"minitouch_enabled": True}
+    assert all(item["condition"] == {"enabled": True}
+               for key, item in schema["traffic"]["items"].items() if key != "enabled")

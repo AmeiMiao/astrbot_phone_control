@@ -10,7 +10,6 @@ from .config_migration import _atomic_write, _read
 MODEL_SOURCES = {
     "asr_provider_id": (("media", "asr_provider_id"),),
     "vision_provider_id": (("media", "vision_provider_id"), ("perception", "ocr_provider_id")),
-    "embedding_provider_id": (("recall", "embedding_provider_id"),),
     "app_memory_embedding_provider_id": (("prompt", "app_memory_embedding_provider_id"),),
 }
 
@@ -28,6 +27,18 @@ def migrate_models(raw):
                 value = card.pop(field, "")
                 if not str(model.get(key) or "").strip() and str(value or "").strip():
                     model[key] = value
+    memory = raw.setdefault("memory", {})
+    if isinstance(memory, dict):
+        for group in ("model", "recall"):
+            source = raw.get(group)
+            if isinstance(source, dict):
+                value = source.pop("embedding_provider_id", "")
+                if not memory.get("embedding_provider_id") and value:
+                    memory["embedding_provider_id"] = value
+    control = raw.get("control")
+    if isinstance(control, dict) and "minitouch_enabled" not in control:
+        touch = control.get("minitouch", {})
+        control["minitouch_enabled"] = bool(isinstance(touch, dict) and touch.get("binary_path"))
     auto = raw.get("auto")
     if isinstance(auto, dict):
         auto.pop("share_target", None)
@@ -57,7 +68,7 @@ def populate_embedding_options(config, context):
     getter = getattr(context, "get_all_embedding_providers", None)
     providers = getter() if callable(getter) else []
     options = [""] + sorted({_provider_id_of(p) for p in providers})
-    items = schema.get("model", {}).get("items", {})
-    for key in ("embedding_provider_id", "app_memory_embedding_provider_id"):
+    for group, key in (("memory", "embedding_provider_id"), ("model", "app_memory_embedding_provider_id")):
+        items = schema.get(group, {}).get("items", {})
         if key in items:
             items[key]["options"] = options

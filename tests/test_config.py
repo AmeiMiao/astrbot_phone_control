@@ -1412,7 +1412,8 @@ def test_conf_schema_recall_card():
         assert items[name]["default"] == default, name
         assert items[name].get("description")
         assert items[name].get("hint")
-    model_embedding = schema["model"]["items"]["embedding_provider_id"]
+    model_embedding = schema["memory"]["items"]["embedding_provider_id"]
+    assert model_embedding["condition"] == {"local_enabled": True}
     assert "embedding_provider_id" not in items
     assert model_embedding["type"] == "string" and model_embedding["default"] == ""
     assert model_embedding["options"] == [""]
@@ -1544,7 +1545,7 @@ def test_conf_schema_group_order_is_intentional():
         )
     )
     groups = list(schema)
-    assert groups[:5] == ["adb", "security", "browse", "image", "auto"]
+    assert groups[:5] == ["adb", "security", "model", "auto", "quota"]
     assert groups.index("memory") < groups.index("recall") < groups.index("prompt")
     assert groups.index("network") > groups.index("perception")
     assert groups[-1] == "debug"
