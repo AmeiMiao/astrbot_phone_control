@@ -43,6 +43,14 @@ class Rect:
     def contains(self, x: int, y: int) -> bool:
         return self.left <= x < self.right and self.top <= y < self.bottom
 
+    def visible_center(self, width: int, height: int) -> tuple[int, int] | None:
+        """返回屏幕内交集中心；完全不可见或空矩形返回 None。"""
+        left, top = max(0, self.left), max(0, self.top)
+        right, bottom = min(width, self.right), min(height, self.bottom)
+        if left >= right or top >= bottom:
+            return None
+        return (left + right) // 2, (top + bottom) // 2
+
     def to_list(self) -> list[int]:
         return [self.left, self.top, self.right, self.bottom]
 

@@ -255,7 +255,7 @@ class PhoneTapTool(_PhoneToolBase):
             node = await self.service.find_node(text=text, desc=desc)
             if node is None:
                 return f"error: 当前界面没有找到 text={text!r} desc={desc!r} 的控件"
-            x, y = node.bounds.center
+            x, y = await self.service.node_click_point(node)
             label = node.label
         elif x == 0 and y == 0:
             return "error: 请提供 text/desc 定位控件，或提供有效的 x/y 坐标"
@@ -319,7 +319,7 @@ class PhoneLongPressTool(_PhoneToolBase):
             node = await self.service.find_node(text=text, desc=desc)
             if node is None:
                 return f"error: 当前界面没有找到 text={text!r} desc={desc!r} 的控件"
-            x, y = node.bounds.center
+            x, y = await self.service.node_click_point(node)
             label = node.label
         elif x == 0 and y == 0:
             return "error: 请提供 text/desc 定位控件，或提供有效的 x/y 坐标"

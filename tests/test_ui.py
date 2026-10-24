@@ -60,6 +60,17 @@ def run(coro):
     return asyncio.run(coro)
 
 
+@pytest.mark.parametrize("rect,expected", [
+    (Rect(-500, 20, 40, 60), (20, 40)),
+    (Rect(80, 180, 200, 400), (90, 190)),
+    (Rect(100, 0, 140, 40), None),
+    (Rect(10, 10, 10, 80), None),
+    (Rect(10, 20, 30, 60), (20, 40)),
+])
+def test_click_center_uses_visible_intersection(rect, expected):
+    assert rect.visible_center(100, 200) == expected
+
+
 class FakeAdb:
     """最小化的 AdbClient 鸭子类型，用于 dump_ui 测试。"""
 

@@ -787,13 +787,27 @@ class PhoneService:
                 desc=desc or None,
             )
             if matches and await self._ui_cache_foreground_matches(cached):
-                return matches[0]
+                return await self._visible_node(matches)
         _, snapshot = await self.screen()
         matches = snapshot.find(
             text=text or None,
             desc=desc or None,
         )
-        return matches[0] if matches else None
+        return await self._visible_node(matches)
+
+    async def _visible_node(self, matches: list[UiNode]) -> UiNode | None:
+        if not matches:
+            return None
+        width, height = await self.actions.screen_size()
+        return next((node for node in matches if node.enabled and node.bounds.visible_center(width, height) is not None), matches[0])
+
+    async def node_click_point(self, node: UiNode) -> tuple[int, int]:
+        """按当前屏幕与控件的交集定位触摸点。"""
+        width, height = await self.actions.screen_size()
+        point = node.bounds.visible_center(width, height)
+        if not node.enabled or point is None:
+            raise PhoneControlError("目标控件当前不可点击或完全在屏幕外，请重新查看屏幕并滚动到可见位置")
+        return point
 
     # ---- UI 快照缓存 ---------------------------------------------------
 
@@ -2064,6 +2078,7 @@ class PhoneService:
 
     async def tap(self, x: int, y: int) -> None:
         self.guard_device("tap")
+        x, y = await self.actions._check_point(x, y)
         backend = await self._control_backend_or_none()
         try:
             if backend is None:
@@ -2077,6 +2092,7 @@ class PhoneService:
         self, x: int, y: int, *, duration_ms: int = 800
     ) -> None:
         self.guard_device("long_press")
+        x, y = await self.actions._check_point(x, y)
         backend = await self._control_backend_or_none()
         try:
             if backend is None:
