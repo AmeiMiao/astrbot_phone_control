@@ -201,6 +201,7 @@ class PhoneWatchMediaTool(_PhoneToolBase):
         "首次试看取 media.preview_seconds，后续默认需 phone_content decide continue；auto.break_rule 开启时可直接重复调用连续分段观看；续看自动附带有界前情摘要；可传 seconds。"
         "完整视频开关开启时，需明确 stream_kind=video（点播）或 live（直播）。点播优先用手机最近流量中已观测的 video_url；获取不到时，先暂停在起点，提供 duration_seconds 和播放按钮 play_x/play_y，工具开始采集后点击播放。超过大小阈值自动分段；直播固定分段。"
         "action=finish 结束观看并释放本会话素材采集，不额外录制；默认 action=watch。"
+        "返回 processing 时本段仍在执行，保持页面再次调用领取结果，不启动新段。"
         "只录设备播放声音（output），无音频/DRM 内容时只返回画面描述。"
     )
     parameters: dict = Field(

@@ -22,6 +22,7 @@ class ContentTasks:
         self.root = service.data_dir / "content_tasks"
         self.root.mkdir(parents=True, exist_ok=True)
         self.active = {}
+        self.watches = {}
         self.lock = asyncio.Lock()
         from .media_provider import MediaProviders
 
@@ -49,6 +50,32 @@ class ContentTasks:
     @staticmethod
     def owner(event):
         return str(getattr(event, "unified_msg_origin", "") or "")
+
+    async def poll_watch(self, event, run, *, wait_seconds=20):
+        """一次观看只启动一次；耗时分析按同会话轮询领取结果。"""
+        owner = self.owner(event)
+        pending = self.watches.get(owner)
+        if pending is None:
+            pending = asyncio.create_task(run(), name=f"{PLUGIN_NAME}_watch")
+            self.watches[owner] = pending
+        try:
+            done, _ = await asyncio.wait({pending}, timeout=wait_seconds)
+            if not done:
+                task = self.active.get(owner, {})
+                return json.dumps(dict(
+                    status="processing", task_id=task.get("id", ""),
+                    understood_until=task.get("cursor", 0),
+                    next="本段仍在采集或分析，请保持当前内容并再次调用 phone_watch_media 领取同一次结果；不要重复开始、切换内容或结束本轮。action=finish 可取消。",
+                ), ensure_ascii=False)
+            return pending.result()
+        except asyncio.CancelledError:
+            pending.cancel()
+            with suppress(asyncio.CancelledError):
+                await pending
+            raise
+        finally:
+            if pending.done() and self.watches.get(owner) is pending:
+                self.watches.pop(owner, None)
 
     def history(self, task):
         record = {
@@ -606,9 +633,15 @@ class ContentTasks:
 
     async def finish_owner(self, owner, *, abnormal):
         task = self.active.pop(owner, None)
+        if task is not None:
+            task["status"] = "failed" if abnormal else "completed"
+        pending = self.watches.pop(owner, None)
+        if pending is not None and pending is not asyncio.current_task():
+            pending.cancel()
+            with suppress(asyncio.CancelledError):
+                await pending
         if task is None:
             return
-        task["status"] = "failed" if abnormal else "completed"
         reader = task.get("_reader")
         if reader is not None and reader is not asyncio.current_task():
             reader.cancel()
@@ -636,7 +669,7 @@ class ContentTasks:
             self.cleanup()
 
     async def close(self, abnormal=True):
-        for owner in list(self.active):
+        for owner in list(set(self.active) | set(self.watches)):
             await self.finish_owner(owner, abnormal=abnormal)
         await self.providers.close()
 

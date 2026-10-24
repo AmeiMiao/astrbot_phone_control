@@ -37,6 +37,45 @@ def service(tmp_path, clean=True):
     )
 
 
+def test_watch_poll_submits_once_and_returns_same_result(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        e = SimpleNamespace(unified_msg_origin="owner")
+        ready = asyncio.Event()
+        calls = []
+        async def slow():
+            calls.append(1)
+            await ready.wait()
+            return '{"summary":"同一次观看结果"}'
+        assert json.loads(await m.poll_watch(e, slow, wait_seconds=0))["status"] == "processing"
+        await asyncio.sleep(0)
+        assert json.loads(await m.poll_watch(e, slow, wait_seconds=0))["status"] == "processing"
+        assert calls == [1]
+        ready.set()
+        assert json.loads(await m.poll_watch(e, slow, wait_seconds=1))["summary"] == "同一次观看结果"
+        assert not m.watches
+        await m.close()
+    asyncio.run(run())
+
+
+def test_finish_cancels_pending_watch_before_material_is_ready(tmp_path):
+    async def run():
+        m = ContentTasks(service(tmp_path))
+        e = SimpleNamespace(unified_msg_origin="owner")
+        canceled = asyncio.Event()
+        async def slow():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                canceled.set()
+        await m.poll_watch(e, slow, wait_seconds=0)
+        await asyncio.sleep(0)
+        await m.finish_owner("owner", abnormal=False)
+        assert canceled.is_set() and not m.watches and not m.active
+        await m.close()
+    asyncio.run(run())
+
+
 def test_expired_assets_survive_active_task_and_clean_after_finish(tmp_path):
     async def run():
         m = ContentTasks(service(tmp_path))

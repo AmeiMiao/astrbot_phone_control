@@ -1235,6 +1235,13 @@ class PhoneService:
         return provider_id, "当前会话 Provider"
 
     async def watch_media(self, event: Any, *, seconds: float = 0, question: str = "", mode: str = "auto", stream_kind: str = "auto", video_url: str = "", duration_seconds: float = 0, play_x=None, play_y=None) -> str:
+        getter = getattr(event, "get_extra", None)
+        run = lambda: self._watch_media_direct(event, seconds=seconds, question=question, mode=mode, stream_kind=stream_kind, video_url=video_url, duration_seconds=duration_seconds, play_x=play_x, play_y=play_y)
+        if callable(getter) and getter("phone_agent_run_active"):
+            return await self.contents.poll_watch(event, run)
+        return await run()
+
+    async def _watch_media_direct(self, event: Any, *, seconds=0, question="", mode="auto", stream_kind="auto", video_url="", duration_seconds=0, play_x=None, play_y=None) -> str:
         """按配置识别完整点播或连续片段，直播始终分段。"""
         self.guard_device("watch_media")
         self.ensure_configured()
