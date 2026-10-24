@@ -198,7 +198,7 @@ class PhoneWatchMediaTool(_PhoneToolBase):
         "识别手机当前正在播放的视频/直播/音乐内容：配置视频模型时回传带原音轨的分段视频；其余方式录制声音并转写为文字，"
         "同时在录制期间抓关键画面交给视觉模型描述，返回『语音转写 + 画面描述』。"
         "标题/评论/弹幕不足以判断内容，或刷视频、看直播需要真正理解时使用；"
-        "首次试看取 media.preview_seconds，后续默认需 phone_content decide continue；auto.break_rule 开启时可直接重复调用连续分段观看；可传 seconds。"
+        "首次试看取 media.preview_seconds，后续默认需 phone_content decide continue；auto.break_rule 开启时可直接重复调用连续分段观看；续看自动附带有界前情摘要；可传 seconds。"
         "action=finish 结束观看并释放本会话素材采集，不额外录制；默认 action=watch。"
         "只录设备播放声音（output），无音频/DRM 内容时只返回画面描述。"
     )

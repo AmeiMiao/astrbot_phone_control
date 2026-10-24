@@ -482,3 +482,29 @@ def test_separate_video_audio_requires_explicit_asr(tmp_path):
         with pytest.raises(PhoneControlError,match='选择语音识别模型'):
             await m.understand_video(None,{'id':'fixture','video_provider_id':'video','question':''},0,3,tmp_path/'audio.wav')
     asyncio.run(run())
+
+
+def test_next_video_request_carries_previous_summary_without_resending_video(tmp_path, monkeypatch):
+    async def run():
+        s=service(tmp_path)
+        s.app_context=SimpleNamespace(get_provider_by_id=lambda _:SimpleNamespace())
+        s.record_internal_usage=lambda *a,**kw:None
+        m=ContentTasks(s)
+        task=await m.begin(SimpleNamespace(unified_msg_origin='owner'),kind='post',content_id='fixture')
+        task.update(video_provider_id='video',summaries=['前段小林拿到了蓝色钥匙。'],summary_ranges=[[0,3]])
+        async def encode(frames,start,end,audio,out):
+            assert (start,end)==(3,6)
+            out.write_bytes(b'only-current-video')
+            return out
+        async def generate(**kwargs):
+            assert '前段小林拿到了蓝色钥匙' in kwargs['prompt'] and '0–3 秒' in kwargs['prompt']
+            assert '3.0–6.0 秒' in kwargs['prompt']
+            assert kwargs['video_path'].read_bytes()==b'only-current-video'
+            assert 'image_urls' not in kwargs
+            return SimpleNamespace(completion_text='本段用钥匙开门。',usage=None)
+        monkeypatch.setattr('core.media_video.encode_segment',encode)
+        m.providers.generate=generate
+        result=await m.understand_video(None,task,3,6,None)
+        assert '开门' in result
+        await m.close()
+    asyncio.run(run())

@@ -13,6 +13,7 @@ import time
 import uuid
 
 from .errors import PhoneControlError
+from .media_context import video_context
 
 
 class ContentTasks:
@@ -57,6 +58,7 @@ class ContentTasks:
                 "status",
                 "cursor",
                 "summaries",
+                "summary_ranges",
                 "decisions",
                 "error",
             )
@@ -110,6 +112,7 @@ class ContentTasks:
                 cursor=0.0,
                 decisions=[],
                 summaries=[],
+                summary_ranges=[],
                 frames=[],
                 heartbeat=time.time(),
                 video_provider_id=str(self.service.config.model.video_provider_id or "") if kind == "video" and mode != "audio" else "",
@@ -360,6 +363,8 @@ class ContentTasks:
             if task["status"] != "active":
                 raise PhoneControlError(task.get("error", "内容任务已结束"))
             task["summaries"].append(result)
+            if task["kind"] == "video":
+                task.setdefault("summary_ranges", []).append([start, task["cursor"]])
             self.write(task)
             return {
                 "task_id": task["id"],
@@ -386,6 +391,8 @@ class ContentTasks:
             + "\n"
             + text
         )
+        if task.get("kind") == "video":
+            prompt += video_context(task)
         if audio is None:
             prompt += "\n本次未提供音频，不得推测或编造声音内容。"
         if audio is not None:
@@ -511,6 +518,7 @@ class ContentTasks:
         if self.providers.provider(provider_id) is None:
             raise PhoneControlError(f"未找到视频识别模型「{provider_id}」")
         prompt = f"这是手机屏幕按 2 FPS 采样的视频片段，时间 {start:.1f}–{end:.1f} 秒。只描述本段实际画面、动作与文字。\n" + task["question"]
+        prompt += video_context(task)
         audio_note = ""
         if audio is None:
             prompt += "\n本段未提供原音频；MP4 的音轨为生成的静音占位，不得推测声音。"
