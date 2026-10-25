@@ -375,7 +375,7 @@ class PhoneInputTextTool(_PhoneToolBase):
 
     name: str = "phone_input_text"
     description: str = (
-        "向当前聚焦的输入框输入文本（支持中文，需设备安装 ADBKeyboard）；"
+        "向当前聚焦的输入框输入文本（支持中文；App 模式通过本机控制通道，直连使用 ADBKeyboard 或 scrcpy）；"
         "先点击编辑框使其聚焦。replace=true 替换实际输入，placeholder 不是旧内容。"
         "输入后核对实际关键词；press_enter 仅验证后回车，App 有搜索按钮时保持 false。模拟器无需软键盘。"
     )

@@ -170,15 +170,12 @@ final class LocalAdb extends AbsAdbConnectionManager {
         byte[] data = new byte[size]; controlIn.readFully(data);
         return new JSONObject().put("text", new String(data, "UTF-8"));
     }
-    synchronized JSONObject input(String text, boolean enter) throws Exception {
+    synchronized JSONObject input(String id, String text, boolean enter) throws Exception {
         ensureControl();
-        byte[] data = text.getBytes("UTF-8");
-        if (data.length > 262000) throw new IOException("输入文本过大");
-        controlOut.writeByte(9); controlOut.writeLong(++sequence); controlOut.writeBoolean(true);
-        controlOut.writeInt(data.length); controlOut.write(data); controlOut.flush();
-        if (controlIn.readUnsignedByte() != 1 || controlIn.readLong() != sequence)
-            throw new IOException("输入确认无效；本次不重试");
-        if (enter) shell("enter", "input keyevent 66", 8192);
+        ClipboardInput.input(controlIn, controlOut, ++sequence, text, () -> {
+            JSONObject result = shell(id, "input keyevent 279" + (enter ? " 66" : ""), 8192);
+            if (result.getInt("rc") != 0) throw new IOException("粘贴命令失败；本次不重试");
+        });
         return new JSONObject();
     }
     private void closeControl() {

@@ -7,6 +7,9 @@ SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$OUT_DIR/test-classes"
 "$JAVA_HOME/bin/javac" -classpath "$OUT_DIR/deps/libadb.jar" -d "$OUT_DIR/test-classes" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/LocalAdbInputStream.java" \
-  "$SOURCE_DIR/tests/LocalAdbInputStreamTest.java"
+  "$SOURCE_DIR/src/fun/acat/phonerelay/ClipboardInput.java" \
+  "$SOURCE_DIR/tests/LocalAdbInputStreamTest.java" \
+  "$SOURCE_DIR/tests/ClipboardInputTest.java"
 "$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes:$OUT_DIR/deps/libadb.jar" \
   fun.acat.phonerelay.LocalAdbInputStreamTest
+"$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes" fun.acat.phonerelay.ClipboardInputTest

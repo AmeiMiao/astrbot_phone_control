@@ -149,7 +149,7 @@ public final class ControlService extends Service {
                     case "shell": data = local.shell(id, params.getString("command"), Math.min(8 * 1024 * 1024, params.optInt("limit", 8192))); break;
                     case "nodes": data = local.nodes(id, 8 * 1024 * 1024); break;
                     case "clipboard": data = local.clipboard(); break;
-                    case "input": data = local.input(params.getString("text"), params.optBoolean("press_enter")); break;
+                    case "input": data = local.input(id, params.getString("text"), params.optBoolean("press_enter")); break;
                     default: throw new IOException("不支持的控制能力");
                 }
                 for (Iterator<String> keys = data.keys(); keys.hasNext();) { String key = keys.next(); result.put(key, data.get(key)); }
