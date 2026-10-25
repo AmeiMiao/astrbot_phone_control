@@ -64,8 +64,8 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                     "type": "string",
                     "enum": ["auto", "captcha", "quiz"],
                     "description": (
-                        "auto（默认，按识图结果自动判断）/ captcha（强制按人机验证处理）/ "
-                        "quiz（强制按答题/测试处理）。"
+                        "auto（默认，按识图结果自动判断）/ captcha（只处理已识别的人机验证）/ "
+                        "quiz（只处理已识别的答题/测试）；普通页面仅返回摘要。"
                     ),
                     "default": "auto",
                 },
@@ -99,6 +99,13 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         if controller is None:
             run = await self._solve_impl(context, **kwargs)
             return run.result
+        observation = None
+        if not getattr(controller, "active", True):
+            # 首次只读识别不建立验证会话；识别成功后才启动有期限的动作尝试。
+            inspected = await self._solve_impl(context, inspect_only=True, **kwargs)
+            if inspected.observation is None:
+                return inspected.result
+            observation = inspected.observation
         allowed, reason = await controller.reserve_attempt(event, kind="solver")
         if not allowed:
             return reason
@@ -109,7 +116,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         # 无限；求解期间的设备动作要按当前单次尝试/会话剩余期限复查。
         with self._gate_scope_after_reservation(event):
             run = await self._solve_racing_cancel(
-                context, controller, identity, **kwargs
+                context, controller, identity, observation=observation, **kwargs
             )
         if run is None:
             return "验证暂停，已中止在途求解（本次结果未提交，请等待用户处理）"
@@ -275,7 +282,8 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
     ) -> _SolveRun:
         event = _event_of(context)
         controller = getattr(self.service, "verification", None)
-        structured = controller is not None
+        inspect_only = bool(_kwargs.get("inspect_only"))
+        structured = controller is not None and not inspect_only
         identity = identity or verification_mod.current_identity(
             getattr(controller, "state", None)
         )
@@ -320,47 +328,51 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 structured,
             )
 
-        # 第一阶段：快速截图 + 识图（内容摘要 / 是否验证码 / 是否答题）
-        try:
-            data, path, meta = await self.service.capture(
-                fast=True, quiet=True, record_metric=False, persist=False
-            )
-        except PhoneControlError as exc:
-            return self._failed_run(
-                f"error: 快速截图失败：{exc}；可改用 phone_bypass_verify capture 后手动操作",
-                "快速截图失败",
-                identity,
-                structured,
-            )
-        try:
-            first, first_text = await _vision_json(
-                app_context,
-                provider_id,
-                _SOLVE_FIRST_PROMPT,
-                path,
-                timeout_s,
-                service=self.service,
-                event=event,
-                source="internal:solve_verification",
-            )
-        except asyncio.TimeoutError:
-            return self._failed_run(
-                f"error: 识图超时（>{timeout_s:.0f}s，provider={provider_id}）；建议用 "
-                "phone_bypass_verify capture 看验证形式后手动 drag/tap_points，或调大 "
-                "perception.verify_timeout_seconds / 检查视觉 Provider 是否支持图片输入",
-                "识图超时",
-                identity,
-                structured,
-            )
-        except Exception as exc:  # noqa: BLE001 - 视觉调用失败给可操作建议
-            return self._failed_run(
-                f"error: 识图调用失败（provider={provider_id}）：{exc}；建议用 "
-                "phone_bypass_verify capture 后手动 drag/tap_points，或检查 AstrBot"
-                "「图片描述 Provider」/插件 perception.ocr_provider_id 配置",
-                "识图调用失败",
-                identity,
-                structured,
-            )
+        observation = _kwargs.get("observation")
+        if observation is not None:
+            data, path, meta, first, first_text = observation
+        else:
+            # 第一阶段：快速截图 + 识图（内容摘要 / 是否验证码 / 是否答题）
+            try:
+                data, path, meta = await self.service.capture(
+                    fast=True, quiet=True, record_metric=False, persist=False
+                )
+            except PhoneControlError as exc:
+                return self._failed_run(
+                    f"error: 快速截图失败：{exc}；可改用 phone_bypass_verify capture 后手动操作",
+                    "快速截图失败",
+                    identity,
+                    structured,
+                )
+            try:
+                first, first_text = await _vision_json(
+                    app_context,
+                    provider_id,
+                    _SOLVE_FIRST_PROMPT,
+                    path,
+                    timeout_s,
+                    service=self.service,
+                    event=event,
+                    source="internal:solve_verification",
+                )
+            except asyncio.TimeoutError:
+                return self._failed_run(
+                    f"error: 识图超时（>{timeout_s:.0f}s，provider={provider_id}）；建议用 "
+                    "phone_bypass_verify capture 看验证形式后手动 drag/tap_points，或调大 "
+                    "perception.verify_timeout_seconds / 检查视觉 Provider 是否支持图片输入",
+                    "识图超时",
+                    identity,
+                    structured,
+                )
+            except Exception as exc:  # noqa: BLE001 - 视觉调用失败给可操作建议
+                return self._failed_run(
+                    f"error: 识图调用失败（provider={provider_id}）：{exc}；建议用 "
+                    "phone_bypass_verify capture 后手动 drag/tap_points，或检查 AstrBot"
+                    "「图片描述 Provider」/插件 perception.ocr_provider_id 配置",
+                    "识图调用失败",
+                    identity,
+                    structured,
+                )
         if first is None:
             preview = _clean_solve_text(first_text, 120) or "（空响应）"
             return self._failed_run(
@@ -375,10 +387,16 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         is_captcha = _as_bool(first.get("is_captcha"))
         is_quiz = _as_bool(first.get("is_quiz"))
         captcha_type = _normalize_captcha_type(first.get("captcha_type"))
+        if ((mode == "captcha" and is_quiz and not is_captcha)
+                or (mode == "quiz" and is_captcha and not is_quiz)):
+            return self._failed_run(
+                "error: 检测到的验证/答题类型与 mode 不匹配，未执行操作；请用 mode=auto 识别",
+                "验证类型与所选模式不匹配", identity, structured,
+            )
         if mode == "captcha":
-            is_captcha, is_quiz = True, False
+            is_quiz = False
         elif mode == "quiz":
-            is_captcha, is_quiz = False, True
+            is_captcha = False
         if is_captcha and captcha_type == "none":
             captcha_type = "sequence"
         mime = _capture_mime(meta)
@@ -404,6 +422,9 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 ),
                 outcome=outcome,
             )
+
+        if inspect_only:
+            return _SolveRun(result="", observation=(data, path, meta, first, first_text))
 
         # 第二阶段：重新截图 + 让视觉模型给出操作序列与最终确认点
         kind = "quiz" if is_quiz else "captcha"

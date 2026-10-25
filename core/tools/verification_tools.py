@@ -44,7 +44,8 @@ class PhoneBypassVerifyTool(_PhoneToolBase):
         "文字类验证）；slide=自动在当前界面找滑块并拖到最右（简单滑块）。遇到滑块/顺序"
         "点击/识图验证优先用本工具：先 capture 看清验证形式，再选 drag/tap_points/slide "
         "一次解决，不要反复 phone_screen(mode=ui) 空等。复杂验证优先 "
-        "phone_solve_verification，本工具做手动精细控制。"
+        "phone_solve_verification，本工具做手动精细控制。首次写操作需界面存在验证提示；"
+        "纯图片验证先用 phone_solve_verification 识别。普通按钮使用 phone_tap/phone_swipe。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
@@ -122,6 +123,20 @@ class PhoneBypassVerifyTool(_PhoneToolBase):
         controller = getattr(self.service, "verification", None)
         if controller is None or action == "capture" or action not in _VERIFY_ACTIONS:
             return await self._bypass_impl(context, **kwargs)
+        if action == "tap_points" and not _normalize_points(kwargs.get("points")):
+            return "error: tap_points 需要有效的顺序点击坐标列表；未开始验证尝试"
+        if not getattr(controller, "active", False):
+            # 验证会话的首次写入以当前页面证据为依据，避免普通点击占用验证控制器。
+            try:
+                text, _ = await asyncio.wait_for(self.service.screen(max_nodes=80), 12)
+            except Exception as exc:
+                return f"error: 验证页面观察失败（{type(exc).__name__}），未开始验证尝试；请先截图确认"
+            if not verification_mod.challenge_present(text):
+                return (
+                    "error: 当前页面未检测到验证提示，未执行验证动作或建立验证会话；"
+                    "普通按钮请使用 phone_tap/phone_swipe，纯图片验证请先用 "
+                    "phone_solve_verification(mode=auto) 识别"
+                )
         allowed, reason = await controller.reserve_attempt(event, kind="bypass")
         if not allowed:
             return reason
@@ -475,6 +490,7 @@ class _SolveRun:
 
     result: ToolExecResult
     outcome: Any = None
+    observation: Any = None
 
 
 def _append_text(result: ToolExecResult, text: str) -> ToolExecResult:

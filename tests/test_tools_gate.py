@@ -1186,3 +1186,115 @@ def test_recoverable_record_summary_keeps_reservation_and_uses_elastic_limit(tmp
     service.interactions.finish_run(interaction_run(ctx.context.event))
     assert not service.interactions.reservations()
     assert "已预留" in run(gate.call(FakeToolContext(FakeEvent()), kind="post"))
+
+
+@pytest.mark.parametrize('mode', ['auto', 'captcha', 'quiz'])
+def test_explicit_solve_mode_cannot_turn_ordinary_page_into_challenge(monkeypatch, outcome_api, mode):
+    first = {'content': '普通评论编辑页，发送按钮', 'is_captcha': False,
+             'is_quiz': False, 'captcha_type': 'none'}
+    _patch_vision(monkeypatch, first)
+    controller = FakeController()
+    service = FakeService(verification=controller)
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent()), mode=mode))
+    assert '未检测到验证码/答题页面' in tools_mod._result_text(result)
+    assert not service.executed_ops
+    assert len(controller.submitted) == 1
+    assert controller.submitted[0].outcome == 'not_challenge'
+    assert service.capture_calls == 1
+
+
+def test_bypass_ordinary_page_does_not_create_session_or_touch_device(monkeypatch):
+    controller = FakeController()
+    service = FakeService(verification=controller)
+    service.screen_text = '评论编辑页：来说点什么吧 发送'
+    called = []
+    async def bypass(**kwargs):
+        called.append(kwargs)
+        return 'unexpected', None, 'image/png'
+    service.bypass_verify = bypass
+    tool = tools_mod.PhoneBypassVerifyTool(service=service)
+    text = run(tool.call(FakeToolContext(FakeEvent()), action='tap_points', points=[{'x': 600, 'y': 1060}]))
+    assert '未检测到验证提示' in text and 'phone_tap' in text
+    assert not controller.state and not controller.reserve_calls and not called
+    assert not controller.paused
+
+
+def test_bypass_unobservable_page_does_not_reserve_attempt():
+    controller = FakeController()
+    service = FakeService(verification=controller)
+    async def screen(**kwargs):
+        raise TimeoutError('UI unavailable')
+    service.screen = screen
+    tool = tools_mod.PhoneBypassVerifyTool(service=service)
+    text = run(tool.call(FakeToolContext(FakeEvent()), action='drag', x1=10, y1=20, x2=40, y2=20))
+    assert '观察失败' in text
+    assert not controller.reserve_calls and not controller.state
+
+
+def test_bypass_verified_page_still_reserves_and_executes_once():
+    controller = FakeController()
+    service = FakeService(verification=controller)
+    calls = []
+    async def bypass(**kwargs):
+        calls.append(kwargs)
+        return '完成一次拖动', None, 'image/png'
+    async def finish(*args, **kwargs):
+        calls.append('finish')
+    service.bypass_verify = bypass
+    controller.finish_attempt = finish
+    tool = tools_mod.PhoneBypassVerifyTool(service=service)
+    text = run(tool.call(FakeToolContext(FakeEvent()), action='drag', x1=10, y1=20, x2=40, y2=20, include_image=False))
+    assert '完成一次拖动' in text and controller.reserve_calls == ['bypass']
+    assert len(calls) == 2 and calls[-1] == 'finish'
+
+
+@pytest.mark.parametrize('mode,captcha,quiz', [('quiz', True, False), ('captcha', False, True)])
+def test_wrong_solve_mode_keeps_real_challenge_unresolved(monkeypatch, mode, captcha, quiz):
+    _patch_vision(monkeypatch, {'content': '实际挑战', 'is_captcha': captcha,
+                              'is_quiz': quiz, 'captcha_type': 'slider' if captcha else 'none'})
+    controller = FakeController()
+    service = FakeService(verification=controller)
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent()), mode=mode))
+    assert '类型与 mode 不匹配' in tools_mod._result_text(result)
+    assert not service.executed_ops and len(controller.submitted) == 1
+    assert controller.submitted[0].outcome != 'not_challenge'
+    assert controller.submitted[0].outcome != 'cleared'
+
+
+@pytest.mark.parametrize('mode', ['auto', 'captcha', 'quiz'])
+def test_first_solve_observes_ordinary_page_without_starting_session(monkeypatch, outcome_api, mode):
+    _patch_vision(monkeypatch, {'content': '普通评论页', 'is_captcha': False,
+                              'is_quiz': False, 'captcha_type': 'none'})
+    controller = FakeController()
+    controller.active = False
+    service = FakeService(verification=controller)
+    text = tools_mod._result_text(run(_solve_tool(service).call(FakeToolContext(FakeEvent()), mode=mode)))
+    assert '未检测到验证码/答题页面' in text
+    assert not controller.state and not controller.reserve_calls and not controller.submitted
+    assert not service.executed_ops
+
+
+def test_first_solve_identification_timeout_does_not_pause_phone(monkeypatch):
+    async def timeout(*a, **kw):
+        raise TimeoutError('vision timed out')
+    monkeypatch.setattr(tools_mod.solve, '_vision_json', timeout)
+    monkeypatch.setattr(tools_mod.solve, '_resolve_ocr_provider', lambda *a: ('eyes', ''))
+    controller = FakeController()
+    controller.active = False
+    service = FakeService(verification=controller)
+    text = tools_mod._result_text(run(_solve_tool(service).call(FakeToolContext(FakeEvent()), mode='captcha')))
+    assert '识图超时' in text
+    assert not controller.state and not controller.reserve_calls and not controller.paused
+    assert not service.executed_ops
+
+
+def test_first_real_challenge_reuses_identification_before_bounded_attempt(monkeypatch, outcome_api):
+    _patch_vision(monkeypatch, {'content': '滑块', 'is_captcha': True, 'is_quiz': False,
+                              'captcha_type': 'slider'}, {'ops': [{'action': 'tap', 'x': 10, 'y': 20}]})
+    controller = FakeController()
+    controller.active = False
+    service = FakeService(verification=controller)
+    run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+    assert controller.reserve_calls == ['solver'] and len(controller.submitted) == 1
+    assert len(service.executed_ops) == 1
+    assert service.capture_calls == 3  # 首次识别、求解前新截图、操作后截图。

@@ -26,7 +26,7 @@ description: 人机验证/做题手册：识别滑块/顺序点击/识图/拼图
 
 参数：
 
-- `mode=auto|captcha|quiz`：默认 auto 自动判断；明确知道是验证码/做题时可指定；
+- `mode=auto|captcha|quiz`：默认 auto 自动判断；captcha/quiz 筛选实际检测类型，普通页面仅返回摘要；首次只读识别完成后才开始验证尝试计时；
 - `include_image`：是否回传截图（默认 true）；
 - `timeout_seconds`：每次视觉模型调用超时，0=用 `perception.verify_timeout_seconds`
   （默认 30s），再回退 `perception.ocr_timeout_seconds`；实际还会被单次尝试剩余时间
@@ -81,7 +81,7 @@ description: 人机验证/做题手册：识别滑块/顺序点击/识图/拼图
 | `tap_points` | 顺序点击：一次调用按顺序点击多个点（顺序点击/点选文字/图形） | `points=[{x,y}, ...]`（1–12 个），`interval_ms`（默认 250） |
 | `slide` | 自动在当前界面找滑块并拖到最右（标准横向滑块） | 无 |
 
-所有动作都可带 `include_image=true`（默认）返回操作后的截图，便于校验。
+所有动作都可带 `include_image=true`（默认）返回操作后的截图，便于校验。首次写操作需在当前页面读取到验证提示；纯图片挑战先用 solver 识别。普通按钮使用 phone_tap，普通拖动使用 phone_swipe。
 
 ## 手动推荐流程
 
