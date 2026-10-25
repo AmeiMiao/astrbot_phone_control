@@ -110,7 +110,7 @@ public final class MainActivity extends Activity {
         if (status == null) return;
         String summary = selectedPage == 3 ? RelayService.status : ControlService.status;
         if (!summary.contentEquals(status.getText())) status.setText(summary);
-        boolean connected = ControlService.status.startsWith("App 控制已连接");
+        boolean connected = ControlService.connected;
         String badge = selectedPage == 3 ? "组网中转" : connected ? "已连接" : "待连接";
         if (!badge.contentEquals(statusBadge.getText())) statusBadge.setText(badge);
         statusBadge.setTextColor(connected && selectedPage != 3 ? ui.green : ui.muted);

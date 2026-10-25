@@ -16,6 +16,7 @@ import org.json.JSONObject;
 /** App 主动建立固定证书 TLS 连接，本机 ADB 执行请求。 */
 public final class ControlService extends Service {
     public static volatile String status = "App 控制已停止";
+    public static volatile boolean connected;
     public static volatile JSONObject updateInfo;
     private volatile boolean running;
     private volatile SSLSocket socket;
@@ -104,6 +105,7 @@ public final class ControlService extends Service {
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
                 session = ready.getString("session"); lastRequestSequence = 0;
+                connected = true;
                 status = "App 控制已连接；本机 ADB 权限：shell";
                 ScheduledFuture<?> heartbeat = timers.scheduleAtFixedRate(() -> {
                     try { send(new JSONObject().put("type", "ping")); }
@@ -210,6 +212,7 @@ public final class ControlService extends Service {
     }
     private void closeSocket() { SSLSocket s = socket; socket = null; if (s != null) try { s.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭连接失败", e); } }
     private void cleanupConnection() {
+        connected = false;
         session = null; closeSocket(); output = null;
         for (String id : jobs.keySet()) cancel(id);
         for (CompletableFuture<JSONObject> future : downloads.values()) future.completeExceptionally(new IOException("插件已断线"));
