@@ -91,7 +91,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
         AdbStream stream = openStream("shell,v2,raw:" + command);
         active.put(id, stream);
         try {
-            InputStream in = stream.openInputStream();
+            InputStream in = new LocalAdbInputStream(stream);
             ByteArrayOutputStream out = new ByteArrayOutputStream(), err = new ByteArrayOutputStream();
             while (true) {
                 int kind = in.read();
@@ -136,7 +136,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
             byte[] buf = new byte[65536]; int n;
             while ((n = jar.read(buf)) > 0) syncPacket(out, "DATA", Arrays.copyOf(buf, n), n);
             syncPacket(out, "DONE", null, (int)(System.currentTimeMillis() / 1000));
-            byte[] response = new byte[8]; exact(sync.openInputStream(), response);
+            byte[] response = new byte[8]; exact(new LocalAdbInputStream(sync), response);
             if (!new String(response, 0, 4, "US-ASCII").equals("OKAY")) throw new IOException("控制组件写入失败");
         }
     }
@@ -153,7 +153,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
             catch (IOException e) { failure = e; Thread.sleep(100); }
         }
         if (control == null) throw new IOException("手机控制通道未就绪", failure);
-        controlIn = new DataInputStream(control.openInputStream());
+        controlIn = new DataInputStream(new LocalAdbInputStream(control));
         controlOut = new DataOutputStream(control.openOutputStream());
         if (controlIn.read() != 0) throw new IOException("控制通道握手失败");
     }

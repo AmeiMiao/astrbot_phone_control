@@ -162,3 +162,61 @@ def test_bridge_close_with_live_tls_connection(tmp_path):
         assert not bridge.tasks and bridge.server is None
 
     asyncio.run(run())
+
+
+def test_request_sequences_continue_and_reset_on_reconnect(tmp_path):
+    import ssl
+
+    async def run():
+        bridge = AppBridge(tmp_path, tmp_path / "app.apk")
+        await bridge.start(0)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        async def connect():
+            reader, writer = await asyncio.open_connection(
+                "127.0.0.1", bridge.port, ssl=ctx
+            )
+            await bridge.send(
+                writer,
+                {"v": 1, "token": bridge._state["token"], "device_id": "device"},
+            )
+            ready = await bridge.read(reader)
+            return reader, writer, ready["session"]
+
+        async def respond(reader, writer, count, session):
+            ids = set()
+            for sequence in range(1, count + 1):
+                request = await bridge.read(reader)
+                assert request["seq"] == sequence
+                assert request["session"] == session
+                assert request["id"] not in ids
+                ids.add(request["id"])
+                await bridge.send(
+                    writer, {"type": "result", "id": request["id"], "rc": 0}
+                )
+
+        try:
+            reader, writer, session = await connect()
+            peer = asyncio.create_task(respond(reader, writer, 1100, session))
+            for _ in range(275):
+                await asyncio.gather(
+                    *(bridge.call("shell", command="id") for _ in range(4))
+                )
+            await peer
+            writer.close()
+            await writer.wait_closed()
+            while bridge.writer is not None:
+                await asyncio.sleep(0)
+            reader, writer, new_session = await connect()
+            assert new_session != session
+            peer = asyncio.create_task(respond(reader, writer, 1, new_session))
+            await bridge.call("shell", command="id")
+            await peer
+            writer.close()
+            await writer.wait_closed()
+        finally:
+            await bridge.close()
+
+    asyncio.run(run())

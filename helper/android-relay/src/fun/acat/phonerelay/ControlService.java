@@ -27,7 +27,7 @@ public final class ControlService extends Service {
     private ScheduledExecutorService timers;
     private final ConcurrentHashMap<String, FutureTask<Void>> jobs = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<JSONObject>> downloads = new ConcurrentHashMap<>();
-    private final Set<String> seen = Collections.synchronizedSet(new LinkedHashSet<>());
+    private long lastRequestSequence;
 
     private static void requireLocal(String host) throws Exception {
         InetAddress address = InetAddress.getByName(host);
@@ -103,7 +103,7 @@ public final class ControlService extends Service {
                     .put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
-                session = ready.getString("session"); seen.clear();
+                session = ready.getString("session"); lastRequestSequence = 0;
                 status = "App 控制已连接；本机 ADB 权限：shell";
                 ScheduledFuture<?> heartbeat = timers.scheduleAtFixedRate(() -> {
                     try { send(new JSONObject().put("type", "ping")); }
@@ -127,8 +127,10 @@ public final class ControlService extends Service {
         }
         if (!session.equals(message.optString("session"))) throw new IOException("会话已失效");
         if ("cancel".equals(type)) { cancel(id); return; }
-        if (!"call".equals(type) || !id.matches("[0-9a-f]{32}") || !seen.add(id)) throw new IOException("重复或无效请求");
-        if (seen.size() > 1024) throw new IOException("会话请求上限，重新连接");
+        long requestSequence = message.getLong("seq");
+        if (!"call".equals(type) || !id.matches("[0-9a-f]{32}") || requestSequence <= lastRequestSequence)
+            throw new IOException("重复或无效请求");
+        lastRequestSequence = requestSequence;
         long ttl = message.getLong("ttl_ms");
         if (ttl <= 0 || ttl > 300000 || jobs.size() >= 8) throw new IOException("请求期限或并发无效");
         final long deadline = SystemClock.elapsedRealtime() + ttl;

@@ -31,6 +31,7 @@ class AppBridge:
         self.peer = {}
         self.tasks = set()
         self.session = ""
+        self._sequence = 0
         self._write_lock = asyncio.Lock()
         self._state = {}
         self.fingerprint = ""
@@ -154,6 +155,7 @@ class AppBridge:
             self._save_state()
             self.writer = writer
             self.session = secrets.token_hex(16)
+            self._sequence = 0
             self.peer = {
                 "device_id": device,
                 "version": str(hello.get("version", "")),
@@ -218,11 +220,13 @@ class AppBridge:
         self.pending[request_id] = future
         deadline = time.monotonic() + timeout
         try:
+            self._sequence += 1
             await self.send(
                 writer,
                 {
                     "type": "call",
                     "session": self.session,
+                    "seq": self._sequence,
                     "id": request_id,
                     "op": op,
                     "ttl_ms": int(timeout * 1000),
