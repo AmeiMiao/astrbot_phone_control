@@ -269,11 +269,14 @@ class AppBridge:
                 await asyncio.wait_for(writer.wait_closed(), 2)
 
     async def close(self):
-        if self.server:
-            self.server.close()
-            await self.server.wait_closed()
-            self.server = None
+        server = self.server
+        self.server = None
+        if server:
+            server.close()
+        # 先关闭活动 TLS 连接，再等待监听器结束；Server.wait_closed 会等待这些连接。
         tasks = list(self.tasks)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if server:
+            await server.wait_closed()

@@ -137,3 +137,28 @@ def test_app_nodes_use_single_dump(tmp_path):
         )
 
     asyncio.run(run())
+
+
+def test_bridge_close_with_live_tls_connection(tmp_path):
+    import ssl
+
+    async def run():
+        bridge = AppBridge(tmp_path, tmp_path / "app.apk")
+        await bridge.start(0)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1", bridge.port, ssl=ctx
+        )
+        await bridge.send(
+            writer, {"v": 1, "token": bridge._state["token"], "device_id": "device"}
+        )
+        assert (await bridge.read(reader))["type"] == "ready"
+        await asyncio.wait_for(bridge.close(), 3)
+        assert await reader.read() == b""
+        writer.close()
+        await writer.wait_closed()
+        assert not bridge.tasks and bridge.server is None
+
+    asyncio.run(run())
