@@ -1,10 +1,10 @@
 """Relay App 主动连接的固定证书 TLS 通道及有期限的设备请求。"""
+
 from __future__ import annotations
 
 import asyncio
 import base64
 import contextlib
-import hashlib
 import json
 import secrets
 import ssl
@@ -49,21 +49,38 @@ class AppBridge:
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID
         from datetime import datetime, timedelta, timezone
+
         self.directory.mkdir(parents=True, exist_ok=True)
         self.directory.chmod(0o700)
         state = self.directory / "identity.json"
-        self._state = json.loads(state.read_text()) if state.exists() else {"token": secrets.token_urlsafe(32)}
+        self._state = (
+            json.loads(state.read_text())
+            if state.exists()
+            else {"token": secrets.token_urlsafe(32)}
+        )
         self._save_state()
         cert, key = self.directory / "server.pem", self.directory / "server.key"
         if not cert.exists() or not key.exists():
             private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
             name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Phone Relay")])
             now = datetime.now(timezone.utc)
-            certificate = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
-                .public_key(private.public_key()).serial_number(x509.random_serial_number())
-                .not_valid_before(now - timedelta(days=1)).not_valid_after(now + timedelta(days=3650))
-                .sign(private, hashes.SHA256()))
-            key.write_bytes(private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+            certificate = (
+                x509.CertificateBuilder()
+                .subject_name(name)
+                .issuer_name(name)
+                .public_key(private.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(now - timedelta(days=1))
+                .not_valid_after(now + timedelta(days=3650))
+                .sign(private, hashes.SHA256())
+            )
+            key.write_bytes(
+                private.private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.PKCS8,
+                    serialization.NoEncryption(),
+                )
+            )
             key.chmod(0o600)
             cert.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
         certificate = x509.load_pem_x509_certificate(cert.read_bytes())
@@ -77,14 +94,24 @@ class AppBridge:
         if self.server:
             return
         ctx = self._tls()
-        self.server = await asyncio.start_server(self._accept, "0.0.0.0", port, ssl=ctx, ssl_handshake_timeout=5)
+        self.server = await asyncio.start_server(
+            self._accept, "0.0.0.0", port, ssl=ctx, ssl_handshake_timeout=5
+        )
         self.port = self.server.sockets[0].getsockname()[1]
 
     def pairing(self, host):
         if not self.server:
             raise ActionFailedError("请先选择 App 控制并重载插件")
-        payload = {"v": 1, "host": host, "port": self.port, "token": self._state["token"], "pin": self.fingerprint}
-        return base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
+        payload = {
+            "v": 1,
+            "host": host,
+            "port": self.port,
+            "token": self._state["token"],
+            "pin": self.fingerprint,
+        }
+        return base64.urlsafe_b64encode(
+            json.dumps(payload, separators=(",", ":")).encode()
+        ).decode()
 
     @staticmethod
     async def read(reader):
@@ -111,16 +138,27 @@ class AppBridge:
         try:
             hello = await asyncio.wait_for(self.read(reader), 5)
             device = str(hello.get("device_id") or "")
-            if (hello.get("v") != 1 or not secrets.compare_digest(str(hello.get("token", "")), self._state["token"])
-                    or not device or len(device) > 128 or self.writer is not None
-                    or self._state.get("device_id", device) != device):
+            if (
+                hello.get("v") != 1
+                or not secrets.compare_digest(
+                    str(hello.get("token", "")), self._state["token"]
+                )
+                or not device
+                or len(device) > 128
+                or self.writer is not None
+                or self._state.get("device_id", device) != device
+            ):
                 return
             # 配对秘密仅授权一台设备；后续连接继续核对已绑定身份。
             self._state["device_id"] = device
             self._save_state()
             self.writer = writer
             self.session = secrets.token_hex(16)
-            self.peer = {"device_id": device, "version": str(hello.get("version", "")), "connected": True}
+            self.peer = {
+                "device_id": device,
+                "version": str(hello.get("version", "")),
+                "connected": True,
+            }
             authenticated = True
             await self.send(writer, {"type": "ready", "session": self.session, "v": 1})
             while True:
@@ -141,7 +179,9 @@ class AppBridge:
                 self.peer["connected"] = False
                 for future in self.pending.values():
                     if not future.done():
-                        future.set_exception(DeviceOfflineError("Relay App 已断线；本次操作不重试"))
+                        future.set_exception(
+                            DeviceOfflineError("Relay App 已断线；本次操作不重试")
+                        )
             writer.close()
             with contextlib.suppress(OSError, asyncio.TimeoutError):
                 await asyncio.wait_for(writer.wait_closed(), 2)
@@ -166,7 +206,9 @@ class AppBridge:
     async def call(self, op, *, timeout=30, **params):
         writer = self.writer
         if writer is None:
-            raise DeviceOfflineError("Relay App 未连接，请在手机完成本机 ADB 授权并启动控制")
+            raise DeviceOfflineError(
+                "Relay App 未连接，请在手机完成本机 ADB 授权并启动控制"
+            )
         scope = current_scope()
         if scope:
             scope.checkpoint(op)
@@ -176,18 +218,31 @@ class AppBridge:
         self.pending[request_id] = future
         deadline = time.monotonic() + timeout
         try:
-            await self.send(writer, {"type": "call", "session": self.session, "id": request_id,
-                                     "op": op, "ttl_ms": int(timeout * 1000), "params": params})
+            await self.send(
+                writer,
+                {
+                    "type": "call",
+                    "session": self.session,
+                    "id": request_id,
+                    "op": op,
+                    "ttl_ms": int(timeout * 1000),
+                    "params": params,
+                },
+            )
             while not future.done():
                 if scope:
                     scope.checkpoint(op)
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise ActionFailedError("App 操作超时；执行结果可能未知，本次操作不重试")
+                    raise ActionFailedError(
+                        "App 操作超时；执行结果可能未知，本次操作不重试"
+                    )
                 await asyncio.wait({future}, timeout=min(0.1, remaining))
             result = future.result()
             if result.get("error"):
-                raise ActionFailedError("App 操作失败", detail=str(result["error"])[:500])
+                raise ActionFailedError(
+                    "App 操作失败", detail=str(result["error"])[:500]
+                )
             return result
         finally:
             self.pending.pop(request_id, None)
@@ -195,7 +250,14 @@ class AppBridge:
                 future.cancel()
                 if self.writer is writer:
                     with contextlib.suppress(OSError, asyncio.TimeoutError):
-                        await self.send(writer, {"type": "cancel", "id": request_id, "session": self.session})
+                        await self.send(
+                            writer,
+                            {
+                                "type": "cancel",
+                                "id": request_id,
+                                "session": self.session,
+                            },
+                        )
 
     async def reset_pairing(self):
         self._state = {"token": secrets.token_urlsafe(32)}

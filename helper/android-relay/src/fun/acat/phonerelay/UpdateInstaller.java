@@ -40,16 +40,25 @@ final class UpdateInstaller {
         params.setAppPackageName(activity.getPackageName()); params.setSize(file.length());
         if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED);
         int id = installer.createSession(params);
-        try (PackageInstaller.Session session = installer.openSession(id);
-             InputStream input = new FileInputStream(file);
-             OutputStream output = session.openWrite("base.apk", 0, file.length())) {
-            byte[] buffer = new byte[65536]; int n;
-            while ((n = input.read(buffer)) > 0) output.write(buffer, 0, n);
-            session.fsync(output); output.close();
+        boolean committed = false;
+        try (PackageInstaller.Session session = installer.openSession(id)) {
+            // 写入流在提交前仅关闭一次，提交后的回调由系统接管。
+            try (InputStream input = new FileInputStream(file);
+                 OutputStream output = session.openWrite("base.apk", 0, file.length())) {
+                byte[] buffer = new byte[65536]; int n; long written = 0;
+                while ((n = input.read(buffer)) > 0) { output.write(buffer, 0, n); written += n; }
+                if (written != file.length()) throw new IOException("安装包写入不完整");
+                session.fsync(output);
+            }
+            if (!Arrays.asList(session.getNames()).contains("base.apk")) throw new IOException("安装会话未包含 APK");
             Intent callback = new Intent(activity, InstallReceiver.class);
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;
             if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
             session.commit(PendingIntent.getBroadcast(activity, id, callback, flags).getIntentSender());
-        } catch (Exception e) { installer.abandonSession(id); throw e; }
+            committed = true;
+        } catch (Exception e) {
+            if (!committed) installer.abandonSession(id);
+            throw e;
+        }
     }
 }

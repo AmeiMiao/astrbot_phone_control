@@ -14,7 +14,7 @@ mkdir -p "$OUT_DIR/classes" "$OUT_DIR/dex" "$OUT_DIR/assets"
 python3 "$SOURCE_DIR/prepare-dependencies.py" "$OUT_DIR/deps"
 cp "$SOURCE_DIR/../../bin/scrcpy-server-v5.0.1" "$OUT_DIR/assets/scrcpy-server"
 cp "$SOURCE_DIR/../../THIRD_PARTY_NOTICES.md" "$OUT_DIR/assets/third-party.txt"
-cp "$SOURCE_DIR/licenses/LGPL-3.0.txt" "$OUT_DIR/assets/LGPL-3.0.txt"
+cat "$SOURCE_DIR/licenses/LGPL-3.0.txt" "$SOURCE_DIR/licenses/GPL-3.0.txt" > "$OUT_DIR/assets/LGPL-3.0.txt"
 CLASSPATH="$PLATFORM"
 for dependency in "$OUT_DIR"/deps/*.jar; do CLASSPATH="$CLASSPATH:$dependency"; done
 "$BUILD_TOOLS/aapt2" link -o "$OUT_DIR/base.apk" --manifest "$SOURCE_DIR/AndroidManifest.xml" -I "$PLATFORM" -A "$OUT_DIR/assets"

@@ -1,10 +1,12 @@
 """下载并校验固定依赖，将类与本地库展开到构建目录。"""
+
 import hashlib
 import json
 import sys
 import urllib.request
 import zipfile
 from pathlib import Path
+
 root = Path(__file__).resolve().parent
 output = Path(sys.argv[1])
 output.mkdir(parents=True, exist_ok=True)

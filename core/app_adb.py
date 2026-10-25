@@ -1,4 +1,5 @@
 """复用设备控制契约，通过 Relay App 的本机 ADB 执行。"""
+
 from __future__ import annotations
 import base64
 import shlex
@@ -11,8 +12,15 @@ class AppAdbClient(AdbClient):
     app_mode = True
 
     def __init__(self, bridge, home_dir, *, command_timeout=30, logger=None):
-        super().__init__(None, "relay-app", 1, home_dir, defer_binary=True,
-                         command_timeout=command_timeout, logger=logger)
+        super().__init__(
+            None,
+            "relay-app",
+            1,
+            home_dir,
+            defer_binary=True,
+            command_timeout=command_timeout,
+            logger=logger,
+        )
         self.bridge = bridge
 
     async def _is_online_raw(self):
@@ -29,22 +37,46 @@ class AppAdbClient(AdbClient):
         args = list(argv)[3:]  # _base_command 的程序、-s 和 serial。
         if not args or args[0] not in ("shell", "exec-out"):
             raise ActionFailedError(APP_UNSUPPORTED)
-        if args[0] == "exec-out" and args[1:2] not in (["screencap"], ["uiautomator"], ["cat"]):
+        if args[0] == "exec-out" and args[1:2] not in (
+            ["screencap"],
+            ["uiautomator"],
+            ["cat"],
+        ):
             raise ActionFailedError(APP_UNSUPPORTED)
-        if args[0] == "exec-out" and args[1:2] == ["cat"] and not all(x.startswith("/sdcard/") and x.endswith(".xml") for x in args[2:]):
+        if (
+            args[0] == "exec-out"
+            and args[1:2] == ["cat"]
+            and not all(
+                x.startswith("/sdcard/") and x.endswith(".xml") for x in args[2:]
+            )
+        ):
             raise ActionFailedError(APP_UNSUPPORTED)
         command = args[1] if args[0] == "shell" else shlex.join(args[1:])
         if args == ["exec-out", "uiautomator", "dump", "/dev/tty"]:
-            value = await self.bridge.call("nodes", limit=8 * 1024 * 1024, timeout=timeout or self._command_timeout)
+            value = await self.bridge.call(
+                "nodes", limit=8 * 1024 * 1024, timeout=timeout or self._command_timeout
+            )
         else:
-            value = await self.bridge.call("shell", command=command, limit=output_limit or 8 * 1024 * 1024,
-                                           timeout=timeout or self._command_timeout)
-        return int(value["rc"]), base64.b64decode(value.get("stdout", ""), validate=True), base64.b64decode(value.get("stderr", ""), validate=True)
+            value = await self.bridge.call(
+                "shell",
+                command=command,
+                limit=output_limit or 8 * 1024 * 1024,
+                timeout=timeout or self._command_timeout,
+            )
+        return (
+            int(value["rc"]),
+            base64.b64decode(value.get("stdout", ""), validate=True),
+            base64.b64decode(value.get("stderr", ""), validate=True),
+        )
 
     async def _execute(self, argv, *, timeout=None, retry=True):
         rc, out, err = await self._run_adb(argv, timeout=timeout)
         if rc:
-            raise AdbCommandError("App ADB 命令失败", returncode=rc, detail=err.decode("utf-8", "replace")[:500])
+            raise AdbCommandError(
+                "App ADB 命令失败",
+                returncode=rc,
+                detail=err.decode("utf-8", "replace")[:500],
+            )
         return rc, out, err
 
     async def read_clipboard(self):
@@ -52,7 +84,9 @@ class AppAdbClient(AdbClient):
         return value.get("text", "")
 
     async def input_text(self, text, *, press_enter=False):
-        await self.bridge.call("input", text=text, press_enter=press_enter, timeout=self._command_timeout)
+        await self.bridge.call(
+            "input", text=text, press_enter=press_enter, timeout=self._command_timeout
+        )
 
     async def disconnect(self):
         self._connected = False
