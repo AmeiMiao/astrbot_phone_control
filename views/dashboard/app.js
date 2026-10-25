@@ -94,11 +94,13 @@
 
   // ---------------- 视图初始化 ----------------
   function switchView(view) {
+    stopPolls();
     state.view = view;
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.view === view);
     });
     $("view-dashboard").hidden = view !== "dashboard";
+    $("view-relay").hidden = view !== "relay";
     $("view-records").hidden = view !== "records";
     $("view-vectors").hidden = view !== "vectors";
     $("view-images").hidden = view !== "images";
@@ -109,7 +111,10 @@
       refreshOverview();
       refreshSeries();
     } else {
-      stopPolls();
+      if (view === "relay") {
+        loadAppConnection();
+        state.timers.push(setInterval(() => { if (!document.hidden) loadAppConnection(); }, 5000));
+      }
       if (view === "records") switchRecordTab(state.recordTab);
       if (view === "vectors") loadVectors();
       if (view === "images") loadImages();
@@ -138,6 +143,30 @@
   function stopPolls() {
     state.timers.forEach((timer) => clearInterval(timer));
     state.timers = [];
+  }
+
+  function renderAppConnection(value) {
+    const peer = value.peer || {};
+    const connected = value.enabled && peer.connected;
+    const badge = $("app-state");
+    badge.className = `relay-state${connected ? " connected" : ""}`;
+    badge.textContent = connected ? "已连接" : value.enabled ? "等待连接" : "直连模式";
+    setText("app-connection-title", connected ? "手机已就绪" : value.enabled ? "等待手机连接" : "开启 App 控制");
+    setText("app-connection-description", value.enabled
+      ? connected ? "连接正常，可以从插件控制这台手机。" : "在手机 App 中填写配对码并启动控制。"
+      : value.message || "在插件的 ADB 连接中选择「使用 App 控制」，保存并重载。" );
+    setText("app-endpoint", value.port ? `TCP ${value.port}` : "—");
+    setText("app-version", peer.version ? `v${peer.version}` : "—");
+    $("app-pair").disabled = !value.enabled;
+    $("app-reset").disabled = !value.enabled;
+  }
+
+  async function loadAppConnection() {
+    if (state.view !== "relay") return;
+    try {
+      const value = await apiGet("dashboard/app-connection", { host: $("app-host").value.trim() });
+      if (state.view === "relay") renderAppConnection(value);
+    } catch (error) { setText("app-status", `状态查询失败：${error.message || error}`); }
   }
 
   // ---------------- 概览 ----------------
@@ -996,6 +1025,7 @@
       state.bridge = await getBridge();
       const context = await state.bridge.ready();
       $("plugin-link").href = `#/extension/plugins/${encodeURIComponent(context.pluginName)}`;
+      $("app-config-link").href = $("plugin-link").href;
       $("plugin-refresh-link").href = `#/plugin-view/${encodeURIComponent(context.pluginName)}/dashboard`;
     } catch (err) {
       setText("page-subtitle", err.message || String(err));
@@ -1006,20 +1036,36 @@
       btn.addEventListener("click", () => switchView(btn.dataset.view));
     });
     $("app-pair").addEventListener("click", async () => {
+      $("app-pair").disabled = true;
       try {
         const value = await apiGet("dashboard/app-connection", { host: $("app-host").value.trim() });
+        renderAppConnection(value);
         $("app-code").value = value.code || "";
-        setText("app-status", value.enabled ? `端口 ${value.port}；${value.peer.connected ? "手机已连接" : "等待手机连接"}` : value.message);
-      } catch (error) { setText("app-status", error.message || String(error)); }
+        $("app-code-area").hidden = !value.code;
+        setText("app-status", value.code ? "配对码已准备好，请复制到手机 App。" : value.message);
+      } catch (error) { $("app-pair").disabled = false; setText("app-status", error.message || String(error)); }
+    });
+    $("app-refresh").addEventListener("click", loadAppConnection);
+    $("app-copy").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("app-code").value);
+        setText("app-status", "配对码已复制。");
+      } catch (_) {
+        $("app-code").focus(); $("app-code").select();
+        setText("app-status", "已选中配对码，请复制到手机 App。");
+      }
     });
     $("app-reset").addEventListener("click", async () => {
       if (!await confirmAction("断开已配对手机并生成新的配对凭据？", "确认重置配对")) return;
       try {
         const value = await state.bridge.apiPost("dashboard/app-connection", {});
-        $("app-code").value = ""; setText("app-status", value.message);
+        $("app-code").value = ""; $("app-code-area").hidden = true;
+        setText("app-status", value.message); loadAppConnection();
       } catch (error) { setText("app-status", error.message || String(error)); }
     });
     $("app-apk").addEventListener("click", async () => {
+      $("app-apk").disabled = true;
+      $("app-apk").textContent = "正在准备安装包…";
       try {
         const response = await apiGet("dashboard/app-apk");
         const bytes = Uint8Array.from(atob(response.content_base64), c => c.charCodeAt(0));
@@ -1028,6 +1074,7 @@
         const link = document.createElement("a"); link.href = url; link.download = "phone-adb-relay.apk"; link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch (error) { setText("app-status", `下载失败：${error.message || error}`); }
+      finally { $("app-apk").disabled = false; $("app-apk").textContent = "下载 Relay APK"; }
     });
     $("mesh-refresh").addEventListener("click", loadMesh);
     $("mesh-ca").addEventListener("click", async () => {
@@ -1130,6 +1177,8 @@
       if (state.view === "dashboard") {
         refreshOverview();
         refreshSeries();
+      } else if (state.view === "relay") {
+        loadAppConnection();
       } else if (state.view === "records") {
         switchRecordTab(state.recordTab);
       } else if (state.view === "vectors") {

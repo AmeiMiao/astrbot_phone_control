@@ -17,6 +17,7 @@
         </div>
         <nav class="nav">
           <button class="nav-item active" data-view="dashboard" type="button">监控面板</button>
+          <button class="nav-item" data-view="relay" type="button">Relay App</button>
           <button class="nav-item" data-view="records" type="button">浏览与学习</button>
           <button class="nav-item" data-view="vectors" type="button">记忆索引</button>
           <button class="nav-item" data-view="mesh" type="button">组网接入</button>
@@ -70,16 +71,6 @@
             <pre id="ov-traffic-preview" style="white-space:pre-wrap;max-height:260px;overflow:auto;font-size:12px;line-height:1.5;margin:8px 0 0;"></pre>
           </div>
 
-          <section class="panel" aria-label="Relay App 连接">
-            <h2>Relay App 连接</h2>
-            <p>在插件配置的 ADB 连接中选择「使用 App 控制」，保存并重载后获取配对码。手机需能访问 App 接入端口。</p>
-            <label>手机可访问的插件主机名或 IPv4 <input id="app-host" type="text" placeholder="留空使用当前面板主机" /></label>
-            <button id="app-pair" type="button">获取 App 配对码</button>
-            <button id="app-apk" type="button">下载 Relay APK</button>
-            <button id="app-reset" type="button">重置 App 配对</button>
-            <p id="app-status" role="status"></p>
-            <textarea id="app-code" readonly rows="4" aria-label="App 配对码" placeholder="配对码包含设备连接凭据，请仅填入自己的 Relay App"></textarea>
-          </section>
 
           <section class="panel">
             <div class="panel-head">
@@ -111,6 +102,43 @@
           </p>
         </section>
 
+
+        <section id="view-relay" class="view" hidden>
+          <header class="page-head">
+            <div><h1>Relay App</h1><p class="subtitle">连接手机，查看画面并执行控制。</p></div>
+            <button id="app-refresh" class="btn ghost" type="button">刷新状态</button>
+          </header>
+          <div class="relay-hero card">
+            <div class="relay-phone" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><rect x="8" y="3" width="16" height="26" rx="4" stroke="currentColor" stroke-width="2"/><path d="M13 7h6M14 25h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+            <div class="relay-hero-copy"><span id="app-state" class="relay-state" role="status">正在查询</span><h2 id="app-connection-title">连接你的手机</h2><p id="app-connection-description">手机启动 App 控制后，连接状态会在这里显示。</p></div>
+            <dl class="relay-facts"><div><dt>接入端口</dt><dd id="app-endpoint">—</dd></div><div><dt>手机 App 版本</dt><dd id="app-version">—</dd></div></dl>
+          </div>
+          <div class="relay-layout">
+            <section class="card relay-card" aria-labelledby="relay-pair-title">
+              <div class="relay-section-head"><span class="relay-step">02</span><div><h2 id="relay-pair-title">连接手机与插件</h2><p>为手机填写一个可访问的插件地址。</p></div></div>
+              <label class="relay-field" for="app-host">插件主机名或 IPv4 地址<input id="app-host" type="text" placeholder="例如 relay.example.com" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="app-host-hint" /></label>
+              <p class="hint" id="app-host-hint">留空使用当前面板主机。手机通过此地址和 App 接入端口连接插件。</p>
+              <button id="app-pair" class="btn primary" type="button">获取 App 配对码</button>
+              <p id="app-status" class="relay-feedback" role="status"></p>
+              <div id="app-code-area" class="relay-code-area" hidden>
+                <div class="relay-code-head"><label for="app-code">App 配对码</label><button id="app-copy" class="btn ghost" type="button">复制配对码</button></div>
+                <textarea id="app-code" readonly rows="4" spellcheck="false" aria-label="App 配对码"></textarea>
+                <p class="hint">将此码填入手机 App 的「插件配对码」，再启动控制。配对码包含连接凭据，请妥善保管。</p>
+              </div>
+              <div class="relay-capabilities" aria-label="App 控制能力"><span>触控与输入</span><span>屏幕截图</span><span>UI 节点</span><span>剪贴板</span></div>
+              <p class="hint">音视频、文件传输与抓包使用插件的直连模式。</p>
+            </section>
+            <div class="relay-aside">
+              <section class="card relay-card" aria-labelledby="relay-install-title">
+                <div class="relay-section-head"><span class="relay-step">01</span><div><h2 id="relay-install-title">准备手机 App</h2><p>支持 Android 8 及以上系统。</p></div></div>
+                <button id="app-apk" class="btn primary relay-download" type="button">下载 Relay APK</button>
+                <ol class="relay-checklist"><li>在手机安装 App，开启并授权本机 ADB。</li><li>在插件的 ADB 连接中选择「使用 App 控制」，保存并重载。</li><li>获取配对码，在手机 App 中填写并启动控制。</li></ol>
+                <a id="app-config-link" class="relay-config-link" href="#" target="_top">打开插件配置 →</a>
+              </section>
+              <section class="card relay-card relay-reset" aria-labelledby="relay-reset-title"><h2 id="relay-reset-title">更换受控手机</h2><p>重置会断开已配对手机，并生成新的连接凭据。请先停止手机任务。</p><button id="app-reset" class="btn ghost" type="button">重置 App 配对</button></section>
+            </div>
+          </div>
+        </section>
 
         <section id="view-vectors" class="view" hidden>
           <header class="page-head"><div><h1>记忆索引</h1>

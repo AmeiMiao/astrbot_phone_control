@@ -503,3 +503,53 @@ canvas {
 #graph-details h2 { font-size: 16px; }
 #graph-details p, #graph-details li { white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
 @media (max-width: 1000px) { .memory-graph-layout { grid-template-columns: minmax(0, 1fr); } #graph-details { max-height: 300px; } }
+
+/* Relay App 连接 */
+.relay-hero { display: flex; align-items: center; gap: 22px; margin-bottom: 22px; padding: 26px; }
+.relay-phone { display: grid; place-items: center; flex-shrink: 0; width: 72px; height: 86px; border-radius: 20px; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.relay-phone svg { width: 40px; height: 40px; }
+.relay-hero-copy { flex: 1; min-width: 0; }
+.relay-hero h2 { font-size: 21px; margin: 10px 0 6px; }
+.relay-hero p, .relay-card p { color: var(--muted); line-height: 1.7; margin: 0; }
+.relay-state { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.relay-state::before { content: ""; width: 7px; height: 7px; background: var(--muted); border-radius: 50%; }
+.relay-state.connected { color: var(--green); }
+.relay-state.connected::before { background: var(--green); }
+.relay-facts { display: grid; gap: 16px; min-width: 130px; margin: 0 0 0 16px; }
+.relay-facts dt { color: var(--muted); font-size: 12px; }
+.relay-facts dd { margin: 5px 0 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.relay-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); gap: 22px; align-items: start; }
+.relay-aside { display: grid; gap: 22px; }
+.relay-card { padding: 24px; min-width: 0; }
+.relay-section-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 24px; }
+.relay-card h2 { font-size: 16px; margin: 0 0 6px; }
+.relay-step { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 10px; color: var(--accent); font-size: 12px; font-weight: 700; }
+.relay-field { display: grid; gap: 9px; font-size: 13px; font-weight: 500; }
+.relay-field input, .relay-code-area textarea { min-width: 0; width: 100%; border: 1px solid var(--border); border-radius: 9px; padding: 12px; background: var(--panel-2); color: var(--text); font: inherit; }
+.relay-field input:focus, .relay-code-area textarea:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.relay-card .hint { margin: 9px 0 18px; font-size: 12px; }
+.relay-card .relay-feedback { margin-top: 14px; min-height: 20px; overflow-wrap: anywhere; font-size: 13px; }
+.relay-code-area { padding: 16px; margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); }
+.relay-code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.relay-code-head label { font-size: 13px; font-weight: 600; }
+.relay-code-area textarea { resize: vertical; min-height: 96px; font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.relay-code-area .hint { margin-bottom: 0; }
+.relay-capabilities { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 20px; margin-top: 22px; border-top: 1px solid var(--border); }
+.relay-capabilities span { color: var(--muted); font-size: 12px; padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px; }
+.relay-checklist { padding-left: 20px; margin: 20px 0 16px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.relay-checklist li + li { margin-top: 10px; }
+.relay-download { width: 100%; justify-content: center; }
+.relay-config-link { color: var(--accent); font-size: 13px; text-decoration: none; }
+.relay-config-link:hover { text-decoration: underline; }
+.relay-reset p { font-size: 13px; margin-bottom: 18px; }
+.relay-reset .btn { color: var(--red); }
+@media (max-width: 980px) { .relay-layout { grid-template-columns: minmax(0, 1fr); } .relay-hero { flex-wrap: wrap; } .relay-facts { grid-template-columns: 1fr 1fr; width: 100%; margin: 4px 0 0; padding-top: 18px; border-top: 1px solid var(--border); } }
+@media (max-width: 600px) { .relay-card, .relay-hero { padding: 18px; } .relay-hero { gap: 14px; } .relay-phone { width: 48px; height: 60px; border-radius: 14px; } .relay-phone svg { width: 30px; height: 30px; } .relay-hero h2 { font-size: 18px; } .relay-layout, .relay-aside { gap: 16px; } .relay-code-head { flex-wrap: wrap; } }
+@media (max-width: 600px) {
+  .app { flex-direction: column; }
+  .sider { width: 100%; height: auto; flex-basis: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); z-index: 5; }
+  .nav { flex-direction: row; overflow-x: auto; }
+  .nav-item { flex: 0 0 auto; white-space: nowrap; min-height: 40px; padding: 8px 12px; }
+  .main { padding: 20px 14px; }
+  .page-head { flex-wrap: wrap; }
+}
