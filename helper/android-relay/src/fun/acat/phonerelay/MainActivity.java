@@ -22,8 +22,10 @@ public final class MainActivity extends Activity {
     private final android.os.Handler handler = new android.os.Handler();
     private final Runnable refresh = new Runnable() {
         public void run() {
-            status.setText(RelayService.status + "\n" + ControlService.status);
-            if (controlStatus != null) controlStatus.setText(ControlService.status);
+            String summary = RelayService.status + "\n" + ControlService.status;
+            if (!summary.contentEquals(status.getText())) status.setText(summary);
+            if (controlStatus != null && !ControlService.status.contentEquals(controlStatus.getText()))
+                controlStatus.setText(ControlService.status);
             handler.postDelayed(this, 1000);
         }
     };
