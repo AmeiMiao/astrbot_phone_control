@@ -381,7 +381,7 @@ class BootstrapMixin:
         from ..app_adb import AppAdbClient
         self._app_bridge = AppBridge(self.data_dir / "app-bridge", plugin_root_dir() / "bin/android/phone-adb-relay.apk")
         if initial.adb.mode == "app":
-            self.adb = AppAdbClient(self._app_bridge, adb_home, command_timeout=initial.adb.command_timeout, logger=self._device_log)
+            self.adb = AppAdbClient(self._app_bridge, adb_home, command_timeout=initial.adb.command_timeout, logger=self._device_log, screen_source=initial.adb.app_screen_source)
         self.actions = DeviceActions(self.adb, logger=self._device_log)
         self.diary = PhoneDiary(self.data_dir / "diary")
         self.quota = TokenQuota(self.data_dir)

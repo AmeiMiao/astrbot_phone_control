@@ -325,6 +325,7 @@ class AdbSettings:
 
     mode: str = "direct"
     app_port: int = 6190
+    app_screen_source: str = "scrcpy"
     host: str = DEFAULT_ADB_HOST
     port: int = DEFAULT_ADB_PORT
     path: str = ""
@@ -857,6 +858,7 @@ class PhoneConfig:
         adb = AdbSettings(
             mode="app" if (adb_card or {}).get("mode") in ("app", "使用 App 控制") else "direct",
             app_port=_as_int((adb_card or {}).get("app_port"), 6190, "adb.app_port", warn_fn, minimum=1, maximum=65535),
+            app_screen_source="screencap" if (adb_card or {}).get("app_screen_source") in ("screencap", "按需截图") else "scrcpy",
             host=_as_str(
                 _pick(adb_card, source, "host"),
                 DEFAULT_ADB_HOST,

@@ -69,6 +69,19 @@
         "default": 30,
         "description": "单条 ADB 命令超时秒数",
         "hint": "范围 1-300，默认 30。"
+      },
+      "app_screen_source": {
+        "type": "string",
+        "default": "scrcpy 视频取帧",
+        "options": [
+          "scrcpy 视频取帧",
+          "按需截图"
+        ],
+        "description": "App 画面来源",
+        "hint": "scrcpy 在手机端采集并解码视频；按需截图调用本机 screencap。修改后重载插件。",
+        "condition": {
+          "mode": "使用 App 控制"
+        }
       }
     },
     "hint": "选择直连或使用 Relay App 控制；两种方式的参数分别保留。App 模式支持基础控制、截图和节点。"

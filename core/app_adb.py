@@ -3,6 +3,8 @@
 from __future__ import annotations
 import base64
 import shlex
+import io
+import time
 from .adb import AdbClient
 from .app_bridge import APP_UNSUPPORTED
 from .errors import ActionFailedError, AdbCommandError, DeviceOfflineError
@@ -12,7 +14,7 @@ class AppAdbClient(AdbClient):
     app_mode = True
     screen_source = "app_screencap"
 
-    def __init__(self, bridge, home_dir, *, command_timeout=30, logger=None):
+    def __init__(self, bridge, home_dir, *, command_timeout=30, logger=None, screen_source="scrcpy"):
         super().__init__(
             None,
             "relay-app",
@@ -23,6 +25,24 @@ class AppAdbClient(AdbClient):
             logger=logger,
         )
         self.bridge = bridge
+        self._video_screen = screen_source == "scrcpy"
+        self.screen_source = "app_scrcpy" if self._video_screen else "app_screencap"
+
+    async def capture_screen(self, *, fast=False, timeout=None):
+        if not self._video_screen:
+            return await super().capture_screen(fast=fast, timeout=timeout)
+        started = time.perf_counter()
+        value = await self.bridge.call("screen", timeout=timeout or self._command_timeout)
+        data = base64.b64decode(value.get("image", ""), validate=True)
+        from PIL import Image
+
+        if value.get("source") != "app_scrcpy" or value.get("format") != "jpeg" or len(data) > 8 * 1024 * 1024:
+            raise ActionFailedError("手机 scrcpy 视频帧格式无效，请检查 App 版本")
+        with Image.open(io.BytesIO(data)) as frame:
+            if frame.width * frame.height > 9000000 or frame.format != "JPEG":
+                raise ActionFailedError("手机 scrcpy 视频帧尺寸无效")
+            frame.load()
+        return data, "jpeg", round((time.perf_counter() - started) * 1000)
 
     async def _is_online_raw(self):
         return self.bridge.writer is not None

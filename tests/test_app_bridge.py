@@ -220,3 +220,28 @@ def test_request_sequences_continue_and_reset_on_reconnect(tmp_path):
             await bridge.close()
 
     asyncio.run(run())
+
+
+def test_phone_video_frame_uses_authenticated_app_channel(tmp_path):
+    from PIL import Image
+    import io
+
+    image = io.BytesIO()
+    Image.new('RGB', (16, 32), 'blue').save(image, format='JPEG')
+
+    class Bridge:
+        calls = []
+        async def call(self, operation, **params):
+            self.calls.append(operation)
+            return {'image': base64.b64encode(image.getvalue()).decode(),
+                    'format': 'jpeg', 'source': 'app_scrcpy', 'age_ms': 1}
+
+    async def scenario():
+        bridge = Bridge()
+        adb = AppAdbClient(bridge, tmp_path)
+        data, fmt, duration = await adb.capture_screen()
+        assert data == image.getvalue() and fmt == 'jpeg' and duration >= 0
+        assert bridge.calls == ['screen'] and adb.screen_source == 'app_scrcpy'
+        assert PhoneConfig.from_mapping({'adb': {'app_screen_source': '按需截图'}}).adb.app_screen_source == 'screencap'
+        assert AppAdbClient(bridge, tmp_path, screen_source='screencap').screen_source == 'app_screencap'
+    asyncio.run(scenario())

@@ -31,6 +31,17 @@ final class LocalAdb extends AbsAdbConnectionManager {
     private DataInputStream controlIn;
     private DataOutputStream controlOut;
     private long sequence;
+    private volatile LocalVideo video;
+    private final Object videoLock = new Object();
+
+    JSONObject screen() throws Exception {
+        LocalVideo activeVideo;
+        synchronized (videoLock) {
+            if (video == null || video.closed) video = new LocalVideo(this);
+            activeVideo = video;
+        }
+        return activeVideo.frame();
+    }
 
     LocalAdb(Context context) throws Exception {
         this.context = context;
@@ -131,7 +142,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
         if (bytes != null) out.write(bytes);
         out.flush();
     }
-    private void pushControlServer() throws Exception {
+    synchronized void pushControlServer() throws Exception {
         String path = "/data/local/tmp/acat-phone-relay-scrcpy.jar";
         try (AdbStream sync = openStream("sync:"); InputStream jar = context.getAssets().open("scrcpy-server")) {
             OutputStream out = sync.openOutputStream();
@@ -144,10 +155,10 @@ final class LocalAdb extends AbsAdbConnectionManager {
             if (!new String(response, 0, 4, "US-ASCII").equals("OKAY")) throw new IOException("控制组件写入失败");
         }
     }
-    private interface AdbAction<T> { T run() throws Exception; }
+    interface AdbAction<T> { T run() throws Exception; }
 
     /** 为可能无限等待的 ADB 流打开操作设置上限，超时以中断结束并转成明确错误。 */
-    private static <T> T bounded(String what, long timeoutMs, AdbAction<T> action) throws Exception {
+    static <T> T bounded(String what, long timeoutMs, AdbAction<T> action) throws Exception {
         Thread target = Thread.currentThread();
         AtomicBoolean expired = new AtomicBoolean(false);
         Thread watchdog = new Thread(() -> {
@@ -215,6 +226,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
             try { stream.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭控制通道失败", e); }
     }
     @Override public void close() throws IOException {
+        if (video != null) video.close();
         for (String id : active.keySet()) cancel(id);
         closeControl(); super.close();
     }

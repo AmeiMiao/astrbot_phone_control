@@ -148,6 +148,7 @@ public final class ControlService extends Service {
                 switch (message.getString("op")) {
                     case "shell": data = local.shell(id, params.getString("command"), Math.min(8 * 1024 * 1024, params.optInt("limit", 8192))); break;
                     case "nodes": data = local.nodes(id, 8 * 1024 * 1024); break;
+                    case "screen": data = local.screen(); break;
                     case "clipboard": data = local.clipboard(); break;
                     case "input": data = local.input(id, params.getString("text"), params.optBoolean("press_enter")); break;
                     default: throw new IOException("不支持的控制能力");
