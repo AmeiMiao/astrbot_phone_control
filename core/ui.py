@@ -173,7 +173,9 @@ async def _dump_with_tty(adb: AdbClient, *, timeout: float | None) -> tuple[str,
 async def _dump_with_file(adb: AdbClient, *, timeout: float | None) -> tuple[str, list[UiNode]]:
     """回退路径：先 dump 到 sdcard 文件，再 exec-out cat 取回。"""
     remote_path = "/sdcard/window_dump.xml"
-    await adb.shell(f"uiautomator dump {remote_path}", timeout=timeout)
+    output = await adb.shell(f"uiautomator dump {remote_path}", timeout=timeout)
+    if f"dumped to: {remote_path}" not in output or "ERROR:" in output:
+        raise UiDumpError("UI 节点采集未生成当前结果", detail=str(output).strip()[:300])
     raw = await adb.exec_out("cat", remote_path, timeout=timeout)
     text = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
     xml_text = _extract_xml_document(text)

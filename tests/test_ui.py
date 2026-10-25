@@ -554,3 +554,18 @@ def test_editable_hint_and_focus_are_not_presented_as_old_input():
     assert 'placeholder="热门推荐"' in text
     assert 'editable focused' in text
     assert 'text="热门推荐"' not in text
+
+
+@pytest.mark.parametrize("failure", ["ERROR: could not get idle state.", ""])
+def test_file_dump_failure_does_not_read_previous_xml(failure):
+    class FailedDump(FakeAdb):
+        async def shell(self, command, *, timeout=None, retry=True):
+            self.shell_calls.append(command)
+            if command.startswith("uiautomator dump"):
+                return failure
+            return ""
+
+    adb = FailedDump(tty_error=AdbCommandError("tty 不可用"), cat_data=SAMPLE_XML.encode())
+    with pytest.raises(UiDumpError, match="未生成当前结果"):
+        run(dump_ui(adb, max_retries=0))
+    assert not any(call[0] == "cat" for call in adb.exec_out_calls)
