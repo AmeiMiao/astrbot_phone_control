@@ -14,7 +14,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.message.message_event_result import MessageChain
 
 from ..page_content import page_traffic_footer
-from ..errors import PhoneControlError
+from ..errors import PhoneControlError, UiTargetNotFoundError
 
 from .base import _PhoneToolBase, _as_float, _as_int, _json_text, _ok, _wrap_call
 
@@ -254,7 +254,7 @@ class PhoneTapTool(_PhoneToolBase):
         if text or desc:
             node = await self.service.find_node(text=text, desc=desc)
             if node is None:
-                return f"error: 当前界面没有找到 text={text!r} desc={desc!r} 的控件"
+                raise UiTargetNotFoundError(f"当前界面没有找到 text={text!r} desc={desc!r} 的控件")
             x, y = await self.service.node_click_point(node)
             label = node.label
         elif x == 0 and y == 0:
@@ -318,7 +318,7 @@ class PhoneLongPressTool(_PhoneToolBase):
         if text or desc:
             node = await self.service.find_node(text=text, desc=desc)
             if node is None:
-                return f"error: 当前界面没有找到 text={text!r} desc={desc!r} 的控件"
+                raise UiTargetNotFoundError(f"当前界面没有找到 text={text!r} desc={desc!r} 的控件")
             x, y = await self.service.node_click_point(node)
             label = node.label
         elif x == 0 and y == 0:

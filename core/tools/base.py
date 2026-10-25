@@ -18,7 +18,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..device_gate import ExecutionCancelled, GateError
 from ..config import UNCONFIGURED_MESSAGE, PhoneConfig
-from ..errors import AdbNotConfiguredError, PhoneControlError
+from ..errors import AdbNotConfiguredError, PhoneControlError, UiTargetNotFoundError
 from ..apps import app_label_for_package
 
 # 操作前自动召回 App 经验的工具：这些工具会读取/切换页面，召回结果随结果返回。
@@ -508,6 +508,7 @@ def _wrap_call(handler):
     """
 
     async def wrapper(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        target_missing = False
         try:
             event = _event_of(context)
         except Exception:  # noqa: BLE001 - 缺少事件时交给 handler 统一报错
@@ -531,6 +532,9 @@ def _wrap_call(handler):
             return str(exc)
         except _PermissionDenied as exc:
             return str(exc)
+        except UiTargetNotFoundError as exc:
+            target_missing = True
+            result = _error(exc)
         except PhoneControlError as exc:
             return _error(exc)
         except asyncio.TimeoutError:
@@ -565,6 +569,12 @@ def _wrap_call(handler):
                     logger.debug("App 经验失效标记失败：%s", exc)
                 if hint:
                     result = _append_text(result, hint)
+                    if target_missing:
+                        result = mcp.types.CallToolResult(
+                            content=[mcp.types.TextContent(type="text", text=result)],
+                            isError=True,
+                            _meta={"phone_control": {"failure_kind": "experience_mismatch"}},
+                        )
             # 操作前召回：屏幕/切换 App 类工具返回当前 App/页面相关经验。
             elif self.name in _APP_RECALL_TOOLS and not result_text.startswith(
                 ("error:", "已中止")

@@ -69,6 +69,10 @@ class ActionFailedError(PhoneControlError):
     """单次设备动作失败（参数非法/超时等）。"""
 
 
+class UiTargetNotFoundError(ActionFailedError):
+    """已读取当前页面，但指定文本或描述没有匹配控件。"""
+
+
 class PermissionDeniedError(PhoneControlError):
     """调用者无权限使用该能力。"""
 

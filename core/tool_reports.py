@@ -45,6 +45,13 @@ def result_failed(result):
     return result_text(result).lstrip().lower().startswith("error:")
 
 
+def experience_mismatch(result):
+    """仅按工具产生的结构化分类识别经验失配，正文不参与分类。"""
+    meta = result.get("_meta") if isinstance(result, dict) else getattr(result, "meta", None)
+    detail = meta.get("phone_control") if isinstance(meta, dict) else None
+    return isinstance(detail, dict) and detail.get("failure_kind") == "experience_mismatch"
+
+
 def safe_summary(result):
     text = (result_text(result) or "工具未返回结果或返回错误状态")[:4096]
     text = text.split("【App 经验更新】", 1)[0]
@@ -120,6 +127,7 @@ class ToolErrorReporter:
             or not self.settings().enabled
             or not str(tool_name).startswith("phone_")
             or not result_failed(result)
+            or experience_mismatch(result)
             or (
                 tool_name == "phone_share_to_user"
                 and "会话分享不足冷却时长" in result_text(result)
