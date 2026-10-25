@@ -449,6 +449,10 @@ class RuntimeMixin:
         if traffic_config is None or not traffic_config.enabled:
             await self._traffic.stop()
             return
+        if config.adb.mode == "app":
+            bridge = getattr(self, "_app_bridge", None)
+            if bridge is None or bridge.writer is None:
+                return
         if self._traffic.running:
             await self._traffic.ensure_device()
             return

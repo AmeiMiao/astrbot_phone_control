@@ -165,12 +165,12 @@ class AppTrafficCapture:
                 self._port = int(port or settings.port)
                 if not 1024 <= self._port <= 65535:
                     raise ActionFailedError("抓包端口无效")
+                if self.bridge.writer is None:
+                    raise ActionFailedError("Relay App 未连接")
                 if "traffic_proxy" not in self.bridge.peer.get("features", []):
                     raise ActionFailedError(
                         "请先将 Phone Relay App 更新到支持手机抓包的版本"
                     )
-                if self.bridge.writer is None:
-                    raise ActionFailedError("Relay App 未连接")
                 self._capture_id = secrets.token_hex(16)
                 self._session_id = getattr(self.bridge, "session", "")
                 self._started_at = time.time()

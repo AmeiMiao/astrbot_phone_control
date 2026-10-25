@@ -377,3 +377,44 @@ def test_legacy_app_preserves_on_demand_screenshot_until_upgrade(tmp_path):
         assert adb.screen_source == "app_scrcpy"
 
     asyncio.run(run())
+
+
+def test_ready_callback_can_request_device_without_blocking_socket_reader(tmp_path):
+    import ssl
+
+    async def run():
+        bridge = AppBridge(tmp_path, tmp_path / "app.apk")
+        completed = asyncio.Event()
+
+        async def ready():
+            result = await bridge.call("traffic_status", timeout=2)
+            assert result["running"] is False
+            completed.set()
+
+        bridge.on_ready = ready
+        await bridge.start(0)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1", bridge.port, ssl=ctx
+        )
+        try:
+            await bridge.send(
+                writer,
+                {"v": 1, "token": bridge._state["token"], "device_id": "fixture"},
+            )
+            assert (await bridge.read(reader))["type"] == "ready"
+            request = await asyncio.wait_for(bridge.read(reader), 2)
+            assert request["op"] == "traffic_status"
+            await bridge.send(
+                writer, {"type": "result", "id": request["id"], "running": False}
+            )
+            await asyncio.wait_for(completed.wait(), 2)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await asyncio.wait_for(bridge.close(), 3)
+        assert not bridge.tasks
+
+    asyncio.run(run())

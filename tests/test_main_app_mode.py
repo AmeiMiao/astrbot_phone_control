@@ -61,6 +61,9 @@ def test_app_configuration_constructs_app_transport(tmp_path, monkeypatch):
     async def run():
         try:
             assert p.service.config.adb.mode == "app"
+            assert p._app_bridge.on_ready == p._ensure_traffic_started
+            await p._ensure_traffic_started()
+            assert not p._traffic.status()["error"]
             assert p.adb.app_mode and not p._components.needs_prepare(p.service.config)
             await p.service.backends.ensure()
             assert p.service.backends._scrcpy_client is None

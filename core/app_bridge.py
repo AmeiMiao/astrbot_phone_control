@@ -6,6 +6,7 @@ import asyncio
 import base64
 import contextlib
 import json
+import logging
 import secrets
 import ssl
 import struct
@@ -53,6 +54,7 @@ class AppBridge:
         self.proxy_capture_id = ""
         self.proxy_session = ""
         self.proxy_tasks = set()
+        self.on_ready = None
 
     async def close_proxies(self):
         tasks = list(self.proxy_tasks)
@@ -210,6 +212,7 @@ class AppBridge:
         task = asyncio.current_task()
         self.tasks.add(task)
         authenticated = False
+        ready_task = None
         try:
             hello = await asyncio.wait_for(self.read(reader), 5)
             if hello.get("type") == "proxy":
@@ -248,6 +251,17 @@ class AppBridge:
             }
             authenticated = True
             await self.send(writer, {"type": "ready", "session": self.session, "v": 1})
+            if self.on_ready is not None:
+
+                async def initialize_peer():
+                    try:
+                        await self.on_ready()
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "Relay App 连接就绪后的初始化失败"
+                        )
+
+                ready_task = asyncio.create_task(initialize_peer())
             while True:
                 value = await asyncio.wait_for(self.read(reader), 45)
                 if value.get("type") == "ping":
@@ -271,6 +285,9 @@ class AppBridge:
         finally:
             if authenticated and self.writer is writer:
                 self.writer = None
+                if ready_task is not None:
+                    ready_task.cancel()
+                    await asyncio.gather(ready_task, return_exceptions=True)
                 self.proxy_port = 0
                 self.proxy_capture_id = ""
                 self.proxy_session = ""

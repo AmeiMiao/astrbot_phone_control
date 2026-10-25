@@ -455,6 +455,8 @@ class BootstrapMixin:
             **capture_options,
         )
         self.service.traffic = self._traffic
+        if initial.adb.mode == "app":
+            self._app_bridge.on_ready = self._ensure_traffic_started
         # WireGuard 组网：userspace helper 生命周期跟随插件；auto_adb 开启时
         # helper 健康后把 ADB 目标切到 WG 隧道本地端口，停止/异常时恢复。
         self._wireguard = WireGuardManager(
