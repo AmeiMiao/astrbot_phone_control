@@ -246,7 +246,7 @@ def parse_flow_line(line: str) -> dict[str, Any] | None:
         ts = float(record.get("ts") or 0)
     except (TypeError, ValueError):
         ts = 0.0
-    return {
+    flow = {
         "ts": ts,
         "method": str(record.get("method") or "").upper(),
         "url": url,
@@ -255,6 +255,10 @@ def parse_flow_line(line: str) -> dict[str, Any] | None:
         "reqbody": str(record.get("reqbody") or ""),
         "body": str(record.get("body") or ""),
     }
+
+    if record.get("source") in ("app", "mitmproxy"):
+        flow["source"] = record["source"]
+    return flow
 
 
 def load_recent_flows(

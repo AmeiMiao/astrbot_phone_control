@@ -12,9 +12,16 @@ from .errors import ActionFailedError, AdbCommandError, DeviceOfflineError
 
 class AppAdbClient(AdbClient):
     app_mode = True
-    screen_source = "app_screencap"
 
-    def __init__(self, bridge, home_dir, *, command_timeout=30, logger=None, screen_source="scrcpy"):
+    def __init__(
+        self,
+        bridge,
+        home_dir,
+        *,
+        command_timeout=30,
+        logger=None,
+        screen_source="scrcpy",
+    ):
         super().__init__(
             None,
             "relay-app",
@@ -26,23 +33,54 @@ class AppAdbClient(AdbClient):
         )
         self.bridge = bridge
         self._video_screen = screen_source == "scrcpy"
-        self.screen_source = "app_scrcpy" if self._video_screen else "app_screencap"
+
+    @property
+    def screen_source(self):
+        version = str(getattr(self.bridge, "peer", {}).get("version", ""))
+        parts = version.split(".")
+        legacy = (
+            len(parts) >= 2
+            and parts[0] == "0"
+            and parts[1].isdigit()
+            and int(parts[1]) < 4
+        )
+        return "app_scrcpy" if self._video_screen and not legacy else "app_screencap"
 
     async def capture_screen(self, *, fast=False, timeout=None):
-        if not self._video_screen:
+        if self.screen_source != "app_scrcpy":
             return await super().capture_screen(fast=fast, timeout=timeout)
         started = time.perf_counter()
-        value = await self.bridge.call("screen", timeout=timeout or self._command_timeout)
+        value = await self.bridge.call(
+            "screen", timeout=timeout or self._command_timeout
+        )
         data = base64.b64decode(value.get("image", ""), validate=True)
         from PIL import Image
 
-        if value.get("source") != "app_scrcpy" or value.get("format") != "jpeg" or len(data) > 8 * 1024 * 1024:
+        age = value.get("age_ms")
+        if (
+            value.get("source") != "app_scrcpy"
+            or value.get("format") != "jpeg"
+            or len(data) > 8 * 1024 * 1024
+            or type(age) is not int
+            or not 0 <= age <= 2000
+        ):
             raise ActionFailedError("手机 scrcpy 视频帧格式无效，请检查 App 版本")
         with Image.open(io.BytesIO(data)) as frame:
             if frame.width * frame.height > 9000000 or frame.format != "JPEG":
                 raise ActionFailedError("手机 scrcpy 视频帧尺寸无效")
             frame.load()
         return data, "jpeg", round((time.perf_counter() - started) * 1000)
+
+    async def screenshot_png(self, *, timeout=None):
+        if self.screen_source != "app_scrcpy":
+            return await super().screenshot_png(timeout=timeout)
+        data, _format, _duration = await self.capture_screen(timeout=timeout)
+        from PIL import Image
+
+        out = io.BytesIO()
+        with Image.open(io.BytesIO(data)) as frame:
+            frame.save(out, format="PNG")
+        return out.getvalue()
 
     async def _is_online_raw(self):
         return self.bridge.writer is not None

@@ -227,21 +227,153 @@ def test_phone_video_frame_uses_authenticated_app_channel(tmp_path):
     import io
 
     image = io.BytesIO()
-    Image.new('RGB', (16, 32), 'blue').save(image, format='JPEG')
+    Image.new("RGB", (16, 32), "blue").save(image, format="JPEG")
 
     class Bridge:
         calls = []
+
         async def call(self, operation, **params):
             self.calls.append(operation)
-            return {'image': base64.b64encode(image.getvalue()).decode(),
-                    'format': 'jpeg', 'source': 'app_scrcpy', 'age_ms': 1}
+            return {
+                "image": base64.b64encode(image.getvalue()).decode(),
+                "format": "jpeg",
+                "source": "app_scrcpy",
+                "age_ms": 1,
+            }
 
     async def scenario():
         bridge = Bridge()
         adb = AppAdbClient(bridge, tmp_path)
         data, fmt, duration = await adb.capture_screen()
-        assert data == image.getvalue() and fmt == 'jpeg' and duration >= 0
-        assert bridge.calls == ['screen'] and adb.screen_source == 'app_scrcpy'
-        assert PhoneConfig.from_mapping({'adb': {'app_screen_source': '按需截图'}}).adb.app_screen_source == 'screencap'
-        assert AppAdbClient(bridge, tmp_path, screen_source='screencap').screen_source == 'app_screencap'
+        assert data == image.getvalue() and fmt == "jpeg" and duration >= 0
+        assert bridge.calls == ["screen"] and adb.screen_source == "app_scrcpy"
+        assert (
+            PhoneConfig.from_mapping(
+                {"adb": {"app_screen_source": "按需截图"}}
+            ).adb.app_screen_source
+            == "screencap"
+        )
+        assert (
+            AppAdbClient(bridge, tmp_path, screen_source="screencap").screen_source
+            == "app_screencap"
+        )
+
     asyncio.run(scenario())
+
+
+def test_mitm_secondary_tls_channel_requires_current_control_session(tmp_path):
+    import ssl
+    import secrets
+
+    async def run():
+        bridge = AppBridge(tmp_path, tmp_path / "app.apk")
+        await bridge.start(0)
+        ssl_client = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_client.check_hostname = False
+        ssl_client.verify_mode = ssl.CERT_NONE
+
+        async def echo(reader, writer):
+            try:
+                while chunk := await reader.read(16384):
+                    writer.write(chunk)
+                    await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        upstream = await asyncio.start_server(echo, "127.0.0.1", 0)
+        bridge.proxy_port = upstream.sockets[0].getsockname()[1]
+        bridge.proxy_capture_id = secrets.token_hex(16)
+        main_writer = None
+        try:
+            main_reader, main_writer = await asyncio.open_connection(
+                "127.0.0.1", bridge.port, ssl=ssl_client
+            )
+            import hashlib
+
+            assert (
+                hashlib.sha256(
+                    main_writer.get_extra_info("ssl_object").getpeercert(
+                        binary_form=True
+                    )
+                ).hexdigest()
+                == bridge.fingerprint
+            )
+            await bridge.send(
+                main_writer,
+                {"v": 1, "token": bridge._state["token"], "device_id": "fixture"},
+            )
+            ready = await bridge.read(main_reader)
+            bridge.proxy_session = bridge.session
+            hello = {
+                "v": 1,
+                "type": "proxy",
+                "token": bridge._state["token"],
+                "device_id": "fixture",
+                "session": ready["session"],
+                "capture_id": bridge.proxy_capture_id,
+            }
+            for key in ("token", "session", "capture_id", "device_id"):
+                reader, writer = await asyncio.open_connection(
+                    "127.0.0.1", bridge.port, ssl=ssl_client
+                )
+                await bridge.send(writer, {**hello, key: "wrong"})
+                assert await asyncio.wait_for(reader.read(), 2) == b""
+                writer.close()
+                await writer.wait_closed()
+                assert bridge.writer is not None
+            reader, writer = await asyncio.open_connection(
+                "127.0.0.1", bridge.port, ssl=ssl_client
+            )
+            await bridge.send(writer, hello)
+            assert (await bridge.read(reader))["type"] == "proxy_ready"
+            writer.write(b"proxy-data")
+            await writer.drain()
+            assert await asyncio.wait_for(reader.readexactly(10), 2) == b"proxy-data"
+            main_writer.close()
+            await main_writer.wait_closed()
+            main_writer = None
+            assert await asyncio.wait_for(reader.read(), 3) == b""
+            writer.close()
+            await writer.wait_closed()
+            assert not bridge.proxy_tasks
+        finally:
+            if main_writer is not None:
+                main_writer.close()
+                await main_writer.wait_closed()
+            await bridge.close()
+            upstream.close()
+            await upstream.wait_closed()
+
+    asyncio.run(run())
+
+
+def test_legacy_app_preserves_on_demand_screenshot_until_upgrade(tmp_path):
+    from PIL import Image
+    import io
+
+    class Bridge:
+        peer = {"version": "0.3.7"}
+
+        async def call(self, operation, **params):
+            raise AssertionError(
+                "legacy screenshot should use the established screencap contract"
+            )
+
+    async def run():
+        adb = AppAdbClient(Bridge(), tmp_path)
+        image = io.BytesIO()
+        Image.new("RGB", (720, 1280), "blue").save(image, format="PNG")
+
+        async def exec_out(*args, **params):
+            assert args == ("screencap", "-p")
+            return image.getvalue()
+
+        adb.exec_out = exec_out
+        data, fmt, _ = await adb.capture_screen()
+        assert data == image.getvalue() and fmt == "png"
+        assert adb.screen_source == "app_screencap"
+        adb.bridge.peer = {"version": "0.4.2"}
+        assert adb.screen_source == "app_scrcpy"
+
+    asyncio.run(run())

@@ -308,6 +308,8 @@ class BootstrapMixin:
             if callable(save):
                 save()
         populate_embedding_options(self.raw_config, context)
+        from ..app_traffic import populate_capture_options
+        populate_capture_options(self.raw_config)
         if migrate_network(self.raw_config):
             save = getattr(self.raw_config, "save_config", None)
             if callable(save):
@@ -439,7 +441,10 @@ class BootstrapMixin:
         )
         self.service.media = self._media_capture
         # 手机流量抓包（ADB + mitmproxy）：生命周期跟随插件。
-        self._traffic = TrafficCapture(
+        from ..app_traffic import AppTrafficCapture
+        capture_class = AppTrafficCapture if initial.adb.mode == "app" else TrafficCapture
+        capture_options = {"bridge": self._app_bridge} if initial.adb.mode == "app" else {}
+        self._traffic = capture_class(
             adb=self.adb,
             data_dir=self.data_dir,
             logger=logger.info,
@@ -447,6 +452,7 @@ class BootstrapMixin:
             keep_packages_provider=lambda: self.service.config.security.background_keep_packages,
             settings_provider=lambda: self.service.config.traffic,
             mesh=self._mesh,
+            **capture_options,
         )
         self.service.traffic = self._traffic
         # WireGuard 组网：userspace helper 生命周期跟随插件；auto_adb 开启时
@@ -759,12 +765,12 @@ class BootstrapMixin:
             logger.info("插件实例已停用，跳过重复终止")
             return
         self._terminated = True
-        if hasattr(self, "_app_bridge"):
-            await self._app_bridge.close()
         try:
             await self._tool_reports.close()
             await self._terminate_impl()
         finally:
+            if hasattr(self, "_app_bridge"):
+                await self._app_bridge.close()
             LIVE_PLUGIN_INSTANCES.discard(self)
             self._live_instance_registered = False
 
@@ -1176,7 +1182,7 @@ class BootstrapMixin:
                 )
             return
 
-        if previous.adb.mode != current.adb.mode or previous.adb.app_port != current.adb.app_port:
+        if previous.adb.mode != current.adb.mode or previous.adb.app_port != current.adb.app_port or previous.adb.app_screen_source != current.adb.app_screen_source:
             raise PhoneControlError("连接方式变更需要先停止任务，再从原生配置页保存并重新加载插件")
 
         # 1) ADB 连接参数：断开旧目标并按新参数重配，后端一并重置。
@@ -1280,6 +1286,7 @@ class BootstrapMixin:
         # 8) 流量抓包：开关/端口/正文长度变化 → 停止后按新配置重启。
         if (
             previous.traffic.enabled != current.traffic.enabled
+            or previous.traffic.provider != current.traffic.provider
             or previous.traffic.port != current.traffic.port
             or previous.traffic.transport != current.traffic.transport
             or previous.traffic.ca_mode != current.traffic.ca_mode

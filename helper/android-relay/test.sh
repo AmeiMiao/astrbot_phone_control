@@ -5,15 +5,20 @@ set -euo pipefail
 : "${OUT_DIR:?需设置构建缓存目录}"
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$OUT_DIR/test-classes"
-"$JAVA_HOME/bin/javac" -classpath "$OUT_DIR/deps/libadb.jar" -d "$OUT_DIR/test-classes" \
+"$JAVA_HOME/bin/javac" -classpath "$OUT_DIR/deps/libadb.jar:$OUT_DIR/deps/bcprov.jar" -d "$OUT_DIR/test-classes" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/LocalAdbInputStream.java" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/ClipboardInput.java" \
   "$SOURCE_DIR/tests/LocalAdbInputStreamTest.java" \
   "$SOURCE_DIR/tests/ClipboardInputTest.java" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/ScrcpyPackets.java" \
-  "$SOURCE_DIR/tests/ScrcpyPacketsTest.java"
+  "$SOURCE_DIR/tests/ScrcpyPacketsTest.java" \
+  "$SOURCE_DIR/src/fun/acat/phonerelay/ProxyCertificates.java" \
+  "$SOURCE_DIR/src/fun/acat/phonerelay/PhoneHttpProxy.java" \
+  "$SOURCE_DIR/tests/PhoneHttpProxyTest.java"
 "$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes:$OUT_DIR/deps/libadb.jar" \
   fun.acat.phonerelay.LocalAdbInputStreamTest
 "$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes" fun.acat.phonerelay.ClipboardInputTest
 
 "$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes" fun.acat.phonerelay.ScrcpyPacketsTest
+
+"$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes:$OUT_DIR/deps/bcprov.jar" fun.acat.phonerelay.PhoneHttpProxyTest "$OUT_DIR"

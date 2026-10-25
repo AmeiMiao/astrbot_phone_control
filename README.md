@@ -30,6 +30,8 @@
 
 App 模式由 [Phone ADB Relay](helper/android-relay/README.md) 内置客户端连接手机本机 adbd，再主动连接插件的 TLS 接入端口。支持状态、shell、应用操作、手势、中文输入、剪贴板、截图和节点；本机 TCP 调试或 Android 11+ 无线配对需先授权。切换前停止手机任务，保存后重载插件。
 
+App 画面可选择手机端 scrcpy 视频取帧或按需截图。启用流量抓包后选择 mitmproxy；使用 App 控制时还可选择「App 抓包」，由手机端 HTTP(S) 代理采集并上传。App 模式的插件端 scrcpy 保留直连参数，直连模式按配置启用。
+
 独立的「Relay App」页面提供 App 配对码、连接状态和 APK 下载。App 可手动检查已连接插件提供的新版 APK，校验后由用户确认系统安装；APK 与插件 metadata 独立版本化。详细网络配置、配对和覆盖升级见组件说明。
 
 ### 安装与首次连接

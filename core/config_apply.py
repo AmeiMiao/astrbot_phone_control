@@ -142,6 +142,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "memory.companion_user_id",
         "memory.bot_action_enabled",
         "traffic.enabled",
+        "traffic.provider",
         "traffic.transport",
         "traffic.ca_mode",
         "traffic.port",
@@ -181,6 +182,7 @@ RECONCILE_KEYS: frozenset[str] = frozenset(
     {
         "adb.mode",
         "adb.app_port",
+        "adb.app_screen_source",
         "adb.host",
         "adb.port",
         "adb.path",

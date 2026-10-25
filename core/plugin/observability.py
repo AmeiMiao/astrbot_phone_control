@@ -206,6 +206,11 @@ class ObservabilityMixin(LibraryDashboardMixin):
         preview = render_traffic(flows, window_seconds=0, body_chars=min(body_chars, 400))
         return {
             "enabled": enabled,
+            "provider": status.get("provider", "mitmproxy"),
+            "ca_mode": status.get("ca_mode", ""),
+            "last_flow_at": status.get("last_flow_at", 0),
+            "dropped": status.get("dropped", 0),
+            "failures": status.get("failures", 0),
             "running": bool(status.get("running")),
             "port": int(status.get("port") or 0),
             "flows": int(status.get("flows") or 0),
@@ -219,6 +224,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
         payload = self._traffic_status_payload(limit=limit)
         lines = [
             "流量抓包：",
+            f"- 方式：{payload.get('provider', 'mitmproxy')}",
             f"- 配置：{'已启用' if payload['enabled'] else '已关闭'}（traffic.enabled）",
             f"- 运行：{'运行中' if payload['running'] else '未运行'}"
             + (f"，端口 {payload['port']}" if payload["port"] else ""),

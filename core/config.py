@@ -594,6 +594,7 @@ class TrafficSettings:
     """手机流量抓包（ADB + mitmproxy 解密）参数。"""
 
     enabled: bool = True
+    provider: str = "mitmproxy"
     port: int = DEFAULT_TRAFFIC_PORT
     body_chars: int = DEFAULT_TRAFFIC_BODY_CHARS
     keep_seconds: int = DEFAULT_TRAFFIC_KEEP_SECONDS
@@ -1552,6 +1553,7 @@ class PhoneConfig:
 
         traffic_card = card("traffic")
         traffic = TrafficSettings(
+            provider="app" if adb.mode == "app" and (traffic_card or {}).get("provider") in ("app", "App 抓包") else "mitmproxy",
             transport=_as_choice(_pick(traffic_card, source, "transport"), "adb", "traffic.transport", warn_fn, ("adb", "mesh")),
             ca_mode=_as_choice(_pick(traffic_card, source, "ca_mode"), "system", "traffic.ca_mode", warn_fn, ("system", "manual")),
             enabled=_as_bool(

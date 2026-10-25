@@ -63,8 +63,10 @@ class TrafficCapture:
         keep_packages_provider=None,
         settings_provider=None,
         mesh=None,
+        manage_device=True,
     ) -> None:
         self.adb = adb
+        self._manage_device = manage_device
         self.root = Path(data_dir) / "traffic"
         self.confdir = self.root / "mitm"
         self.log_path = self.root / traffic_mod.FLOW_LOG_NAME
@@ -550,7 +552,8 @@ class TrafficCapture:
         target_port = int(port or traffic_mod.DEFAULT_TRAFFIC_PORT)
         # 启动前先清理设备侧可能残留的代理/reverse/CA：插件进程异常退出后兜底，
         # 避免设备代理指向并不存在的 mitmdump 而断网。清理失败静默，不影响启动判定。
-        await self._cleanup_device_state_locked(port=target_port)
+        if self._manage_device:
+            await self._cleanup_device_state_locked(port=target_port)
         if not 1024 <= target_port <= 65535:
             return self._fail_locked(
                 f"ValueError: 端口配置非法：{target_port}（应在 1024–65535）",
@@ -632,10 +635,12 @@ class TrafficCapture:
             return self._fail_locked(
                 f"RuntimeError: mitmdump 启动后立即退出（端口 {target_port}）：{tail}"
             )
-        self._device_lease = DeviceLease(self.adb, "traffic")
-        await self._device_lease.prepare()
+        self._device_lease = DeviceLease(self.adb, "traffic") if self._manage_device else None
+        if self._device_lease is not None:
+            await self._device_lease.prepare()
         try:
-            await self._setup_device_locked()
+            if self._manage_device:
+                await self._setup_device_locked()
         except Exception as exc:  # noqa: BLE001 - 设备环境配置失败时整体回滚
             reason = f"{type(exc).__name__}: 设备抓包环境配置失败：{exc}"
             deterministic = self._is_deterministic_setup_failure(exc) or (
@@ -643,7 +648,7 @@ class TrafficCapture:
             )
             await self._rollback_start_locked()
             return self._fail_locked(reason, unavailable=deterministic)
-        if self._device_lease.task is None:
+        if self._device_lease is not None and self._device_lease.task is None:
             await self._arm_device_lease_locked()
         if not self.running:
             # 设备配置期间 mitmdump 已退出（例如端口被其它实例占用）：
@@ -659,8 +664,9 @@ class TrafficCapture:
         self._log(
             f"抓包已启动：端口 {self._port}，流量日志 {self.log_path}；"
             + (
-                "系统 CA 已注入"
-                if self._ca_mode == "system"
+                "插件回环代理已就绪"
+                if not self._manage_device
+                else "系统 CA 已注入" if self._ca_mode == "system"
                 else "手动 CA 模式：HTTPS 需 App 信任抓包 CA"
             )
         )
@@ -754,6 +760,7 @@ class TrafficCapture:
             "ok": self.running,
             "running": self.running,
             "port": self._port,
+            "provider": "mitmproxy",
             "transport": self._transport,
             "ca_mode": self._ca_mode,
             "proxy_address": self._proxy_value,

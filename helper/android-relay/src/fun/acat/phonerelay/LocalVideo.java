@@ -24,8 +24,10 @@ final class LocalVideo implements AutoCloseable {
     volatile boolean closed;
     private Thread worker;
     private byte[] frame;
-    private long frameAt, requestedAt;
+    private long frameAt;
+    private volatile long requestedAt;
     private String error;
+    private volatile String stage = "启动";
 
     LocalVideo(LocalAdb adb) { this.adb = adb; }
 
@@ -46,7 +48,7 @@ final class LocalVideo implements AutoCloseable {
         long deadline = after + 15000;
         while (running && error == null && (frame == null || frameAt < after)) {
             long remaining = deadline - SystemClock.elapsedRealtime();
-            if (remaining <= 0) throw new IOException("手机 scrcpy 等待新视频帧超时");
+            if (remaining <= 0) { close(); throw new IOException("手机 scrcpy 等待新视频帧超时：" + stage); }
             wait(remaining);
         }
         if (error != null || !running) throw new IOException(error == null ? "手机视频已停止" : error);
@@ -57,13 +59,15 @@ final class LocalVideo implements AutoCloseable {
     private void decode() {
         MediaCodec codec = null;
         try {
-            adb.pushControlServer();
+            stage = "写入组件"; adb.pushControlServer();
+            stage = "启动服务";
             int scid = new SecureRandom().nextInt() & 0x7fffffff;
             String command = "shell:CLASSPATH=/data/local/tmp/acat-phone-relay-scrcpy.jar app_process / com.genymobile.scrcpy.Server 5.0.1"
                 + " log_level=error video=true audio=false control=false video_codec=h264 max_fps=6 video_bit_rate=2000000"
                 + " send_device_meta=false send_stream_meta=true send_frame_meta=true send_dummy_byte=true tunnel_forward=true cleanup=false scid="
                 + Integer.toHexString(scid);
             server = LocalAdb.bounded("启动视频组件", 5000, () -> adb.openStream(command));
+            stage = "打开视频流";
             String address = String.format(Locale.ROOT, "localabstract:scrcpy_%08x", scid);
             long deadline = SystemClock.elapsedRealtime() + 5000;
             while (running && stream == null && SystemClock.elapsedRealtime() < deadline) {
@@ -71,6 +75,7 @@ final class LocalVideo implements AutoCloseable {
                 catch (IOException e) { Thread.sleep(100); }
             }
             if (stream == null || !running) throw new IOException("手机视频通道未就绪");
+            stage = "视频握手";
             DataInputStream in = new DataInputStream(new LocalAdbInputStream(stream));
             LocalAdb.bounded("视频握手", 5000, () -> {
                 if (in.readUnsignedByte() != 0 || in.readInt() != 0x68323634) throw new IOException("视频协议无效");
@@ -78,7 +83,9 @@ final class LocalVideo implements AutoCloseable {
             });
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             while (running) {
+                stage = "读取视频包";
                 ScrcpyPackets packet = ScrcpyPackets.read(in);
+                stage = packet.data == null ? "建立解码器" : "送入解码帧";
                 if (packet.data == null) {
                     if (codec != null) { codec.stop(); codec.release(); }
                     codec = MediaCodec.createDecoderByType("video/avc");
@@ -99,6 +106,7 @@ final class LocalVideo implements AutoCloseable {
                 int output;
                 while ((output = codec.dequeueOutputBuffer(info, 10000)) >= 0) {
                     try (Image image = codec.getOutputImage(output)) {
+                        stage = image == null ? "解码帧没有Image" : "转换JPEG";
                         if (image != null) {
                             byte[] jpeg = jpeg(image);
                             synchronized (this) { frame = jpeg; frameAt = SystemClock.elapsedRealtime(); notifyAll(); }

@@ -17,8 +17,20 @@ from .errors import ActionFailedError, DeviceOfflineError
 
 MAX_PACKET = 12 * 1024 * 1024
 MAX_OUTPUT = 8 * 1024 * 1024
-CAPABILITIES = ("shell", "screen", "nodes", "input", "clipboard")
-APP_UNSUPPORTED = "App 控制模式暂不支持音视频、文件传输和抓包；请切换为直连"
+CAPABILITIES = (
+    "shell",
+    "screen",
+    "nodes",
+    "input",
+    "clipboard",
+    "traffic_prepare",
+    "traffic_start",
+    "traffic_status",
+    "traffic_stop",
+)
+APP_UNSUPPORTED = (
+    "App 控制模式暂不支持音频采集、媒体录制和通用文件传输；这些能力请使用直连"
+)
 
 
 class AppBridge:
@@ -36,6 +48,68 @@ class AppBridge:
         self._state = {}
         self.fingerprint = ""
         self.port = 0
+        self.traffic_handler = None
+        self.proxy_port = 0
+        self.proxy_capture_id = ""
+        self.proxy_session = ""
+        self.proxy_tasks = set()
+
+    async def close_proxies(self):
+        tasks = list(self.proxy_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _proxy(self, hello, reader, writer):
+        if (
+            hello.get("v") != 1
+            or self.writer is None
+            or not self.session
+            or not self.proxy_capture_id
+            or self.proxy_session != self.session
+            or not 1024 <= self.proxy_port <= 65535
+            or len(self.proxy_tasks) >= 16
+            or not secrets.compare_digest(
+                str(hello.get("token", "")), self._state["token"]
+            )
+            or hello.get("device_id") != self._state.get("device_id")
+            or hello.get("session") != self.session
+            or hello.get("capture_id") != self.proxy_capture_id
+        ):
+            return
+        task = asyncio.current_task()
+        self.proxy_tasks.add(task)
+        upstream = None
+        copies = []
+        try:
+            remote, upstream = await asyncio.wait_for(
+                asyncio.open_connection("127.0.0.1", self.proxy_port), 5
+            )
+            await self.send(writer, {"type": "proxy_ready"})
+
+            async def copy(source, target):
+                while chunk := await asyncio.wait_for(source.read(16384), 45):
+                    target.write(chunk)
+                    await asyncio.wait_for(target.drain(), 10)
+
+            copies = [
+                asyncio.create_task(copy(reader, upstream)),
+                asyncio.create_task(copy(remote, writer)),
+            ]
+            done, _ = await asyncio.wait(copies, return_when=asyncio.FIRST_COMPLETED)
+            for completed in done:
+                completed.result()
+        finally:
+            for copy_task in copies:
+                copy_task.cancel()
+            if copies:
+                await asyncio.gather(*copies, return_exceptions=True)
+            if upstream is not None:
+                upstream.close()
+                with contextlib.suppress(OSError, asyncio.TimeoutError):
+                    await asyncio.wait_for(upstream.wait_closed(), 2)
+            self.proxy_tasks.discard(task)
 
     def _save_state(self):
         path = self.directory / "identity.json"
@@ -138,6 +212,9 @@ class AppBridge:
         authenticated = False
         try:
             hello = await asyncio.wait_for(self.read(reader), 5)
+            if hello.get("type") == "proxy":
+                await self._proxy(hello, reader, writer)
+                return
             device = str(hello.get("device_id") or "")
             if (
                 hello.get("v") != 1
@@ -150,6 +227,9 @@ class AppBridge:
                 or self._state.get("device_id", device) != device
             ):
                 return
+            features = hello.get("features", [])
+            if not isinstance(features, list) or len(features) > 16:
+                raise ValueError("App 能力列表无效")
             # 配对秘密仅授权一台设备；后续连接继续核对已绑定身份。
             self._state["device_id"] = device
             self._save_state()
@@ -160,6 +240,11 @@ class AppBridge:
                 "device_id": device,
                 "version": str(hello.get("version", "")),
                 "connected": True,
+                "features": [
+                    feature
+                    for feature in features
+                    if feature in ("screen_frames", "traffic_proxy")
+                ],
             }
             authenticated = True
             await self.send(writer, {"type": "ready", "session": self.session, "v": 1})
@@ -173,11 +258,23 @@ class AppBridge:
                         future.set_result(value)
                 elif value.get("type") == "update":
                     await self.send(writer, self.update(value))
+                elif value.get("type") == "traffic":
+                    if (
+                        value.get("session") != self.session
+                        or len(json.dumps(value)) > 256000
+                    ):
+                        raise ValueError("抓包消息会话或大小无效")
+                    if self.traffic_handler is not None:
+                        self.traffic_handler(value)
         except (OSError, ValueError, asyncio.IncompleteReadError, asyncio.TimeoutError):
             pass  # 连接关闭后统一撤销本会话的请求。
         finally:
             if authenticated and self.writer is writer:
                 self.writer = None
+                self.proxy_port = 0
+                self.proxy_capture_id = ""
+                self.proxy_session = ""
+                await self.close_proxies()
                 self.peer["connected"] = False
                 for future in self.pending.values():
                     if not future.done():

@@ -437,8 +437,6 @@ class RuntimeMixin:
         系统证书挂载被拒绝、mitmdump 缺失等）已记录原因，这里只输出一次 WARN
         并停止自动重试；临时失败按 start 的退避时间重试。
         """
-        if self.service.config.adb.mode == "app":
-            return
         if getattr(self, "_terminated", False) or getattr(self, "_phone_stopped", False):
             return
         # 假开启（未配置 ADB）：不启动任何设备侧抓包/代理。
@@ -449,8 +447,7 @@ class RuntimeMixin:
         config = self.service.config
         traffic_config = getattr(config, "traffic", None)
         if traffic_config is None or not traffic_config.enabled:
-            if self._traffic.running:
-                await self._traffic.stop()
+            await self._traffic.stop()
             return
         if self._traffic.running:
             await self._traffic.ensure_device()
@@ -689,6 +686,8 @@ class RuntimeMixin:
             if not self.service.configured:
                 return
             config = self.service.config
+            if config.adb.mode == "app":
+                return
             if (
                 config.control.backend == "adb"
                 and config.perception.screen_source == "adb"
@@ -730,6 +729,8 @@ class RuntimeMixin:
             if not self.service.configured:
                 return
             config = self.service.config
+            if config.adb.mode == "app":
+                return
             need_control = config.control.backend in {"auto", "scrcpy"}
             need_perception = config.perception.screen_source in {"auto", "scrcpy"}
             if not (need_control or need_perception):

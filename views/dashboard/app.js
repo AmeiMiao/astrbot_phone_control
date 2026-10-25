@@ -264,7 +264,7 @@
       setText("ov-traffic", `${fmtNum(traffic.flows || 0)} 条`);
       setText(
         "ov-traffic-note",
-        `运行中 · 端口 ${traffic.port || "?"}`,
+        `${traffic.provider === "app" ? "App 抓包" : "mitmproxy"} · ${traffic.last_flow_at || traffic.flows ? "已收到流量" : "等待新请求"}${traffic.failures ? ` · 转发失败 ${traffic.failures} 次` : ""}${traffic.dropped ? ` · 队列丢弃 ${traffic.dropped} 条` : ""}`,
       );
       setClass($("ov-traffic"), "ok");
     } else {
@@ -280,7 +280,7 @@
     const previewEl = $("ov-traffic-preview");
     if (previewEl) {
       previewEl.textContent =
-        traffic.preview || "暂无抓包流量（确认 App 已重启并产生请求）";
+        traffic.flows ? traffic.preview : traffic.error || (traffic.running ? "代理已启动，尚未收到请求。打开目标 App 产生新请求；HTTPS 需信任当前抓包 CA。" : "抓包尚未运行。");
     }
 
     const today = data.today || {};

@@ -31,6 +31,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
     private DataInputStream controlIn;
     private DataOutputStream controlOut;
     private long sequence;
+    private boolean scrcpyPushed;
     private volatile LocalVideo video;
     private final Object videoLock = new Object();
 
@@ -143,6 +144,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
         out.flush();
     }
     synchronized void pushControlServer() throws Exception {
+        if (scrcpyPushed) return;
         String path = "/data/local/tmp/acat-phone-relay-scrcpy.jar";
         try (AdbStream sync = openStream("sync:"); InputStream jar = context.getAssets().open("scrcpy-server")) {
             OutputStream out = sync.openOutputStream();
@@ -153,6 +155,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
             syncPacket(out, "DONE", null, (int)(System.currentTimeMillis() / 1000));
             byte[] response = new byte[8]; exact(new LocalAdbInputStream(sync), response);
             if (!new String(response, 0, 4, "US-ASCII").equals("OKAY")) throw new IOException("控制组件写入失败");
+            scrcpyPushed = true;
         }
     }
     interface AdbAction<T> { T run() throws Exception; }

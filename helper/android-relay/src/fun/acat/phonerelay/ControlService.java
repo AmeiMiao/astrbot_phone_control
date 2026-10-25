@@ -21,6 +21,8 @@ public final class ControlService extends Service {
     private volatile boolean running;
     private volatile SSLSocket socket;
     private volatile LocalAdb adb;
+    private volatile PhoneTraffic traffic;
+    private volatile JSONObject connectionCode;
     private volatile DataOutputStream output;
     private volatile String session;
     private ExecutorService network;
@@ -78,46 +80,75 @@ public final class ControlService extends Service {
                 if (!adb.connect(host, prefs.getInt("adb_port", 5555))) throw new IOException("本机 ADB 未授权或未连接");
                 JSONObject code = new JSONObject(new String(Base64.decode(prefs.getString("code", ""), Base64.URL_SAFE), "UTF-8"));
                 if (code.getInt("v") != 1) throw new IOException("配对码版本不支持");
-                final String pin = code.getString("pin");
-                if (!pin.matches("[0-9a-f]{64}")) throw new IOException("证书指纹无效");
-                TrustManager[] trust = new TrustManager[]{new X509TrustManager() {
-                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                    public void checkClientTrusted(X509Certificate[] chain, String auth) throws CertificateException { throw new CertificateException("仅连接服务端"); }
-                    public void checkServerTrusted(X509Certificate[] chain, String auth) throws CertificateException {
-                        try {
-                            chain[0].checkValidity();
-                            String actual = hex(MessageDigest.getInstance("SHA-256").digest(chain[0].getEncoded()));
-                            if (!MessageDigest.isEqual(actual.getBytes("US-ASCII"), pin.getBytes("US-ASCII"))) throw new CertificateException("插件证书指纹不匹配");
-                        } catch (CertificateException e) { throw e; }
-                        catch (Exception e) { throw new CertificateException(e); }
-                    }
-                }};
-                SSLContext tls = SSLContext.getInstance("TLS"); tls.init(null, trust, new SecureRandom());
-                SSLSocket active = (SSLSocket) tls.getSocketFactory().createSocket(); socket = active;
-                active.connect(new InetSocketAddress(code.getString("host"), code.getInt("port")), 10000);
-                active.setSoTimeout(45000); active.setTcpNoDelay(true); active.startHandshake();
+                connectionCode = code;
+                SSLSocket active = connectPlugin(code); socket = active;
                 output = new DataOutputStream(active.getOutputStream());
                 DataInputStream input = new DataInputStream(active.getInputStream());
                 String device = prefs.getString("device_id", "");
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 send(new JSONObject().put("v", 1).put("token", code.getString("token")).put("device_id", device)
-                    .put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
+                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
                 session = ready.getString("session"); lastRequestSequence = 0;
+                traffic = new PhoneTraffic(this, adb);
                 connected = true;
                 status = "App 控制已连接；本机 ADB 权限：shell";
                 ScheduledFuture<?> heartbeat = timers.scheduleAtFixedRate(() -> {
                     try { send(new JSONObject().put("type", "ping")); }
                     catch (Exception e) { closeSocket(); }
                 }, 10, 10, TimeUnit.SECONDS);
+                ScheduledFuture<?> uploads = timers.scheduleAtFixedRate(() -> {
+                    try {
+                        PhoneTraffic capture = traffic;
+                        JSONObject event = capture == null ? null : capture.drain();
+                        if (event != null) { event.put("session", session); send(event); }
+                    } catch (Exception e) { closeSocket(); }
+                }, 1, 1, TimeUnit.SECONDS);
                 try { while (running && socket == active) handle(read(input)); }
-                finally { heartbeat.cancel(false); }
+                finally { heartbeat.cancel(false); uploads.cancel(false); }
             } catch (Exception e) {
                 if (running) status = "连接失败：" + e.getMessage() + "；等待重新连接";
             } finally { cleanupConnection(); }
             if (running) try { Thread.sleep(3000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
         }
+    }
+    private static SSLSocket connectPlugin(JSONObject code) throws Exception {
+        final String pin = code.getString("pin");
+        if (!pin.matches("[0-9a-f]{64}")) throw new IOException("证书指纹无效");
+        TrustManager[] trust = new TrustManager[]{new X509TrustManager() {
+            public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+            public void checkClientTrusted(X509Certificate[] chain, String auth) throws CertificateException { throw new CertificateException("仅连接服务端"); }
+            public void checkServerTrusted(X509Certificate[] chain, String auth) throws CertificateException {
+                try {
+                    chain[0].checkValidity();
+                    String actual = hex(MessageDigest.getInstance("SHA-256").digest(chain[0].getEncoded()));
+                    if (!MessageDigest.isEqual(actual.getBytes("US-ASCII"), pin.getBytes("US-ASCII"))) throw new CertificateException("插件证书指纹不匹配");
+                } catch (CertificateException e) { throw e; }
+                catch (Exception e) { throw new CertificateException(e); }
+            }
+        }};
+        SSLContext tls = SSLContext.getInstance("TLS"); tls.init(null, trust, new SecureRandom());
+        SSLSocket active = (SSLSocket) tls.getSocketFactory().createSocket();
+        try {
+            active.connect(new InetSocketAddress(code.getString("host"), code.getInt("port")), 10000);
+            active.setSoTimeout(45000); active.setTcpNoDelay(true); active.startHandshake();
+            return active;
+        } catch (Exception e) { active.close(); throw e; }
+    }
+    private Socket proxyConnection(String captureId) throws Exception {
+        JSONObject code = connectionCode; String currentSession = session;
+        if (!connected || code == null || currentSession == null) throw new IOException("插件连接已结束");
+        SSLSocket peer = connectPlugin(code);
+        try {
+            JSONObject hello = new JSONObject().put("v", 1).put("type", "proxy").put("token", code.getString("token"))
+                .put("device_id", getSharedPreferences("control", 0).getString("device_id", ""))
+                .put("session", currentSession).put("capture_id", captureId);
+            byte[] bytes = hello.toString().getBytes("UTF-8");
+            DataOutputStream out = new DataOutputStream(peer.getOutputStream()); out.writeInt(bytes.length); out.write(bytes); out.flush();
+            if (!"proxy_ready".equals(read(new DataInputStream(peer.getInputStream())).optString("type"))) throw new IOException("抓包隧道授权失败");
+            return peer;
+        } catch (Exception e) { peer.close(); throw e; }
     }
     private void handle(JSONObject message) throws Exception {
         String type = message.optString("type"), id = message.optString("id");
@@ -149,6 +180,10 @@ public final class ControlService extends Service {
                     case "shell": data = local.shell(id, params.getString("command"), Math.min(8 * 1024 * 1024, params.optInt("limit", 8192))); break;
                     case "nodes": data = local.nodes(id, 8 * 1024 * 1024); break;
                     case "screen": data = local.screen(); break;
+                    case "traffic_prepare": data = traffic.prepare(); break;
+                    case "traffic_start": data = traffic.start(params, () -> proxyConnection(params.getString("capture_id"))); break;
+                    case "traffic_status": data = traffic.status(); break;
+                    case "traffic_stop": traffic.stopOwned(params.getString("capture_id")); data = new JSONObject().put("running", false); break;
                     case "clipboard": data = local.clipboard(); break;
                     case "input": data = local.input(id, params.getString("text"), params.optBoolean("press_enter")); break;
                     default: throw new IOException("不支持的控制能力");
@@ -217,6 +252,8 @@ public final class ControlService extends Service {
         session = null; closeSocket(); output = null;
         for (String id : jobs.keySet()) cancel(id);
         for (CompletableFuture<JSONObject> future : downloads.values()) future.completeExceptionally(new IOException("插件已断线"));
+        PhoneTraffic capture = traffic; traffic = null; connectionCode = null;
+        if (capture != null) capture.close();
         LocalAdb local = adb; adb = null;
         if (local != null) try { local.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭本机 ADB 失败", e); }
     }

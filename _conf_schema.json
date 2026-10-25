@@ -1076,7 +1076,7 @@
         "type": "string",
         "default": "auto",
         "description": "控制后端",
-        "hint": "auto=scrcpy 可用则用、失败自动回退 adb；adb=只用 ADB；scrcpy=优先 scrcpy（不可用回退 adb）；默认 auto。选择 scrcpy 显示其参数；auto 使用已保存的 scrcpy 参数或默认值。",
+        "hint": "直连模式的控制后端；App 模式由手机执行控制并保留本组配置。auto 优先尝试 scrcpy，失败回退 ADB。",
         "options": [
           "auto",
           "adb",
@@ -1149,7 +1149,7 @@
         "type": "string",
         "default": "adb",
         "description": "感知帧来源",
-        "hint": "adb=用 ADB 截图（默认；scrcpy 只开控制通道、无 H264 编码/解码，开销低）；auto=实时屏幕开启且 scrcpy 视频帧可用时优先、否则回退 adb；scrcpy=始终启用视频镜像（不可用时回退 adb）。",
+        "hint": "直连画面来源：adb 按需截图，auto/scrcpy 使用视频帧；App 画面来源在 ADB 连接中设置，App 模式保留这里的参数。",
         "options": [
           "auto",
           "adb",
@@ -1507,20 +1507,32 @@
   },
   "traffic": {
     "description": "流量抓包识别",
-    "hint": "在手机上对手机流量抓包（ADB + mitmproxy），用解密后的接口内容识别当前页面；图文/视频画面/布局仍用多模态截图兜底。",
+    "hint": "选择手机端或插件端 HTTP(S) 代理采集，记录接口内容和媒体链接；HTTPS 需要目标 App 信任抓包 CA。",
     "type": "object",
     "items": {
       "enabled": {
         "type": "bool",
         "default": true,
         "description": "启用流量抓包",
-        "hint": "开启后插件启动时自动注入系统 CA、启动 mitmproxy 并设置手机代理；需要 adb root、容器已安装 mitmproxy（pip3 install mitmproxy）"
+        "hint": "开启后启动所选抓包方式并配置手机代理；系统 CA 需设备 root，手动 CA 需自行安装并由目标 App 信任。"
+      },
+      "provider": {
+        "type": "string",
+        "default": "mitmproxy",
+        "options": [
+          "mitmproxy"
+        ],
+        "description": "抓包方式",
+        "hint": "mitmproxy 在插件端采集；App 抓包在手机端采集并上传，仅 App 控制可选。切换后重新加载插件。",
+        "condition": {
+          "enabled": true
+        }
       },
       "port": {
         "type": "int",
         "default": 18080,
-        "description": "mitmproxy 监听端口",
-        "hint": "容器内 127.0.0.1 端口，通过 adb reverse 映射到手机；1024-65535",
+        "description": "抓包代理端口",
+        "hint": "1024–65535；App 控制使用手机回环代理，直连通过所选传输通道连接。",
         "condition": {
           "enabled": true
         }
@@ -1543,11 +1555,24 @@
           "enabled": true
         }
       },
+      "ca_mode": {
+        "type": "string",
+        "default": "system",
+        "options": [
+          "system",
+          "manual"
+        ],
+        "description": "抓包 CA 信任方式",
+        "hint": "system 通过 adb root 安装系统 CA；manual 由使用者或 App 自行信任下载的 CA，可在无 root 设备抓取 HTTP，HTTPS 仅适用于信任此 CA 的 App；证书固定的应用可能拒绝连接。",
+        "condition": {
+          "enabled": true
+        }
+      },
       "mitmdump_path": {
         "type": "string",
         "default": "",
         "description": "mitmdump 可执行路径",
-        "hint": "留空则从 PATH/当前 Python 同目录查找 mitmdump。AstrBot Core 固定 cryptography==50.0.1，mitmproxy 12.x 要求 cryptography<=48.1，不能装进核心环境；请用独立 venv 安装 mitmproxy，把本项指向 venv/bin/mitmdump，或在容器 PATH 中提供该 binary。",
+        "hint": "插件端 mitmdump 路径，建议在独立 venv 安装抓包依赖；留空从 PATH 或当前 Python 同目录查找。",
         "condition": {
           "enabled": true
         }
@@ -1560,20 +1585,7 @@
           "mesh"
         ],
         "description": "抓包传输通道",
-        "hint": "adb 使用回环反向转发；mesh 通过 Tailscale/ZeroTier 的服务端组网 IPv4 与抓包端口传输，不建立 adb reverse。需先完成组网授权。",
-        "condition": {
-          "enabled": true
-        }
-      },
-      "ca_mode": {
-        "type": "string",
-        "default": "system",
-        "options": [
-          "system",
-          "manual"
-        ],
-        "description": "抓包 CA 信任方式",
-        "hint": "system 通过 adb root 安装系统 CA；manual 由使用者或 App 自行信任下载的 CA，可在无 root 设备抓取 HTTP，HTTPS 仅适用于信任此 CA 的 App；证书固定的应用可能拒绝连接。",
+        "hint": "mitmproxy 直连时选择 adb 回环反向转发或 mesh 组网；App 控制由认证 TLS 子连接传输并保留本项。",
         "condition": {
           "enabled": true
         }
