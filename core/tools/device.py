@@ -399,6 +399,20 @@ class PhoneInputTextTool(_PhoneToolBase):
         }
     )
 
+    @staticmethod
+    def _editable(node) -> bool:
+        return node.showing_hint is not True and (
+            "EditText" in node.class_name or "AutoCompleteTextView" in node.class_name
+        )
+
+    @classmethod
+    def _verified(cls, snapshot, text: str, replace: bool) -> bool:
+        return any(
+            node.focused and cls._editable(node)
+            and (node.text == text if replace else text in node.text)
+            for node in snapshot.nodes
+        )
+
     @_wrap_call
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         await self._guard(context)
@@ -406,16 +420,32 @@ class PhoneInputTextTool(_PhoneToolBase):
         if not text:
             return "error: text 不能为空"
         press_enter = bool(kwargs.get("press_enter", False))
-        if kwargs.get("replace", False):
+        replace = bool(kwargs.get("replace", False))
+        if replace:
             await self.service.actions.clear_text()
         await self.service.input_text(text, press_enter=False)
         _rendered, snapshot = await self.service.screen()
-        verified = any(
-            node.focused and node.showing_hint is not True
-            and ("EditText" in node.class_name or "AutoCompleteTextView" in node.class_name)
-            and (node.text == text if kwargs.get("replace", False) else text in node.text)
-            for node in snapshot.nodes
-        )
+        verified = self._verified(snapshot, text, replace)
+        if not verified:
+            # 部分输入法或网页输入框在一次粘贴后失去编辑焦点，导致后续粘贴无效。
+            # 按实际恢复顺序（清空 → 重新点击聚焦框 → 输入）重试一次。
+            if replace:
+                await self.service.actions.clear_text()
+            _rendered, snapshot = await self.service.screen()
+            target = next(
+                (
+                    node for node in snapshot.nodes
+                    if node.focused and self._editable(node)
+                    and node.bounds.width > 0 and node.bounds.height > 0
+                ),
+                None,
+            )
+            if target is not None:
+                await self.service.tap(target.bounds.center_x, target.bounds.center_y)
+                await self.service.wait(seconds=0.4)
+            await self.service.input_text(text, press_enter=False)
+            _rendered, snapshot = await self.service.screen()
+            verified = self._verified(snapshot, text, replace)
         if not verified:
             return "文字输入命令已执行，但实际输入值未确认；先看当前截图核对聚焦和关键词，再提交搜索。"
         if press_enter:

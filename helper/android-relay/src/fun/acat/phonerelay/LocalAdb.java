@@ -14,6 +14,7 @@ import java.security.cert.*;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.x509.X509V3CertificateGenerator;
 import org.conscrypt.Conscrypt;
@@ -143,22 +144,51 @@ final class LocalAdb extends AbsAdbConnectionManager {
             if (!new String(response, 0, 4, "US-ASCII").equals("OKAY")) throw new IOException("控制组件写入失败");
         }
     }
+    private interface AdbAction<T> { T run() throws Exception; }
+
+    /** 为可能无限等待的 ADB 流打开操作设置上限，超时以中断结束并转成明确错误。 */
+    private static <T> T bounded(String what, long timeoutMs, AdbAction<T> action) throws Exception {
+        Thread target = Thread.currentThread();
+        AtomicBoolean expired = new AtomicBoolean(false);
+        Thread watchdog = new Thread(() -> {
+            try { Thread.sleep(timeoutMs); } catch (InterruptedException e) { return; }
+            expired.set(true);
+            target.interrupt();
+        });
+        watchdog.setDaemon(true);
+        watchdog.start();
+        try {
+            return action.run();
+        } catch (InterruptedException e) {
+            Thread.interrupted();
+            throw new IOException(what + "超时；本机 ADB 连接未响应", e);
+        } finally {
+            watchdog.interrupt();
+        }
+    }
+
     private void ensureControl() throws Exception {
         if (control != null && !control.isClosed()) return;
         closeControl();
         pushControlServer();
         int scid = new SecureRandom().nextInt() & 0x7fffffff;
-        server = openStream("shell:CLASSPATH=/data/local/tmp/acat-phone-relay-scrcpy.jar app_process / com.genymobile.scrcpy.Server 5.0.1 log_level=error video=false audio=false control=true clipboard_autosync=false raw_stream=true send_dummy_byte=true tunnel_forward=true cleanup=false scid=" + Integer.toHexString(scid));
+        String command = "shell:CLASSPATH=/data/local/tmp/acat-phone-relay-scrcpy.jar app_process / com.genymobile.scrcpy.Server 5.0.1 log_level=error video=false audio=false control=true clipboard_autosync=false raw_stream=true send_dummy_byte=true tunnel_forward=true cleanup=false scid=" + Integer.toHexString(scid);
         String address = String.format(Locale.ROOT, "localabstract:scrcpy_%08x", scid);
         Exception failure = null;
-        for (int i = 0; i < 40; i++) {
-            try { control = openStream(address); break; }
-            catch (IOException e) { failure = e; Thread.sleep(100); }
+        try {
+            server = bounded("启动手机控制组件", 8000, () -> openStream(command));
+            for (int i = 0; i < 40; i++) {
+                try { control = bounded("连接手机控制通道", 3000, () -> openStream(address)); break; }
+                catch (IOException e) { failure = e; Thread.sleep(100); }
+            }
+            if (control == null) throw new IOException("手机控制通道未就绪", failure);
+            controlIn = new DataInputStream(new LocalAdbInputStream(control));
+            controlOut = new DataOutputStream(control.openOutputStream());
+            if (bounded("读取控制通道握手", 5000, () -> controlIn.read()) != 0) throw new IOException("控制通道握手失败");
+        } catch (Exception e) {
+            closeControl();
+            throw e;
         }
-        if (control == null) throw new IOException("手机控制通道未就绪", failure);
-        controlIn = new DataInputStream(new LocalAdbInputStream(control));
-        controlOut = new DataOutputStream(control.openOutputStream());
-        if (controlIn.read() != 0) throw new IOException("控制通道握手失败");
     }
     synchronized JSONObject clipboard() throws Exception {
         ensureControl();
