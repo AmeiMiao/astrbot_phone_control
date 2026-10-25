@@ -83,6 +83,13 @@ class AppAdbClient(AdbClient):
         value = await self.bridge.call("clipboard", timeout=self._command_timeout)
         return value.get("text", "")
 
+    async def dump_ui_output(self, path, *, timeout=None):
+        if path == "/dev/tty":
+            return await self.exec_out("uiautomator", "dump", path, timeout=timeout)
+        from .ui_commands import ui_dump_command
+
+        return (await self.shell(ui_dump_command(path), timeout=timeout)).encode()
+
     async def input_text(self, text, *, press_enter=False):
         await self.bridge.call(
             "input", text=text, press_enter=press_enter, timeout=self._command_timeout

@@ -114,7 +114,10 @@ final class LocalAdb extends AbsAdbConnectionManager {
     }
     JSONObject nodes(String id, int limit) throws Exception {
         String file = "/data/local/tmp/acat-relay-ui-" + id + ".xml";
-        return shell(id, "trap 'rm -f " + file + "' EXIT; uiautomator dump " + file + " >/dev/null && cat " + file, limit);
+        String command = "if [ -x /system/bin/app_process32 ] && [ -n \"$(getprop ro.product.cpu.abilist32)\" ]; then "
+            + "CLASSPATH=/system/framework/uiautomator.jar /system/bin/app_process32 /system/bin "
+            + "com.android.commands.uiautomator.Launcher dump " + file + "; else uiautomator dump " + file + "; fi";
+        return shell(id, "trap 'rm -f " + file + "' EXIT; " + command + " >/dev/null && cat " + file, limit);
     }
     void cancel(String id) {
         AdbStream stream = active.remove(id);

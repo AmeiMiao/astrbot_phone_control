@@ -569,3 +569,15 @@ def test_file_dump_failure_does_not_read_previous_xml(failure):
     with pytest.raises(UiDumpError, match="未生成当前结果"):
         run(dump_ui(adb, max_retries=0))
     assert not any(call[0] == "cat" for call in adb.exec_out_calls)
+
+
+def test_dump_uses_client_runtime_capture_without_legacy_tty():
+    class RuntimeAdb(FakeAdb):
+        async def dump_ui_output(self, path, *, timeout=None):
+            assert path == "/dev/tty"
+            return TTY_OUTPUT.encode()
+
+    adb = RuntimeAdb()
+    snapshot = run(dump_ui(adb, max_retries=0))
+    assert snapshot.nodes and snapshot.package == "com.example.app"
+    assert not adb.exec_out_calls

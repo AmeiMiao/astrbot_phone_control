@@ -160,8 +160,13 @@ async def _current_activity(adb: AdbClient, *, timeout: float | None) -> str:
 
 
 async def _dump_with_tty(adb: AdbClient, *, timeout: float | None) -> tuple[str, list[UiNode]]:
-    """主路径：``exec-out uiautomator dump /dev/tty``。"""
-    raw = await adb.exec_out("uiautomator", "dump", "/dev/tty", timeout=timeout)
+    """主路径：使用设备系统运行时将当前节点导出到 TTY。"""
+    dump = getattr(adb, "dump_ui_output", None)
+    raw = (
+        await dump("/dev/tty", timeout=timeout)
+        if dump is not None
+        else await adb.exec_out("uiautomator", "dump", "/dev/tty", timeout=timeout)
+    )
     text = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
     xml_text = _extract_xml_document(text)
     nodes = parse_ui_xml(xml_text)
@@ -171,9 +176,16 @@ async def _dump_with_tty(adb: AdbClient, *, timeout: float | None) -> tuple[str,
 
 
 async def _dump_with_file(adb: AdbClient, *, timeout: float | None) -> tuple[str, list[UiNode]]:
-    """回退路径：先 dump 到 sdcard 文件，再 exec-out cat 取回。"""
+    """文件路径：确认本次采集完成，再取回当前 XML。"""
     remote_path = "/sdcard/window_dump.xml"
-    output = await adb.shell(f"uiautomator dump {remote_path}", timeout=timeout)
+    dump = getattr(adb, "dump_ui_output", None)
+    output = (
+        await dump(remote_path, timeout=timeout)
+        if dump is not None
+        else await adb.shell(f"uiautomator dump {remote_path}", timeout=timeout)
+    )
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", "replace")
     if f"dumped to: {remote_path}" not in output or "ERROR:" in output:
         raise UiDumpError("UI 节点采集未生成当前结果", detail=str(output).strip()[:300])
     raw = await adb.exec_out("cat", remote_path, timeout=timeout)
