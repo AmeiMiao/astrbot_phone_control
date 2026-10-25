@@ -18,11 +18,19 @@
 | 项目 | 要求 |
 | --- | --- |
 | 宿主 | AstrBot `>=4.27.1,<5`，Python 3.10+；完整功能以 Linux x86_64 为验证平台 |
-| 设备 | 开启 ADB 调试的安卓模拟器或真机，ADB 地址可从 AstrBot 所在环境访问 |
+| 设备 | 开启 ADB 调试的安卓模拟器或真机；直连方式要求 ADB 可达，App 方式要求手机能访问插件接入端口 |
 | ADB / scrcpy | ADB 缺失时从 Google 官方下载；scrcpy-server 5.0.1 随包提供 |
 | 视频与中文输入 | 可选 PyAV/ffmpeg、ADBKeyboard、minitouch；实时解码和抓包依赖相应宿主组件 |
 | 抓包 | 独立 venv 安装 mitmproxy，配置 `traffic.mitmdump_path`；系统 CA 模式需要 `adb root` |
 | 组网 | WireGuard、Tailscale、ZeroTier 三选一；ZeroTier SDK 动态库需手动提供 |
+
+### 连接方式
+
+「ADB 连接」可选择「直连」或「使用 App 控制」，各自参数按选择显示，隐藏参数保留。已有配置使用直连，现有音视频、文件及抓包能力可继续使用。
+
+App 模式由 [Phone ADB Relay](helper/android-relay/README.md) 内置客户端连接手机本机 adbd，再主动连接插件的 TLS 接入端口。支持状态、shell、应用操作、手势、中文输入、剪贴板、截图和节点；本机 TCP 调试或 Android 11+ 无线配对需先授权。切换前停止手机任务，保存后重载插件。
+
+Dashboard 提供 App 配对码和 APK 下载。App 可手动检查已连接插件提供的新版 APK，校验后由用户确认系统安装；APK 与插件 metadata 独立版本化。详细网络配置、配对和覆盖升级见组件说明。
 
 ### 安装与首次连接
 

@@ -16,12 +16,14 @@ public final class MainActivity extends Activity {
     private EditText address;
     private EditText peer;
     private TextView status;
+    private TextView controlStatus;
     private EditText adbHost, adbPort, pairPort, pairCode, pluginCode;
     private final java.util.concurrent.ExecutorService setupWorker = Executors.newSingleThreadExecutor();
     private final android.os.Handler handler = new android.os.Handler();
     private final Runnable refresh = new Runnable() {
         public void run() {
             status.setText(RelayService.status + "\n" + ControlService.status);
+            if (controlStatus != null) controlStatus.setText(ControlService.status);
             handler.postDelayed(this, 1000);
         }
     };
@@ -113,6 +115,7 @@ public final class MainActivity extends Activity {
             } catch (Exception e) { ControlService.status = "配置错误：" + e.getMessage(); }
         });
         button(box, "停止 App 控制", () -> stopService(new Intent(this, ControlService.class)));
+        controlStatus = new TextView(this); box.addView(controlStatus);
         button(box, "检查 App 更新", () -> startService(new Intent(this, ControlService.class).setAction("check")));
         button(box, "下载更新包", () -> startService(new Intent(this, ControlService.class).setAction("install")));
         button(box, "确认系统安装", () -> {
@@ -120,6 +123,17 @@ public final class MainActivity extends Activity {
                 if (InstallReceiver.confirmation != null) { startActivity(InstallReceiver.confirmation); InstallReceiver.confirmation = null; }
                 else UpdateInstaller.install(this);
             } catch (Exception e) { ControlService.status = "安装失败：" + e.getMessage(); }
+        });
+        button(box, "组件许可", () -> {
+            try {
+                java.io.InputStream notices = getAssets().open("third-party.txt");
+                java.io.InputStream license = getAssets().open("LGPL-3.0.txt");
+                String text = new String(LocalAdb.readBounded(notices, 65536), "UTF-8") + "\n" + new String(LocalAdb.readBounded(license, 65536), "UTF-8");
+                notices.close(); license.close();
+                TextView content = new TextView(this); content.setText(text); content.setTextIsSelectable(true);
+                ScrollView scroll = new ScrollView(this); scroll.addView(content);
+                new android.app.AlertDialog.Builder(this).setTitle("组件许可").setView(scroll).setPositiveButton("关闭", null).show();
+            } catch (Exception e) { ControlService.status = "读取许可失败：" + e.getMessage(); }
         });
         TextView note = new TextView(this);
         note.setText("本机网络调试需开启并授权。本模式提供控制、截图、节点及剪贴板；音视频、文件和抓包请在插件选择直连。插件升级后可手动检查 App 更新。"); box.addView(note);

@@ -1005,6 +1005,30 @@
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => switchView(btn.dataset.view));
     });
+    $("app-pair").addEventListener("click", async () => {
+      try {
+        const value = await apiGet("dashboard/app-connection", { host: $("app-host").value.trim() });
+        $("app-code").value = value.code || "";
+        setText("app-status", value.enabled ? `端口 ${value.port}；${value.peer.connected ? "手机已连接" : "等待手机连接"}` : value.message);
+      } catch (error) { setText("app-status", error.message || String(error)); }
+    });
+    $("app-reset").addEventListener("click", async () => {
+      if (!await confirmAction("断开已配对手机并生成新的配对凭据？", "确认重置配对")) return;
+      try {
+        const value = await state.bridge.apiPost("dashboard/app-connection", {});
+        $("app-code").value = ""; setText("app-status", value.message);
+      } catch (error) { setText("app-status", error.message || String(error)); }
+    });
+    $("app-apk").addEventListener("click", async () => {
+      try {
+        const response = await apiGet("dashboard/app-apk");
+        const bytes = Uint8Array.from(atob(response.content_base64), c => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: "application/vnd.android.package-archive" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a"); link.href = url; link.download = "phone-adb-relay.apk"; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) { setText("app-status", `下载失败：${error.message || error}`); }
+    });
     $("mesh-refresh").addEventListener("click", loadMesh);
     $("mesh-ca").addEventListener("click", async () => {
       try {

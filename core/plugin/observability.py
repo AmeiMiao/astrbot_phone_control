@@ -309,18 +309,33 @@ class ObservabilityMixin(LibraryDashboardMixin):
         )
         routes += self._library_dashboard_routes(base)
         routes += self._config_migration_routes(base)
-        routes += ((f"{base}/app-connection", self.dashboard_app_connection, ["GET"], "Relay App 连接"),)
+        routes += ((f"{base}/app-connection", self.dashboard_app_connection, ["GET"], "Relay App 连接"),
+                   (f"{base}/app-apk", self.dashboard_app_apk, ["GET"], "Relay APK 下载"),
+                   (f"{base}/app-connection", self.dashboard_app_reset, ["POST"], "重置 Relay 配对"))
         for route, handler, methods, desc in routes:
             try:
                 register(route, handler, methods, desc)
             except Exception as exc:  # noqa: BLE001 - 注册失败只记录
                 logger.warning("注册 Dashboard API 失败（%s）：%s", route, exc)
 
+    async def dashboard_app_reset(self):
+        if self.device_gate.busy or self._app_bridge.pending:
+            return error_response("请先停止手机任务再重置配对", status_code=409)
+        if self._app_bridge.server is None:
+            return error_response("请先选择 App 控制并重载插件", status_code=400)
+        await self._app_bridge.reset_pairing()
+        return json_response({"message": "App 配对已重置，请重新获取配对码"})
+
+    async def dashboard_app_apk(self):
+        import base64
+        apk = plugin_root_dir() / "bin/android/phone-adb-relay.apk"
+        return json_response({"name": apk.name, "content_base64": base64.b64encode(apk.read_bytes()).decode("ascii")})
+
     async def dashboard_app_connection(self):
         bridge = self._app_bridge
         if bridge.server is None:
             return json_response({"enabled": False, "message": "请在 ADB 连接中选择使用 App 控制并重载插件"})
-        host = str(request.args.get("host") or request.host.split(":")[0]).strip()
+        host = str(request.query.get("host") or request.headers.get("host", "").split(":")[0]).strip()
         if not host or "/" in host or len(host) > 253:
             return error_response("请填写手机可访问的插件主机名或 IPv4 地址", status_code=400)
         return json_response({"enabled": True, "peer": bridge.peer, "port": bridge.port,

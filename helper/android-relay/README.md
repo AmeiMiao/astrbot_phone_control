@@ -1,30 +1,46 @@
 # Phone ADB Relay
 
-Android 8+ 手机组件，以普通 App UID 在 WireGuard、Tailscale 或 ZeroTier 隧道中接收 ADB 连接并中转到手机 `127.0.0.1:5555`。支持官方客户端的应用级 VPN；手机 ADB 需先通过 USB 授权或设备网络调试开启。
+Android 8+ 手机组件，包名 `fun.acat.phonerelay`。提供 TCP 中转和本机 ADB 控制两种服务，各自启动与停止；同签名覆盖安装保留参数和 ADB 身份。
 
-## 安装与连接
+## 本机 ADB 控制
 
-1. 安装插件随包的 `bin/android/phone-adb-relay.apk`；包名为 `fun.acat.phonerelay`，同签名版本覆盖更新后保留监听地址与控制端配置。
-2. 手机开启网络 ADB（可由已授权 USB ADB 执行 `adb tcpip 5555`），确认 adbd 监听 5555。
-3. 官方 WireGuard/Tailscale/ZeroTier 客户端连接同一网络；应用分流中允许 `fun.acat.phonerelay`。
-4. 打开 Phone ADB Relay，填写手机组网 IPv4 地址和唯一允许的插件组网 IPv4 地址，点击启动。组件仅在 tun/wg 接口地址的 15555 端口监听，转发目标固定为手机 loopback adbd。
-5. WireGuard 设置 `network.wireguard.adb_target_port=15555`；Tailscale/ZeroTier 设置所选服务的 `adb_port=15555`，分别开启对应 `auto_adb`。后台保留名单包含当前 VPN 客户端与 `fun.acat.phonerelay`。
+1. 在插件「ADB 连接」选择「使用 App 控制」，设置 App 接入端口，保存并重载。容器发布相同 TCP 端口，默认 `6190`。
+2. 在 Dashboard「Relay App 连接」填写手机可访问的插件主机名或 IPv4，获取配对码。配对码包含连接凭据，只填入自己的手机 App。
+3. 手机开启本机 TCP ADB，填写本机地址及连接端口；Android 11+ 也可开启无线调试，使用配对端口和六位配对码完成配对，再填写无线调试的连接端口。配对端口与连接端口分别设置。
+4. 填入插件配对码并启动 App 控制。App 通过固定证书 TLS 主动连接插件，通信可经直连网络或现有 VPN。
 
-通知栏和界面的停止按钮立即关闭监听与活动连接。VPN 接口消失后服务停止；服务使用 `START_NOT_STICKY`，由用户重新启动。并发上限为 16 对连接，连接 ADB 的超时为 5 秒。Android 的 ADB 授权机制保持生效。
+App 内置 ADB 客户端连接本机 adbd，命令以设备实际提供的 shell 权限执行。支持设备状态、shell、应用操作、点击/长按/滑动、按键、中文输入、剪贴板、截图和 UI 节点。中文输入与剪贴板共用手机端 scrcpy 控制通道。节点使用单次文件采集后回传，完成时清理临时文件。
 
-Linux/root 全局 WireGuard 对端可在插件中选择其实际 adbd 端口。插件侧转发端口为独立的 `network.wireguard.adb_local_port`，手机组件入口固定为 15555。
+音视频、通用文件传输和 HTTP(S) 抓包由插件直连模式提供。切换前停止手机任务，在插件配置中选择连接方式并重载；隐藏的直连参数保留。App 断线、取消或请求超时后不重放操作。手机重启、关闭调试或切换无线调试端口后，需重新确认本机 ADB 连接。
+
+同一插件配对凭据绑定一台 App 设备身份；更换手机或卸载重装后，在 Dashboard 重置配对并重新填写配对码。重置需设备任务空闲。
+
+## TCP 中转
+
+1. 手机开启网络 ADB（可由已授权 USB ADB 执行 `adb tcpip 5555`）。
+2. 官方 WireGuard、Tailscale 或 ZeroTier 客户端连接同一网络，并在应用分流中允许本 App。
+3. 填写手机组网 IPv4 与唯一允许的插件组网 IPv4，启动中转。组件在 tun/wg 接口地址的 `15555` 端口监听，目标为本机 `127.0.0.1:5555`。
+4. 插件选择「直连」，配置相应组网 ADB 目标端口为 `15555`。
+
+中转保留 ADB 自身授权，最多16对连接。接口消失后服务停止；通知和界面停止按钮回收连接。启动采用 `START_NOT_STICKY`，由用户重新启动。
+
+## App 更新
+
+插件随包提供 `bin/android/phone-adb-relay.apk` 及版本清单。App 中点击「检查 App 更新」，确认有新版本后下载；包名、签名、递增版本码、大小和 SHA256 校验通过，再点击「确认系统安装」。Android 可能要求先允许本 App 安装应用；用户取消安装时保留当前版本。
+
+APK 版本独立于插件 metadata 版本。首次安装及未提供更新按钮的版本，可在 Dashboard 下载 APK 后覆盖安装。更新会中断 App 进程；安装后重新打开 App 并启动控制，已有配置和 ADB 密钥保留。无需 GitHub Release 或单独更新服务。
 
 ## 构建
 
-源文件使用项目 MIT 许可。需要 JDK 17+、Android SDK platform 35 和 build-tools 35.0.0，签名密钥由维护者保存在构建环境的私有配置中。
+需要 JDK 17+、Python 3、Android SDK platform35 与 build-tools35.0.0。依赖固定版本、下载地址及 SHA256 见 `dependencies.json`。构建者可替换依赖并重新构建；第三方许可见项目根 `THIRD_PARTY_NOTICES.md` 和 `licenses/`。
 
 ```bash
 export JAVA_HOME=<JDK目录>
 export ANDROID_HOME=<SDK目录>
 export OUT_DIR=<构建缓存中的绝对输出目录>
 export SIGNING_KEYSTORE=<私有签名密钥路径>
-# SIGNING_PASSWORD 通过构建环境秘密变量注入
+# SIGNING_PASSWORD 由构建环境注入
 bash build.sh
 ```
 
-输出 `OUT_DIR/phone-adb-relay.apk`，经 zipalign 和 APK v2/v3 签名验证后复制到插件 `bin/android/`。发布资产包含同一 APK，可单独下载后侧载。自动化安装可先启动可见 Activity，再传 `address`、`peer` 和 `start` Intent 参数；服务本身只在应用内使用。
+输出 `phone-adb-relay.apk` 与 `phone-adb-relay.json`，均放入插件 `bin/android/`。签名密钥由维护者保管；构建目录使用工作区缓存。APK 经 zipalign 与 v2/v3 签名校验，内置 scrcpy5.0.1 控制组件及第三方许可。

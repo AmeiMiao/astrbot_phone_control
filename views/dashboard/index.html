@@ -70,6 +70,17 @@
             <pre id="ov-traffic-preview" style="white-space:pre-wrap;max-height:260px;overflow:auto;font-size:12px;line-height:1.5;margin:8px 0 0;"></pre>
           </div>
 
+          <section class="panel" aria-label="Relay App 连接">
+            <h2>Relay App 连接</h2>
+            <p>在插件配置的 ADB 连接中选择「使用 App 控制」，保存并重载后获取配对码。手机需能访问 App 接入端口。</p>
+            <label>手机可访问的插件主机名或 IPv4 <input id="app-host" type="text" placeholder="留空使用当前面板主机" /></label>
+            <button id="app-pair" type="button">获取 App 配对码</button>
+            <button id="app-apk" type="button">下载 Relay APK</button>
+            <button id="app-reset" type="button">重置 App 配对</button>
+            <p id="app-status" role="status"></p>
+            <textarea id="app-code" readonly rows="4" aria-label="App 配对码" placeholder="配对码包含设备连接凭据，请仅填入自己的 Relay App"></textarea>
+          </section>
+
           <section class="panel">
             <div class="panel-head">
               <h2>运行指标</h2>

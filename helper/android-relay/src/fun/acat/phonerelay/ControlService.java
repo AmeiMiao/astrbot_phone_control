@@ -44,7 +44,10 @@ public final class ControlService extends Service {
                     if (!jobs.isEmpty()) throw new IOException("请先停止手机任务再更新");
                     if ("check".equals(action)) {
                         updateInfo = requestUpdate(-1).getJSONObject("info");
-                        status = "插件提供版本 " + updateInfo.getString("versionName") + "；点击下载并安装进行确认";
+                        long installed = UpdateInstaller.version(getPackageManager().getPackageInfo(getPackageName(), 0));
+                        status = updateInfo.getInt("versionCode") > installed
+                            ? "插件提供版本 " + updateInfo.getString("versionName") + "；下载后点击确认系统安装"
+                            : "当前已是插件提供的版本 " + updateInfo.getString("versionName");
                     } else installUpdate();
                 } catch (Exception e) { status = "更新失败：" + e.getMessage(); }
             });

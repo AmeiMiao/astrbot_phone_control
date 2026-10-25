@@ -197,6 +197,15 @@ class AppBridge:
                     with contextlib.suppress(OSError, asyncio.TimeoutError):
                         await self.send(writer, {"type": "cancel", "id": request_id, "session": self.session})
 
+    async def reset_pairing(self):
+        self._state = {"token": secrets.token_urlsafe(32)}
+        self._save_state()
+        writer = self.writer
+        if writer is not None:
+            writer.close()
+            with contextlib.suppress(OSError, asyncio.TimeoutError):
+                await asyncio.wait_for(writer.wait_closed(), 2)
+
     async def close(self):
         if self.server:
             self.server.close()
