@@ -179,6 +179,8 @@ LIVE_KEYS: frozenset[str] = frozenset(
 # 被组件缓存/构造参数固化的配置字段（保存后必须重建或重启对应组件）。
 RECONCILE_KEYS: frozenset[str] = frozenset(
     {
+        "adb.mode",
+        "adb.app_port",
         "adb.host",
         "adb.port",
         "adb.path",

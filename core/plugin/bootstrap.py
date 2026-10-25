@@ -364,7 +364,7 @@ class BootstrapMixin:
         self._components = RuntimeComponents(self.data_dir / "runtime")
         self._components_task = None
         self._ensure_bundled_executables()
-        adb_path = self._resolve_adb_path(initial) if initial.adb.configured else None
+        adb_path = self._resolve_adb_path(initial) if initial.adb.configured and initial.adb.mode == "direct" else None
         self.adb = AdbClient(
             adb_path,
             initial.adb.host,
@@ -377,6 +377,11 @@ class BootstrapMixin:
             allow_unconfigured=True,
             defer_binary=True,
         )
+        from ..app_bridge import AppBridge
+        from ..app_adb import AppAdbClient
+        self._app_bridge = AppBridge(self.data_dir / "app-bridge", plugin_root_dir() / "bin/android/phone-adb-relay.apk")
+        if initial.adb.mode == "app":
+            self.adb = AppAdbClient(self._app_bridge, adb_home, command_timeout=initial.adb.command_timeout, logger=self._device_log)
         self.actions = DeviceActions(self.adb, logger=self._device_log)
         self.diary = PhoneDiary(self.data_dir / "diary")
         self.quota = TokenQuota(self.data_dir)
@@ -632,6 +637,8 @@ class BootstrapMixin:
         self._start_app_recall_maintenance()
         # 浏览日志上限清理不访问设备：假开启与启用状态都要在启动时执行一次。
         await self._cleanup_diary_limits()
+        if self.service.config.adb.mode == "app":
+            await self._app_bridge.start(self.service.config.adb.app_port)
         if self._components.needs_prepare(self.service.config):
             self._components_task = asyncio.create_task(
                 self._prepare_components_and_start(), name=f"{PLUGIN_NAME}_components"
@@ -752,6 +759,8 @@ class BootstrapMixin:
             logger.info("插件实例已停用，跳过重复终止")
             return
         self._terminated = True
+        if hasattr(self, "_app_bridge"):
+            await self._app_bridge.close()
         try:
             await self._tool_reports.close()
             await self._terminate_impl()
@@ -1166,6 +1175,9 @@ class BootstrapMixin:
                     "ADB 地址/端口已清空：手机后台任务已停止，重新加载插件后保持未启用状态"
                 )
             return
+
+        if previous.adb.mode != current.adb.mode or previous.adb.app_port != current.adb.app_port:
+            raise PhoneControlError("连接方式变更需要先停止任务，再从原生配置页保存并重新加载插件")
 
         # 1) ADB 连接参数：断开旧目标并按新参数重配，后端一并重置。
         if plan.adb_changed:

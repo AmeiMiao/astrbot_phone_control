@@ -76,7 +76,7 @@ class RuntimeComponents:
         self._cancel.set()
 
     def needs_prepare(self, config):
-        wanted = [("adb", config.adb.path)] if config.adb.configured else []
+        wanted = [("adb", config.adb.path)] if config.adb.configured and config.adb.mode == "direct" else []
         if config.mesh.enabled and config.mesh.provider == "tailscale":
             wanted.extend([("tailscale", config.mesh.tailscale_path), ("tailscaled", config.mesh.tailscaled_path)])
         if any(not self.resolve(name, path).is_file() for name, path in wanted):
@@ -91,7 +91,7 @@ class RuntimeComponents:
                 raise ComponentError("组件准备已取消，请重新加载插件")
             self.states.clear()
             wanted = []
-            if config.adb.configured:
+            if config.adb.configured and config.adb.mode == "direct":
                 wanted.append(("adb", config.adb.path))
             if config.mesh.enabled and config.mesh.provider == "tailscale":
                 wanted.extend([("tailscale", config.mesh.tailscale_path), ("tailscaled", config.mesh.tailscaled_path)])

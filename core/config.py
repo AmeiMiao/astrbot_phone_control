@@ -323,6 +323,8 @@ def _as_cron(raw: Any, default: str, label: str, warn: WarnFn) -> str:
 class AdbSettings:
     """ADB 连接参数；主机/端口留空（0）表示未配置，插件处于假开启状态。"""
 
+    mode: str = "direct"
+    app_port: int = 6190
     host: str = DEFAULT_ADB_HOST
     port: int = DEFAULT_ADB_PORT
     path: str = ""
@@ -333,6 +335,8 @@ class AdbSettings:
     @property
     def configured(self) -> bool:
         """是否已填写可用的 ADB 目标（显式 serial，或主机 + 端口）。"""
+        if self.mode == "app":
+            return 1 <= self.app_port <= 65535
         if str(self.serial or "").strip():
             return True
         return bool(str(self.host or "").strip()) and 1 <= int(self.port) <= 65535
@@ -340,6 +344,8 @@ class AdbSettings:
     @property
     def target(self) -> str:
         """adb 连接目标：显式 serial 优先，否则 host:port；未配置时为空串。"""
+        if self.mode == "app":
+            return "Relay App"
         if self.serial:
             return self.serial
         if not self.configured:
@@ -849,6 +855,8 @@ class PhoneConfig:
 
         adb_card = card("adb")
         adb = AdbSettings(
+            mode="app" if (adb_card or {}).get("mode") == "app" else "direct",
+            app_port=_as_int((adb_card or {}).get("app_port"), 6190, "adb.app_port", warn_fn, minimum=1, maximum=65535),
             host=_as_str(
                 _pick(adb_card, source, "host"),
                 DEFAULT_ADB_HOST,

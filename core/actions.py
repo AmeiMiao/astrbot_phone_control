@@ -319,6 +319,9 @@ class DeviceActions:
         ADBKeyboard 时仅支持 ASCII，走 ``input text`` 并对空格/引号转义。
         """
         await self._guard_check("input_text")
+        if getattr(self._adb, "app_mode", False):
+            await self._adb.input_text(text, press_enter=press_enter)
+            return
         if not isinstance(text, str):
             raise ActionFailedError("text 必须是字符串", detail=repr(text))
         await self._adb.ensure_ready()

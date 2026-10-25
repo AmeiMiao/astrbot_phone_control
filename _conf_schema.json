@@ -3,29 +3,60 @@
     "type": "object",
     "description": "ADB 连接",
     "items": {
+      "mode": {
+        "type": "string",
+        "default": "direct",
+        "options": [
+          "direct",
+          "app"
+        ],
+        "description": "连接方式",
+        "hint": "direct：直连；app：使用 Relay App 控制。切换前停止手机任务，保存后重新加载插件。"
+      },
+      "app_port": {
+        "type": "int",
+        "default": 6190,
+        "description": "App 接入端口",
+        "hint": "手机主动连接此 TLS 端口；容器需发布同一端口。配对码在 Dashboard 的 App 连接中获取。",
+        "condition": {
+          "mode": "app"
+        }
+      },
       "host": {
         "type": "string",
         "default": "",
         "description": "模拟器 ADB 主机地址（留空=未启用）",
-        "hint": "留空表示未配置 ADB：插件仍可安装/加载，面板、配置和资料迁移可用，但不连接设备、不启动手机后台任务（假开启）。远程模拟器填写 AstrBot 所在环境可访问的主机地址，例如 192.168.1.10。"
+        "hint": "留空表示未配置 ADB：插件仍可安装/加载，面板、配置和资料迁移可用，但不连接设备、不启动手机后台任务（假开启）。远程模拟器填写 AstrBot 所在环境可访问的主机地址，例如 192.168.1.10。",
+        "condition": {
+          "mode": "direct"
+        }
       },
       "port": {
         "type": "int",
         "default": 0,
         "description": "模拟器 ADB 端口（0/留空=未启用）",
-        "hint": "范围 1-65535；0 或留空表示未配置，插件以未启用状态运行。填写模拟器实际开放的 ADB 端口后重新加载插件启用手机能力。"
+        "hint": "范围 1-65535；0 或留空表示未配置，插件以未启用状态运行。填写模拟器实际开放的 ADB 端口后重新加载插件启用手机能力。",
+        "condition": {
+          "mode": "direct"
+        }
       },
       "serial": {
         "type": "string",
         "default": "",
         "description": "设备序列号（留空用 host:port）",
-        "hint": "填写后优先使用该序列号；留空使用 host:port。"
+        "hint": "填写后优先使用该序列号；留空使用 host:port。",
+        "condition": {
+          "mode": "direct"
+        }
       },
       "path": {
         "type": "string",
         "default": "",
         "description": "adb 可执行文件路径（非必填）",
-        "hint": "留空优先使用数据目录/PATH 中的 adb；缺失时按宿主平台从 Google 官方下载。可填写手动准备的绝对路径，保存后重载。"
+        "hint": "留空优先使用数据目录/PATH 中的 adb；缺失时按宿主平台从 Google 官方下载。可填写手动准备的绝对路径，保存后重载。",
+        "condition": {
+          "mode": "direct"
+        }
       },
       "connect_timeout": {
         "type": "int",
@@ -40,7 +71,7 @@
         "hint": "范围 1-300，默认 30。"
       }
     },
-    "hint": "ADB 地址/端口留空时插件以「假开启」状态加载：可安装、可配置、面板可用，但不会连接设备或启动后台任务。填写可访问的地址与端口（如远程模拟器 192.168.1.10:5555）后重新加载插件即可启用。"
+    "hint": "选择直连或使用 Relay App 控制；两种方式的参数分别保留。App 模式支持基础控制、截图和节点。"
   },
   "security": {
     "type": "object",

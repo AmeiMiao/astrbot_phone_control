@@ -309,11 +309,22 @@ class ObservabilityMixin(LibraryDashboardMixin):
         )
         routes += self._library_dashboard_routes(base)
         routes += self._config_migration_routes(base)
+        routes += ((f"{base}/app-connection", self.dashboard_app_connection, ["GET"], "Relay App 连接"),)
         for route, handler, methods, desc in routes:
             try:
                 register(route, handler, methods, desc)
             except Exception as exc:  # noqa: BLE001 - 注册失败只记录
                 logger.warning("注册 Dashboard API 失败（%s）：%s", route, exc)
+
+    async def dashboard_app_connection(self):
+        bridge = self._app_bridge
+        if bridge.server is None:
+            return json_response({"enabled": False, "message": "请在 ADB 连接中选择使用 App 控制并重载插件"})
+        host = str(request.args.get("host") or request.host.split(":")[0]).strip()
+        if not host or "/" in host or len(host) > 253:
+            return error_response("请填写手机可访问的插件主机名或 IPv4 地址", status_code=400)
+        return json_response({"enabled": True, "peer": bridge.peer, "port": bridge.port,
+                              "code": bridge.pairing(host), "capabilities": ["控制", "截图", "节点", "剪贴板"]})
 
     async def dashboard_overview(self):
         """GET dashboard/overview：运行状态/额度/今日互动/最近指标。"""

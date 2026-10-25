@@ -1243,6 +1243,9 @@ class PhoneService:
         return provider_id, "当前会话 Provider"
 
     async def watch_media(self, event: Any, *, seconds: float = 0, question: str = "", mode: str = "auto", stream_kind: str = "auto", video_url: str = "", duration_seconds: float = 0, play_x=None, play_y=None) -> str:
+        if self.config.adb.mode == "app":
+            from .app_bridge import APP_UNSUPPORTED
+            raise ActionFailedError(APP_UNSUPPORTED)
         getter = getattr(event, "get_extra", None)
         run = lambda: self._watch_media_direct(event, seconds=seconds, question=question, mode=mode, stream_kind=stream_kind, video_url=video_url, duration_seconds=duration_seconds, play_x=play_x, play_y=play_y)
         if callable(getter) and getter("phone_agent_run_active"):

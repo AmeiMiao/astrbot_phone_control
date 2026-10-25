@@ -1018,6 +1018,8 @@ class BackendManager:
     async def _ensure_scrcpy(
         self, *, need_control: bool, need_perception: bool, for_clipboard: bool = False
     ) -> None:
+        if getattr(self._adb, "app_mode", False):
+            return
         if self._closed or self._scrcpy_client is not None:
             return
         if not for_clipboard and self._scrcpy_unavailable and self._clock() < self._retry_at:
@@ -1208,6 +1210,8 @@ class BackendManager:
 
     async def read_clipboard(self) -> str:
         """按需使用控制通道读剪贴板，兼容设备控制/截图配置均为 ADB。"""
+        if getattr(self._adb, "app_mode", False):
+            return await self._adb.read_clipboard()
         async with self._lifecycle_lock:
             if self._closed:
                 raise BackendError("手机控制后端已关闭")
