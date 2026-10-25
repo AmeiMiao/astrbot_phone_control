@@ -12,7 +12,7 @@ import shutil
 import time
 import uuid
 
-from .errors import PhoneControlError
+from .errors import MediaModelTimeout, PhoneControlError
 from .media_context import video_context
 
 
@@ -323,6 +323,12 @@ class ContentTasks:
         task["_reader"] = asyncio.current_task()
         try:
             return await self._read(event, task_id, seconds)
+        except MediaModelTimeout as exc:
+            self.write(task)
+            raise MediaModelTimeout(
+                f"{exc}；内容任务 {task['id']} 与已采集素材保留，游标未推进；"
+                "可用同一工具重试本段，或 finish 结束；不要重新 begin"
+            ) from exc
         except BaseException:
             await self.finish_owner(self.owner(event), abnormal=True)
             raise
@@ -430,6 +436,16 @@ class ContentTasks:
                 "next": ("本条视频缓存已完整理解，请结束观看。" if task.get("_recorded_until") is not None and task["cursor"] >= task["_recorded_until"] else "可直接续看或自由浏览；phone_watch_media(action=finish) 结束观看，本轮结束也会自动清理" if self.service.config.flexibility.free_browse_active else "独立判断 continue/read_comments/comment/like/favorite/skip；comment 表示对正文发表自己的评论，reply_comment 表示回复已读具体评论，互动先 gate 后 record；结束调用 finish"),
             }
 
+    async def model_request(self, request, *, provider_id, stage, timeout):
+        """模型超时携带调用阶段与供应商，取消并等待请求结束。"""
+        try:
+            return await asyncio.wait_for(request, timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            raise MediaModelTimeout(
+                f"{stage}模型请求超时（provider={provider_id}，等待上限 {timeout:g}s）；"
+                "请检查该模型服务或调整对应媒体模型超时配置"
+            ) from exc
+
     async def understand(self, event, task, text, images, audio):
         config = self.service.config.media
         provider_id, note = await self.service._resolve_media_vision_provider_id(
@@ -463,7 +479,7 @@ class ContentTasks:
             resolver = getattr(self.service, "_resolve_media_stt_provider", None)
             stt, stt_note = await resolver(event, self.service.config) if callable(resolver) else (None, "")
             if stt is not None:
-                transcript = await asyncio.wait_for(stt.get_text(str(audio)), config.asr_timeout_seconds)
+                transcript = await self.model_request(stt.get_text(str(audio)), provider_id=getattr(stt, "provider_id", "STT"), stage="语音识别", timeout=config.asr_timeout_seconds)
                 prompt += "\n【语音转写；音乐与语气信息可能不完整】" + str(transcript)
                 audio_note = "【音频输入】已使用语音转写。"
                 audio = None
@@ -497,8 +513,9 @@ class ContentTasks:
                     event, self.service.config
                 )
                 if stt is not None:
-                    transcript = await asyncio.wait_for(
-                        stt.get_text(str(audio)), config.asr_timeout_seconds
+                    transcript = await self.model_request(
+                        stt.get_text(str(audio)), provider_id=getattr(stt, "provider_id", "STT"),
+                        stage="语音识别", timeout=config.asr_timeout_seconds
                     )
                     kwargs["prompt"] += "\n【音频转写降级，音乐/语气信息不完整】" + str(
                         transcript
@@ -513,9 +530,9 @@ class ContentTasks:
             if native:
                 kwargs["audio_urls"] = [str(audio)]
             try:
-                response = await asyncio.wait_for(
-                    self.providers.generate(**kwargs),
-                    config.vision_timeout_seconds,
+                response = await self.model_request(
+                    self.providers.generate(**kwargs), provider_id=provider_id,
+                    stage="图文理解", timeout=config.vision_timeout_seconds,
                 )
             except Exception as exc:
                 msg = str(exc).lower()
@@ -538,16 +555,17 @@ class ContentTasks:
                     raise PhoneControlError(
                         f"原音频不受支持且转写不可用：{note}"
                     ) from exc
-                transcript = await asyncio.wait_for(
-                    provider.get_text(str(audio)), config.asr_timeout_seconds
+                transcript = await self.model_request(
+                    provider.get_text(str(audio)), provider_id=getattr(provider, "provider_id", "STT"),
+                    stage="语音识别", timeout=config.asr_timeout_seconds
                 )
                 kwargs.pop("audio_urls")
                 kwargs["prompt"] += "\n【音频转写降级，音乐/语气信息不完整】" + str(
                     transcript
                 )
-                response = await asyncio.wait_for(
-                    self.providers.generate(**kwargs),
-                    config.vision_timeout_seconds,
+                response = await self.model_request(
+                    self.providers.generate(**kwargs), provider_id=provider_id,
+                    stage="图文理解", timeout=config.vision_timeout_seconds,
                 )
             value = str(getattr(response, "completion_text", "") or "").strip()
             if not value:
@@ -591,9 +609,10 @@ class ContentTasks:
         path = self.root / task["id"] / f"video-{start:g}-{end:g}.mp4"
         try:
             await encode_segment(list(task["frames"]), start, end, audio, path)
-            response = await asyncio.wait_for(
+            response = await self.model_request(
                 self.providers.generate(chat_provider_id=provider_id, prompt=prompt, video_path=path),
-                self.service.config.media.vision_timeout_seconds,
+                provider_id=provider_id, stage="视频识别",
+                timeout=self.service.config.media.vision_timeout_seconds,
             )
             value = str(getattr(response, "completion_text", "") or "").strip()
             if not value:
@@ -611,12 +630,12 @@ class ContentTasks:
         config = self.service.config.media
         get_text = getattr(provider, "get_text", None)
         if callable(get_text):
-            value = await asyncio.wait_for(get_text(str(audio)), config.asr_timeout_seconds)
+            value = await self.model_request(get_text(str(audio)), provider_id=provider_id, stage="语音识别", timeout=config.asr_timeout_seconds)
         else:
             prompt = "请将音频中的人声准确转写为原文，不补充画面、剧情或未听到的内容；无人声时说明无人声。"
-            response = await asyncio.wait_for(
+            response = await self.model_request(
                 self.providers.generate(chat_provider_id=provider_id, prompt=prompt, audio_urls=[str(audio)]),
-                config.asr_timeout_seconds,
+                provider_id=provider_id, stage="语音识别", timeout=config.asr_timeout_seconds,
             )
             value = getattr(response, "completion_text", "")
             self.service.record_internal_usage(

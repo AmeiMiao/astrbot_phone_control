@@ -79,3 +79,7 @@ class BrowseError(PhoneControlError):
 
 class MediaCaptureError(PhoneControlError):
     """媒体音频采集失败（scrcpy server 未启动/无音频/连接中断）。"""
+
+
+class MediaModelTimeout(PhoneControlError):
+    """媒体模型请求超时，已采集的内容可由调用者保留后重试。"""

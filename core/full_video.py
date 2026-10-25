@@ -355,7 +355,7 @@ class FullVideoWatch:
                 prompt += "\n声音含义以转写为准，不编造未转写的音乐或语气。"
             finally:
                 audio.unlink(missing_ok=True)
-        response = await asyncio.wait_for(self.manager.providers.generate(chat_provider_id=task["video_provider_id"], prompt=prompt, video_path=path), config.media.vision_timeout_seconds)
+        response = await self.manager.model_request(self.manager.providers.generate(chat_provider_id=task["video_provider_id"], prompt=prompt, video_path=path), provider_id=task["video_provider_id"], stage="完整视频识别", timeout=config.media.vision_timeout_seconds)
         text = str(getattr(response, "completion_text", "") or "").strip()
         if not text:
             raise PhoneControlError("完整视频识别模型未返回正文")
