@@ -91,3 +91,9 @@ gVisor 的声明：Copyright 2018 The gVisor Authors，许可证为 Apache-2.0�
 ## 五、Phone ADB Relay
 
 `bin/android/phone-adb-relay.apk` 由本项目 `helper/android-relay` 源码构建，使用项目 MIT 许可；依赖 Android 系统 API。WireGuard、Tailscale、ZeroTier 手机客户端由用户按其官方渠道安装；中转 App 在已连接的 VPN 接口上提供受来源地址限制的 ADB 转发。
+
+## Relay App 内置组件
+
+Relay App 使用 LibADB Android 3.1.1（Apache-2.0，https://github.com/MuntashirAkon/libadb-android）、SPAKE2-Java 2.2.1（LGPL-3.0，https://github.com/MuntashirAkon/spake2-java）、Conscrypt Android 2.5.3（Apache-2.0，https://github.com/google/conscrypt）、Bouncy Castle 1.81（MIT，https://www.bouncycastle.org/）与 AndroidX Annotation 1.9.1（Apache-2.0，https://developer.android.com/jetpack/androidx/releases/annotation）。
+
+固定制品地址及 SHA256 见 `helper/android-relay/dependencies.json`；构建脚本从这些制品重新生成 APK，签名密钥由构建者自行提供。SPAKE2-Java 可从上述源码仓获取和修改，并替换构建依赖重新构建。LGPL 完整许可随 `helper/android-relay/licenses/` 提供。scrcpy 控制组件采用项目已有的同版本分发与许可声明。

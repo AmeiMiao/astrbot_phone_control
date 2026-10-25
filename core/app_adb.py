@@ -34,8 +34,11 @@ class AppAdbClient(AdbClient):
         if args[0] == "exec-out" and args[1:2] == ["cat"] and not all(x.startswith("/sdcard/") and x.endswith(".xml") for x in args[2:]):
             raise ActionFailedError(APP_UNSUPPORTED)
         command = args[1] if args[0] == "shell" else shlex.join(args[1:])
-        value = await self.bridge.call("shell", command=command, limit=output_limit or 8 * 1024 * 1024,
-                                       timeout=timeout or self._command_timeout)
+        if args == ["exec-out", "uiautomator", "dump", "/dev/tty"]:
+            value = await self.bridge.call("nodes", limit=8 * 1024 * 1024, timeout=timeout or self._command_timeout)
+        else:
+            value = await self.bridge.call("shell", command=command, limit=output_limit or 8 * 1024 * 1024,
+                                           timeout=timeout or self._command_timeout)
         return int(value["rc"]), base64.b64decode(value.get("stdout", ""), validate=True), base64.b64decode(value.get("stderr", ""), validate=True)
 
     async def _execute(self, argv, *, timeout=None, retry=True):

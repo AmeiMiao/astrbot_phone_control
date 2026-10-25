@@ -58,3 +58,47 @@ def test_app_timeout_sends_cancel_without_replay(tmp_path):
         assert [x["type"] for x in sent] == ["call", "cancel"]
         assert not bridge.pending
     asyncio.run(run())
+
+
+def test_tls_identity_binding_and_disconnect(tmp_path):
+    import ssl
+    async def run():
+        bridge = AppBridge(tmp_path, tmp_path / "app.apk")
+        await bridge.start(0)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        async def connect(token, device):
+            r, w = await asyncio.open_connection("127.0.0.1", bridge.port, ssl=ctx)
+            import hashlib
+            assert hashlib.sha256(w.get_extra_info("ssl_object").getpeercert(binary_form=True)).hexdigest() == bridge.fingerprint
+            await bridge.send(w, {"v": 1, "token": token, "device_id": device})
+            return r, w
+        try:
+            r, w = await connect("wrong", "device")
+            assert await r.read() == b""
+            w.close(); await w.wait_closed()
+            r, w = await connect(bridge._state["token"], "device")
+            assert (await bridge.read(r))["type"] == "ready"
+            assert bridge._state["device_id"] == "device"
+            call = asyncio.create_task(bridge.call("shell", command="id"))
+            request = await bridge.read(r)
+            assert request["params"]["command"] == "id"
+            w.close(); await w.wait_closed()
+            with pytest.raises(DeviceOfflineError): await call
+            r, w = await connect(bridge._state["token"], "another-device")
+            assert await r.read() == b""
+            w.close(); await w.wait_closed()
+        finally: await bridge.close()
+    asyncio.run(run())
+
+
+def test_app_nodes_use_single_dump(tmp_path):
+    class Bridge:
+        async def call(self, op, **params):
+            assert op == "nodes"
+            return {"rc": 0, "stdout": base64.b64encode(b"<hierarchy/>").decode()}
+    async def run():
+        client = AppAdbClient(Bridge(), tmp_path)
+        assert await client.exec_out("uiautomator", "dump", "/dev/tty") == b"<hierarchy/>"
+    asyncio.run(run())

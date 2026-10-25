@@ -855,7 +855,7 @@ class PhoneConfig:
 
         adb_card = card("adb")
         adb = AdbSettings(
-            mode="app" if (adb_card or {}).get("mode") == "app" else "direct",
+            mode="app" if (adb_card or {}).get("mode") in ("app", "使用 App 控制") else "direct",
             app_port=_as_int((adb_card or {}).get("app_port"), 6190, "adb.app_port", warn_fn, minimum=1, maximum=65535),
             host=_as_str(
                 _pick(adb_card, source, "host"),

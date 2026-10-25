@@ -431,14 +431,14 @@ class RuntimeMixin:
         self._live_last_activity = 0.0
 
     async def _ensure_traffic_started(self) -> None:
-        if self.service.config.adb.mode == "app":
-            return
         """按配置启动/重启抓包（禁用时确保停止）。
 
         ``TrafficCapture.start`` 内部持锁且幂等；确定性不可用（设备无 root、
         系统证书挂载被拒绝、mitmdump 缺失等）已记录原因，这里只输出一次 WARN
         并停止自动重试；临时失败按 start 的退避时间重试。
         """
+        if self.service.config.adb.mode == "app":
+            return
         if getattr(self, "_terminated", False) or getattr(self, "_phone_stopped", False):
             return
         # 假开启（未配置 ADB）：不启动任何设备侧抓包/代理。

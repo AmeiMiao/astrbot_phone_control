@@ -58,6 +58,9 @@ class PhoneTrafficTool(_PhoneToolBase):
     @_wrap_call
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         await self._guard_light(context)
+        if self.service.config.adb.mode == "app":
+            from ..app_bridge import APP_UNSUPPORTED
+            return "error: " + APP_UNSUPPORTED
         capture = getattr(self.service, "traffic", None)
         if capture is None:
             return "error: 抓包未初始化（插件未启用流量抓包配置）"

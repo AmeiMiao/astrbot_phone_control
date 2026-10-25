@@ -180,7 +180,7 @@ class MeshManager:
                     keyfile.unlink(missing_ok=True)
             self._signature = settings
         result = await self.status()
-        if result["ready"] and settings.auto_adb:
+        if result["ready"] and settings.auto_adb and not getattr(self.service.adb, "app_mode", False):
             await self.start_adb()
         return result
 
@@ -298,6 +298,8 @@ class MeshManager:
             self.connections.discard(task)
 
     async def start_adb(self):
+        if getattr(self.service.adb, "app_mode", False):
+            return
         ip = ipaddress.IPv4Address(self.settings.phone_ip)
         if ip.is_loopback or ip.is_unspecified or ip.is_multicast:
             raise MeshError("请填写手机的有效组网 IPv4 地址")
@@ -428,7 +430,7 @@ class MeshManager:
                     await asyncio.sleep(0.1)
                 self._signature = settings
         result = await self.status()
-        if result["ready"] and settings.auto_adb:
+        if result["ready"] and settings.auto_adb and not getattr(self.service.adb, "app_mode", False):
             await self.start_adb()
         return result
 

@@ -956,7 +956,7 @@ class WireGuardManager:
     async def _apply_adb_over_wg_locked(self) -> None:
         """helper 健康且 auto_adb 开启时，把 ADB 目标切到 WG 隧道本地端口。"""
         settings = self._settings()
-        if not settings.enabled or not settings.auto_adb or self._adb is None:
+        if not settings.enabled or not settings.auto_adb or self._adb is None or getattr(self._adb, "app_mode", False):
             return
         if self._adb_switched is not None:
             return

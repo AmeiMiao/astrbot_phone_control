@@ -1,0 +1,27 @@
+[
+  {
+    "file": "libadb.aar",
+    "url": "https://jitpack.io/com/github/MuntashirAkon/libadb-android/3.1.1/libadb-android-3.1.1.aar",
+    "sha256": "e6fcb495a20a507ca4a125afc9c554e838a84b3a15fbcc29f7deafd0f88bbb58"
+  },
+  {
+    "file": "spake.aar",
+    "url": "https://jitpack.io/com/github/MuntashirAkon/spake2-java/spake2-android/2.2.1/spake2-android-2.2.1.aar",
+    "sha256": "8798fb6c04b5d53a6307ed9481e9afe563227abd4e8b9e917c8514fa850071bb"
+  },
+  {
+    "file": "conscrypt.aar",
+    "url": "https://repo.maven.apache.org/maven2/org/conscrypt/conscrypt-android/2.5.3/conscrypt-android-2.5.3.aar",
+    "sha256": "551ae4e301c571760d1791e647db6ed1dcb10d34dcae7aa12b67f220f2ce98d1"
+  },
+  {
+    "file": "bcprov.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk15to18/1.81/bcprov-jdk15to18-1.81.jar",
+    "sha256": "0ef9c4d9536719aaa1c92a7c694d87981fa9d4d64dd9479cc322a08aebbc651e"
+  },
+  {
+    "file": "annotations.jar",
+    "url": "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.9.1/annotation-jvm-1.9.1.jar",
+    "sha256": "1e343917ebf27ba96fe4dc52b1cad7fd32b738fbc6355bb6cd5b3b305d7212d0"
+  }
+]
