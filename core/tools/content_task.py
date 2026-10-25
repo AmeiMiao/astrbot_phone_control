@@ -12,6 +12,7 @@ class PhoneContentTool(_PhoneToolBase):
     description: str = (
         "单帖/视频任务：图文在打开详情前 begin(kind=post,content_id=内容ID)再打开详情并 read；视频先打开并确认起点，再 begin(kind=video,content_id=内容ID)。视频先试看8秒，续看前 decide(decision=continue,reason=原因)，再 read；"
         "自主规则弹性的自由浏览开启时可直接打开应用、看屏幕或 phone_watch_media 连续观看，本工具按需使用；"
+        "read 返回 processing 时保持当前内容，继续 action=read 领取同一段结果，不重复 begin。"
         "comment=理解正文后对原帖发表自己的评论；read_comments=看评论；reply_comment(target=具体已读评论)=回复评论，三者分开判断；点赞like/收藏favorite可选，决定不执行操作，评论与回复另申请互动名额。skip停止；finish结束。切换内容先结束。status查看任务。"
     )
     parameters: dict = Field(
@@ -68,6 +69,15 @@ class PhoneContentTool(_PhoneToolBase):
                 "note": "素材采集已就绪；请打开匹配内容，read 理解正文；begin 不代表已看过",
             }
         elif action == "read":
+            getter = getattr(event, "get_extra", None)
+            if callable(getter) and getter("phone_agent_run_active"):
+                manager.current(event, task_id)
+                async def read_once():
+                    value = await manager.read(event, task_id, kwargs.get("seconds") or 0)
+                    return json.dumps(value, ensure_ascii=False)
+                return await manager.poll_watch(
+                    event, read_once, tool_name="phone_content(action=read)"
+                )
             result = await manager.read(event, task_id, kwargs.get("seconds") or 0)
         elif action == "decide":
             result = await manager.decide(

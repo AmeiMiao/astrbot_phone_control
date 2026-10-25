@@ -106,6 +106,9 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
             if inspected.observation is None:
                 return inspected.result
             observation = inspected.observation
+            guard = getattr(self.service, "guard_device", None)
+            if callable(guard):
+                guard("verification_identified")
         allowed, reason = await controller.reserve_attempt(event, kind="solver")
         if not allowed:
             return reason

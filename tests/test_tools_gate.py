@@ -1298,3 +1298,16 @@ def test_first_real_challenge_reuses_identification_before_bounded_attempt(monke
     assert controller.reserve_calls == ['solver'] and len(controller.submitted) == 1
     assert len(service.executed_ops) == 1
     assert service.capture_calls == 3  # 首次识别、求解前新截图、操作后截图。
+
+
+def test_stop_during_first_identification_prevents_new_attempt(monkeypatch, outcome_api):
+    _patch_vision(monkeypatch, {'content': '滑块', 'is_captcha': True, 'is_quiz': False, 'captcha_type': 'slider'})
+    controller = FakeController()
+    controller.active = False
+    service = FakeService(verification=controller)
+    def stopped(operation):
+        raise ExecutionCancelled('用户已停止')
+    service.guard_device = stopped
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+    assert '已中止' in tools_mod._result_text(result)
+    assert not controller.reserve_calls and not controller.state and not service.executed_ops
