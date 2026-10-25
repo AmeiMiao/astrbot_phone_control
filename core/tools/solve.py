@@ -400,11 +400,6 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
             is_quiz = False
         elif mode == "quiz":
             is_captcha = False
-        if is_captcha and captcha_type == "none":
-            return self._failed_run(
-                "error: 未识别出明确的验证码类型，未执行操作；请先确认当前页面是否存在挑战",
-                "验证码类型不明确", identity, structured,
-            )
         mime = _capture_mime(meta)
 
         if not is_captcha and not is_quiz:
@@ -513,6 +508,11 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
             return self._failed_run(
                 "error: 求解结果未明确确认页面挑战，未执行操作；请先确认当前页面",
                 "挑战复核缺少明确结果", identity, structured,
+            )
+        if is_captcha and captcha_type == "none":
+            return self._failed_run(
+                "error: 未识别出明确的验证码类型，未执行操作；请先确认当前页面是否存在挑战",
+                "验证码类型不明确", identity, structured,
             )
         ops = _normalize_verify_ops(second.get("ops"))
         confirm = _normalize_confirm(second.get("confirm"))

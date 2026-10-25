@@ -1347,3 +1347,18 @@ def test_second_identification_timeout_does_not_start_attempt(monkeypatch):
     assert '求解识图超时' in tools_mod._result_text(result)
     assert len(calls) == 2 and not controller.reserve_calls and not controller.state
     assert not service.executed_ops
+
+
+@pytest.mark.parametrize('confirmed', [False, True])
+def test_uncertain_first_type_is_rechecked_without_guessing_actions(monkeypatch, confirmed):
+    _patch_vision(monkeypatch, {'content': 'SAFE TAP普通按钮', 'is_captcha': True,
+                              'is_quiz': False, 'captcha_type': 'none'},
+                  {'challenge_confirmed': confirmed, 'ops': [{'action': 'tap', 'x': 600, 'y': 1060}]})
+    controller = FakeController()
+    controller.active = False
+    service = FakeService(verification=controller)
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent()), mode='captcha'))
+    text = tools_mod._result_text(result)
+    assert ('未检测到验证码/答题页面' if not confirmed else '未识别出明确的验证码类型') in text
+    assert service.capture_calls == 2
+    assert not controller.reserve_calls and not controller.state and not service.executed_ops
