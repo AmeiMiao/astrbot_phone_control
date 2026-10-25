@@ -932,3 +932,31 @@ def test_static_old_frame_requests_fresh_frame_without_adb():
         data,fmt,meta=await backend.screenshot()
         assert data==b'new-frame' and meta['source']=='scrcpy'
     asyncio.run(run())
+
+
+def test_app_backend_sources_do_not_report_host_scrcpy_fallback(tmp_path):
+    from types import SimpleNamespace
+
+    async def scenario():
+        adb = SimpleNamespace(app_mode=True, screen_source='app_screencap')
+        actions = FakeActions()
+        actions._adb = adb
+        warnings = []
+        manager = BackendManager(
+            config_provider=lambda: _config({'perception': {'screen_source': 'scrcpy'}}),
+            actions=actions, adb=adb, data_dir=tmp_path, warn=warnings.append,
+        )
+        await manager.control()
+        status = manager.status()
+        assert status.connection_mode == 'app' and status.control == 'relay_app'
+        assert not status.scrcpy_running
+        _, _, meta = await (await manager.perception()).screenshot()
+        assert meta['source'] == 'app_screencap'
+        manager.record_capture(meta['source'])
+        assert manager.fallback_count == 0 and not warnings
+        assert all('懒启动' not in line and '兜底' not in line for line in manager.status_lines())
+        adb.screen_source = 'app_scrcpy'
+        assert manager.status().perception == 'app_scrcpy'
+        await manager.close()
+
+    asyncio.run(scenario())

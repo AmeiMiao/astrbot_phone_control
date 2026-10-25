@@ -187,22 +187,26 @@
     const control = backends.control || "—";
     const controlConfig = backends.control_config || "";
     const scrcpyRunning = !!backends.scrcpy_running;
+    const appMode = backends.connection_mode === "app";
     // 页面打开后后端会后台懒启动 scrcpy：启动前显示配置值（auto），避免误以为默认只用 ADB。
-    setText("ov-control", scrcpyRunning ? "scrcpy" : controlConfig === "adb" ? "adb" : controlConfig || control);
+    setText("ov-control", appMode ? "Relay App" : scrcpyRunning ? "scrcpy" : controlConfig === "adb" ? "adb" : controlConfig || control);
     setClass($("ov-control"), control === "scrcpy" ? "ok" : "");
     setText(
       "ov-control-note",
-      scrcpyRunning
-        ? "scrcpy 已连接（注入 ≈21ms）"
+      appMode ? "手机端本机 ADB 控制"
+        : scrcpyRunning
+        ? "scrcpy 已连接"
         : controlConfig === "adb"
           ? "仅 ADB"
           : "scrcpy 懒启动 · 失败回退 ADB",
     );
 
     const perception = backends.perception || "—";
-    setText("ov-perception", perception);
+    setText("ov-perception", appMode ? (perception === "app_scrcpy" ? "App scrcpy" : "App 截图") : perception);
     let perceptionNote;
-    if (backends.scrcpy_video === true) {
+    if (appMode) {
+      perceptionNote = perception === "app_scrcpy" ? "手机端 scrcpy 视频取帧" : "手机端按需 screencap";
+    } else if (backends.scrcpy_video === true) {
       perceptionNote = "scrcpy 视频帧可用";
     } else if (perception === "adb") {
       perceptionNote = scrcpyRunning ? "ADB 截图（scrcpy 仅控制通道）" : "ADB 截图来源";

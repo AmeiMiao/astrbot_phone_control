@@ -592,7 +592,8 @@ class AdbPerceptionBackend:
             or Path(resolved).suffix.lower() in {".jpg", ".jpeg"}
             else "png"
         )
-        meta.setdefault("source", "adb")
+        adb = getattr(self.actions, "_adb", None)
+        meta.setdefault("source", getattr(adb, "screen_source", "adb"))
         meta.setdefault("method", fmt)
         meta.setdefault("format", fmt)
         meta.setdefault(
@@ -744,8 +745,11 @@ class BackendStatus:
     last_error: str = ""
     fallback_reason: str = ""
     capabilities: dict[str, Any] = field(default_factory=dict)
+    connection_mode: str = "direct"
 
     def lines(self) -> list[str]:
+        if self.connection_mode == "app":
+            return ["控制后端：Relay App（本机 ADB）", f"感知后端：{self.perception}"]
         control = self.control
         if self.scrcpy_running:
             control = f"{control}（scrcpy 已连接）"
@@ -868,6 +872,13 @@ class BackendManager:
         return self._scrcpy_client is not None
 
     def status(self) -> BackendStatus:
+        if getattr(self._adb, "app_mode", False):
+            return BackendStatus(
+                control="relay_app",
+                perception=getattr(self._adb, "screen_source", "app_screencap"),
+                connection_mode="app",
+                last_error=self.last_error,
+            )
         caps = dict(self._scrcpy_caps)
         if self._scrcpy_client is not None:
             live = _client_capabilities_sync(self._scrcpy_client)
@@ -910,6 +921,8 @@ class BackendManager:
 
     def record_capture(self, source: str) -> None:
         self.last_capture_source = source
+        if getattr(self._adb, "app_mode", False):
+            return
         if source == "scrcpy":
             self.last_success_at = time.time()
             self.fallback_reason = ""
@@ -925,6 +938,8 @@ class BackendManager:
             self.last_success_at = time.time()
 
     def status_lines(self) -> list[str]:
+        if getattr(self._adb, "app_mode", False):
+            return self.status().lines() + [f"最近实际截图来源：{self.last_capture_source}"]
         control, scrcpy, perception = self._config_sections()
         return self.status().lines() + [
             f"配置后端：控制={getattr(control, 'backend', 'auto')}；截图={self._screen_source(perception)}",

@@ -1030,6 +1030,7 @@ class PhoneService:
         if isinstance(action_meta, dict):
             for key in (
                 "method",
+                "source",
                 "retries",
                 "mismatch",
                 "actual",
@@ -1045,6 +1046,8 @@ class PhoneService:
             if action_meta.get("path"):
                 resolved = Path(str(action_meta["path"]))
         manager = getattr(self, "backends", None)
+        if getattr(self.adb, "app_mode", False):
+            meta["source"] = self.adb.screen_source
         if manager is not None:
             manager.record_capture(str(meta.get("source") or "adb"))
         meta.setdefault("elapsed_ms", elapsed_fallback)

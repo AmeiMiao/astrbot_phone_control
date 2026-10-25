@@ -359,6 +359,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
                 "error_reports": self._tool_reports.status(),
                 "uptime_s": round(max(0.0, time.time() - self._started_at), 1),
                 "backends": {
+                    "connection_mode": config.adb.mode,
                     "control": getattr(status, "control", "adb"),
                     "control_config": str(config.control.backend),
                     "perception": getattr(status, "perception", "adb"),

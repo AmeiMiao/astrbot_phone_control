@@ -10,6 +10,7 @@ from .errors import ActionFailedError, AdbCommandError, DeviceOfflineError
 
 class AppAdbClient(AdbClient):
     app_mode = True
+    screen_source = "app_screencap"
 
     def __init__(self, bridge, home_dir, *, command_timeout=30, logger=None):
         super().__init__(
