@@ -333,7 +333,7 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
 
         observation = _kwargs.get("observation")
         if observation is not None:
-            data, path, meta, first, first_text = observation
+            data, path, meta, first, first_text = observation[:5]
         else:
             # 第一阶段：快速截图 + 识图（内容摘要 / 是否验证码 / 是否答题）
             try:
@@ -401,7 +401,10 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         elif mode == "quiz":
             is_captcha = False
         if is_captcha and captcha_type == "none":
-            captcha_type = "sequence"
+            return self._failed_run(
+                "error: 未识别出明确的验证码类型，未执行操作；请先确认当前页面是否存在挑战",
+                "验证码类型不明确", identity, structured,
+            )
         mime = _capture_mime(meta)
 
         if not is_captcha and not is_quiz:
@@ -426,9 +429,6 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 outcome=outcome,
             )
 
-        if inspect_only:
-            return _SolveRun(result="", observation=(data, path, meta, first, first_text))
-
         # 第二阶段：重新截图 + 让视觉模型给出操作序列与最终确认点
         kind = "quiz" if is_quiz else "captcha"
         timeout_s, remaining_s = self._vision_timeout(
@@ -442,48 +442,51 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 identity,
                 structured,
             )
-        try:
-            _data2, path2, _meta2 = await self.service.capture(
-                fast=True, quiet=True, record_metric=False, persist=False
-            )
-        except PhoneControlError as exc:
-            return self._failed_run(
-                f"error: 解答前重新截图失败：{exc}；第一段识图：{content or '无摘要'}；"
-                "未执行任何操作；可改用 phone_bypass_verify 手动处理",
-                "解答前重新截图失败",
-                identity,
-                structured,
-            )
-        try:
-            second, second_text = await _vision_json(
-                app_context,
-                provider_id,
-                _solve_second_prompt(kind, captcha_type),
-                path2,
-                timeout_s,
-                service=self.service,
-                event=event,
-                source="internal:solve_verification",
-            )
-        except asyncio.TimeoutError:
-            return self._failed_run(
-                f"error: 求解识图超时（>{timeout_s:.0f}s，provider={provider_id}），"
-                f"已中止且未执行任何操作；第一段识图：{content or '无摘要'}；"
-                "建议用 phone_bypass_verify capture 后手动 drag/tap_points，或调大 "
-                "perception.verify_timeout_seconds",
-                "求解识图超时",
-                identity,
-                structured,
-            )
-        except Exception as exc:  # noqa: BLE001 - 求解识图失败给可操作建议
-            return self._failed_run(
-                f"error: 求解识图调用失败（provider={provider_id}）：{exc}；已中止且"
-                f"未执行任何操作；第一段识图：{content or '无摘要'}；可改用 "
-                "phone_bypass_verify 手动处理",
-                "求解识图调用失败",
-                identity,
-                structured,
-            )
+        if observation is not None:
+            second, second_text = observation[5:]
+        else:
+            try:
+                _data2, path2, _meta2 = await self.service.capture(
+                    fast=True, quiet=True, record_metric=False, persist=False
+                )
+            except PhoneControlError as exc:
+                return self._failed_run(
+                    f"error: 解答前重新截图失败：{exc}；第一段识图：{content or '无摘要'}；"
+                    "未执行任何操作；可改用 phone_bypass_verify 手动处理",
+                    "解答前重新截图失败",
+                    identity,
+                    structured,
+                )
+            try:
+                second, second_text = await _vision_json(
+                    app_context,
+                    provider_id,
+                    _solve_second_prompt(kind, captcha_type),
+                    path2,
+                    timeout_s,
+                    service=self.service,
+                    event=event,
+                    source="internal:solve_verification",
+                )
+            except asyncio.TimeoutError:
+                return self._failed_run(
+                    f"error: 求解识图超时（>{timeout_s:.0f}s，provider={provider_id}），"
+                    f"已中止且未执行任何操作；第一段识图：{content or '无摘要'}；"
+                    "建议用 phone_bypass_verify capture 后手动 drag/tap_points，或调大 "
+                    "perception.verify_timeout_seconds",
+                    "求解识图超时",
+                    identity,
+                    structured,
+                )
+            except Exception as exc:  # noqa: BLE001 - 求解识图失败给可操作建议
+                return self._failed_run(
+                    f"error: 求解识图调用失败（provider={provider_id}）：{exc}；已中止且"
+                    f"未执行任何操作；第一段识图：{content or '无摘要'}；可改用 "
+                    "phone_bypass_verify 手动处理",
+                    "求解识图调用失败",
+                    identity,
+                    structured,
+                )
         if second is None:
             preview = _clean_solve_text(second_text, 120) or "（空响应）"
             return self._failed_run(
@@ -493,6 +496,23 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
                 "求解结果无法解析",
                 identity,
                 structured,
+            )
+        if second.get("challenge_confirmed") is False:
+            outcome = None
+            if structured:
+                outcome = verification_mod.SolveOutcome(
+                    outcome=verification_mod.OUTCOME_NOT_CHALLENGE, kind=kind,
+                    evidence="新截图复核为普通页面", generation=identity.generation,
+                    session_id=identity.session_id, attempt_id=identity.attempt_id,
+                )
+            return _SolveRun(
+                result=_image_result("未检测到验证码/答题页面；新截图复核为普通页面，未执行操作。", data if include_image else None, mime),
+                outcome=outcome,
+            )
+        if second.get("challenge_confirmed") is not True:
+            return self._failed_run(
+                "error: 求解结果未明确确认页面挑战，未执行操作；请先确认当前页面",
+                "挑战复核缺少明确结果", identity, structured,
             )
         ops = _normalize_verify_ops(second.get("ops"))
         confirm = _normalize_confirm(second.get("confirm"))
@@ -508,6 +528,9 @@ class PhoneSolveVerificationTool(_PhoneToolBase):
         note = _clean_solve_text(second.get("note"), 80)
         answer = _clean_solve_text(second.get("answer"), 80)
         reason = _clean_solve_text(second.get("reason"), 80)
+
+        if inspect_only:
+            return _SolveRun(result="", observation=(data, path, meta, first, first_text, second, second_text))
 
         # 执行前记录当前界面文本，作为结构化判定的对比基线
         pre_text = ""

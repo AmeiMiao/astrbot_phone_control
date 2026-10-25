@@ -18,7 +18,7 @@ description: 人机验证/做题手册：识别滑块/顺序点击/识图/拼图
    slider / sequence / image_click / puzzle / none）、是否答题/测试页；
 2. 若既不是验证也不是做题：返回内容摘要与「未检测到验证码/答题」，可选附带截图；
    不需要继续操作；
-3. 若是验证码或做题：**重新截图 + 第二次视觉模型**，要求给出操作顺序（点击序列或拖拽
+3. 若是验证码或做题：**重新截图 + 第二次视觉模型**，先独立复核是否确有挑战，明确 challenge_confirmed=true 后才执行；普通页不执行。确认挑战后给出操作顺序（点击序列或拖拽
    轨迹）与最终确认点（提交/下一题/确认按钮）；
 4. **自动执行**操作顺序与确认点，再快速截图 + 读取执行后 UI 文本做结构化判定：挑战已解除 /
    答题进度 / 未通过 / 无法确认，结果写在工具返回里；
@@ -26,7 +26,7 @@ description: 人机验证/做题手册：识别滑块/顺序点击/识图/拼图
 
 参数：
 
-- `mode=auto|captcha|quiz`：默认 auto 自动判断；captcha/quiz 筛选实际检测类型，普通页面仅返回摘要；首次只读识别完成后才开始验证尝试计时；
+- `mode=auto|captcha|quiz`：默认 auto 自动判断；captcha/quiz 筛选实际检测类型，普通页面仅返回摘要；首次两次只读识别与计划生成完成后才开始验证尝试计时；
 - `include_image`：是否回传截图（默认 true）；
 - `timeout_seconds`：每次视觉模型调用超时，0=用 `perception.verify_timeout_seconds`
   （默认 30s），再回退 `perception.ocr_timeout_seconds`；实际还会被单次尝试剩余时间

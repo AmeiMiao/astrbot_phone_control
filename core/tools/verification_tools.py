@@ -217,7 +217,7 @@ _SOLVE_FIRST_PROMPT = (
     "任何其他内容，格式：\n"
     '{"content":"图片内容摘要（不超过80字）","is_captcha":true/false,'
     '"captcha_type":"slider|sequence|image_click|puzzle|none","is_quiz":true/false}\n'
-    "判断规则：需要滑动滑块、拖动拼图、按顺序点击文字/图标、按提示点选图片的，"
+    "判断规则：普通文章、评论编辑框、发送/确认/安全按钮、视频播放器都属于普通页面。必须看到明确挑战题面或专用验证组件，才能判为验证；不能仅凭按钮文字或颜色猜测。需要滑动滑块、拖动拼图、按顺序点击文字/图标、按提示点选图片的，"
     "is_captcha=true 且 captcha_type 取对应类型（slider=滑块，sequence=按顺序点击，"
     "image_click=按提示点选图片，puzzle=拼图，判断不了写 none）；出现题目/选择题/考试/"
     "测试/问卷需要作答的，is_quiz=true；普通页面两者都为 false。"
@@ -226,11 +226,17 @@ _SOLVE_FIRST_PROMPT = (
 
 def _solve_second_prompt(kind: str, captcha_type: str = "") -> str:
     """第二段识图提示词：要求视觉模型给出可执行操作序列与最终确认点。"""
+    review = (
+        "先独立复核这张新截图是否确实有验证码或待作答题目，不预设之前的分类正确。"
+        "普通文章、评论输入框、发送/确认按钮、视频播放器均不是验证或做题。"
+        "challenge_confirmed 必须为布尔值；有清楚挑战才填 true；普通页填 false、ops=[]、confirm=null。"
+        "无法确认时省略 challenge_confirmed，ops=[]，禁止凭空编造挑战或点击。\n"
+    )
     if kind == "quiz":
-        return (
+        return review + (
             "你是手机屏幕解题助手。这是刚重新截取的手机屏幕，请解答屏幕上的题目/测试，"
             "只返回一个 JSON 对象，不要输出其他内容，格式：\n"
-            '{"ops":[{"action":"tap","x":整数,"y":整数}],"confirm":{"x":整数,"y":整数}或null,'
+            '{"challenge_confirmed":true或false,"ops":[{"action":"tap","x":整数,"y":整数}],"confirm":{"x":整数,"y":整数}或null,'
             '"answer":"选择的选项文本","reason":"不超过60字的理由"}\n'
             "要求：answer 写你选择的选项文本；ops 是按顺序点击选项的坐标（手机屏幕像素"
             "坐标，左上角为原点）；confirm 是作答后点击「下一题/确认/提交」按钮的坐标，"
@@ -238,22 +244,22 @@ def _solve_second_prompt(kind: str, captcha_type: str = "") -> str:
         )
     type_hint = {
         "slider": (
-            "这是滑块验证：ops 用 {\"action\":\"drag\",\"x1\":整数,\"y1\":整数,"
+            "若确认是滑块验证：ops 用 {\"action\":\"drag\",\"x1\":整数,\"y1\":整数,"
             "\"x2\":整数,\"y2\":整数,\"duration_ms\":整数} 把滑块拖到目标位置。"
         ),
         "sequence": (
-            "这是顺序点击验证：按提示顺序逐次点击，每次一个 {\"action\":\"tap\",...}。"
+            "若确认是顺序点击验证：按提示顺序逐次点击，每次一个 {\"action\":\"tap\",...}。"
         ),
         "image_click": (
-            "这是按提示点选图片/文字验证：按提示顺序逐次点击目标，每次一个 "
+            "若确认是按提示点选图片/文字验证：按提示顺序逐次点击目标，每次一个 "
             "{\"action\":\"tap\",...}。"
         ),
-        "puzzle": "这是拼图验证：用 drag 把拼图块拖到缺口位置。",
-    }.get(captcha_type, "这是人机验证：按验证要求给出 tap 或 drag 操作。")
-    return (
-        "你是手机屏幕验证码求解助手。这是刚重新截取的手机屏幕，请给出完成人机验证的"
+        "puzzle": "若确认是拼图验证：用 drag 把拼图块拖到缺口位置。",
+    }.get(captcha_type, "若确认是人机验证：按验证要求给出 tap 或 drag 操作。")
+    return review + (
+        "你是手机屏幕验证码求解助手。这是刚重新截取的手机屏幕，请先确认是否存在挑战，再给出完成它的"
         "操作。只返回一个 JSON 对象，不要输出其他内容，格式：\n"
-        '{"ops":[{"action":"tap","x":整数,"y":整数}或{"action":"drag","x1":整数,'
+         '{"challenge_confirmed":true或false,"ops":[{"action":"tap","x":整数,"y":整数}或{"action":"drag","x1":整数,'
         '"y1":整数,"x2":整数,"y2":整数,"duration_ms":整数}],'
         '"confirm":{"x":整数,"y":整数}或null,"note":"不超过60字的说明"}\n'
         f"{type_hint}\n"

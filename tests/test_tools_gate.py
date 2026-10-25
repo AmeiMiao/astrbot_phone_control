@@ -644,7 +644,7 @@ def test_solve_submits_structured_outcome_with_generation(
         "is_quiz": False,
         "captcha_type": "slider",
     }
-    second = {"ops": [{"action": "tap", "x": 10, "y": 20}], "confirm": None, "note": ""}
+    second = {"challenge_confirmed": True, "ops": [{"action": "tap", "x": 10, "y": 20}], "confirm": None, "note": ""}
     _patch_vision(monkeypatch, first, second)
     controller = FakeController(generation=7)
     service = FakeService(gate=None, verification=controller)
@@ -1290,7 +1290,7 @@ def test_first_solve_identification_timeout_does_not_pause_phone(monkeypatch):
 
 def test_first_real_challenge_reuses_identification_before_bounded_attempt(monkeypatch, outcome_api):
     _patch_vision(monkeypatch, {'content': '滑块', 'is_captcha': True, 'is_quiz': False,
-                              'captcha_type': 'slider'}, {'ops': [{'action': 'tap', 'x': 10, 'y': 20}]})
+                              'captcha_type': 'slider'}, {'challenge_confirmed': True, 'ops': [{'action': 'tap', 'x': 10, 'y': 20}]})
     controller = FakeController()
     controller.active = False
     service = FakeService(verification=controller)
@@ -1301,7 +1301,7 @@ def test_first_real_challenge_reuses_identification_before_bounded_attempt(monke
 
 
 def test_stop_during_first_identification_prevents_new_attempt(monkeypatch, outcome_api):
-    _patch_vision(monkeypatch, {'content': '滑块', 'is_captcha': True, 'is_quiz': False, 'captcha_type': 'slider'})
+    _patch_vision(monkeypatch, {'content': '滑块', 'is_captcha': True, 'is_quiz': False, 'captcha_type': 'slider'}, {'challenge_confirmed': True, 'ops': [{'action': 'tap', 'x': 10, 'y': 20}]})
     controller = FakeController()
     controller.active = False
     service = FakeService(verification=controller)
@@ -1311,3 +1311,39 @@ def test_stop_during_first_identification_prevents_new_attempt(monkeypatch, outc
     result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
     assert '已中止' in tools_mod._result_text(result)
     assert not controller.reserve_calls and not controller.state and not service.executed_ops
+
+
+@pytest.mark.parametrize('second', [
+    {'challenge_confirmed': False, 'ops': [{'action': 'tap', 'x': 600, 'y': 1060}]},
+    {'ops': [{'action': 'tap', 'x': 600, 'y': 1060}]},
+    {'challenge_confirmed': 'true', 'ops': [{'action': 'tap', 'x': 600, 'y': 1060}]},
+])
+def test_first_false_positive_needs_independent_boolean_confirmation(monkeypatch, second):
+    _patch_vision(monkeypatch, {'content': '普通文章和SAFE TAP按钮', 'is_captcha': True,
+                              'is_quiz': False, 'captcha_type': 'slider'}, second)
+    controller = FakeController()
+    controller.active = False
+    service = FakeService(verification=controller)
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent()), mode='captcha'))
+    text = tools_mod._result_text(result)
+    assert '未执行操作' in text
+    assert not service.executed_ops and not controller.reserve_calls and not controller.state
+    assert not controller.submitted and not controller.paused
+
+
+def test_second_identification_timeout_does_not_start_attempt(monkeypatch):
+    calls = []
+    async def vision(context, provider, prompt, *args, **kwargs):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return {'content': '疑似滑块', 'is_captcha': True, 'is_quiz': False, 'captcha_type': 'slider'}, ''
+        raise TimeoutError('second classification timeout')
+    monkeypatch.setattr(tools_mod.solve, '_vision_json', vision)
+    monkeypatch.setattr(tools_mod.solve, '_resolve_ocr_provider', lambda *a: ('eyes', ''))
+    controller = FakeController()
+    controller.active = False
+    service = FakeService(verification=controller)
+    result = run(_solve_tool(service).call(FakeToolContext(FakeEvent())))
+    assert '求解识图超时' in tools_mod._result_text(result)
+    assert len(calls) == 2 and not controller.reserve_calls and not controller.state
+    assert not service.executed_ops
