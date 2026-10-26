@@ -144,11 +144,25 @@ MemoryCompanion、LivingMemory 使用独立同步开关。LivingMemory 写入复
 
 在「组网」开启开关并选择一种服务，保存后重载。对应参数位于 `network.wireguard`、`network.tailscale`、`network.zerotier`；切换保留各服务的参数与身份，关闭恢复原 ADB 目标。现有分离配置在加载前自动备份到配置文件旁的 `.network-backup` 文件并迁移。Android 同时启用一种 VPN，组网成员与访问端口在控制台授权。
 
+### Android 按应用 VPN 与 App 控制
+
+手机 VPN 只承载选中应用、系统 adbd 无法使用隧道时，可选择「使用 App 控制」，并在 VPN 客户端允许 Phone Relay。App 以自身 UID 主动连接插件，内置 ADB 客户端连接本机 adbd；本机可使用已经开启的 TCP ADB，也可使用 Android 11+ 无线调试的配对和 TLS 连接端口。系统 ADB 授权、VPN 成员授权、插件 App 配对分别完成。
+
+| 插件内置组网 | App 控制需要填写 | 手机连接插件的地址 | 容器网络要求 |
+| --- | --- | --- | --- |
+| WireGuard | 隧道及 Peer 参数、手机隧道 IPv4 | 插件的 WireGuard IPv4 与 App 接入端口 | 服务端模式发布配置的 WireGuard UDP 监听端口 |
+| Tailscale | Auth Key 或登录授权、Tailnet ACL | 插件 Tailscale 节点 IPv4 与 App 接入端口 | 用户态节点可以访问 Tailscale 服务；ACL 允许 App 端口 |
+| ZeroTier | Network ID、SDK 动态库、两端成员授权、手机组网 IPv4 | 插件 ZeroTier IPv4 与 App 接入端口 | SDK 节点能访问 ZeroTier 网络，手机地址用于入口来源校验 |
+
+内置组网把虚拟网 App 接入端口连接到插件回环，默认 TCP `6190`。外部系统 VPN 或局域网连接使用主机可达地址，并发布对应 App TCP 端口。「Relay App」页面显示建议入口、实际连接目标、本机 ADB 端点和能力；组网节点在线后仍需确认手机实际回连。
+
+App 控制中的截图、节点、音频、媒体录制、文件及抓包经 App 连接传输，插件端 scrcpy 按直连模式配置启动。App 画质参数位于「ADB 连接」；直连参数和组网 ADB 转发参数按已保存的连接方式显示，切换后保存并重载，隐藏值保留。低带宽下可调整推帧尺寸、频率和 JPEG 质量；画面年龄上限代表允许的真实画面陈旧程度，超过上限拒绝。实时 PCM 音频约需192KB/s，带宽不足时可使用手机录制 AAC 片段后回传。详细配置见 [Phone Relay 使用说明](helper/android-relay/README.md)。
+
 ### Tailscale / ZeroTier 设置
 
 1. 在「组网」开启开关，选择 Tailscale 或 ZeroTier，再填写对应参数。
 2. Tailscale 可填写 Auth Key，或留空后在组网页启动并打开登录链接；ZeroTier 填写 Network ID，启动后在控制台授权显示的 10 位节点 ID。
-3. 手机官方客户端加入同一网络，将手机的组网 IPv4 填入配置。Tailscale 使用 `100.64.0.0/10` 地址。
+3. 手机官方客户端加入同一网络。直连模式填写手机组网 IPv4；App 模式下 ZeroTier 需填写手机 IPv4 校验来源，Tailscale 由手机主动回连。Tailscale 使用 `100.64.0.0/10` 地址。
 4. 按需开启组网 ADB。无 root Android 配合 [Phone ADB Relay](helper/android-relay/README.md)（[APK](bin/android/phone-adb-relay.apk)）将 App UID 的 `15555` 转入本机 adbd；系统级 VPN 对端可直接填写实际 adbd 端口。
 5. 停止组网会关闭该开关并恢复原 ADB 目标，私有身份文件保留，重启可复用。
 
