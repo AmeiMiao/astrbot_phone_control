@@ -14,7 +14,7 @@ def valid_host(value):
         return value.lower()!='localhost' and not all(label.isdigit() for label in labels) and all(len(label)<=63 and re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?',label) for label in labels)
 
 
-def relay_route(*,port,host='',panel_host='',network_enabled=False,network=None):
+def relay_route(*,port,host='',panel_host='',network_enabled=False,network=None,peer=None):
     network=network or {};source='external';message='手机VPN分流需允许Phone Relay；本机ADB授权与插件配对分别完成。'
     if host:
         selected=host.strip()
@@ -29,6 +29,8 @@ def relay_route(*,port,host='',panel_host='',network_enabled=False,network=None)
         selected=panel_host
     if selected and not valid_host(selected):
         selected='';message='请填写手机可访问的插件主机名或组网IP，不能使用localhost、回环或无效地址。'
+    if selected and peer and peer.get('connected') and peer.get('relay_host')==selected and peer.get('relay_port')==port:
+        message='手机已通过此入口完成TLS连接与插件授权。'
     return {'host':selected,'port':port,'source':source,'network_ready':bool(network.get('ready')) if network_enabled else None,
             'entry_listening':network.get('app_port')==port if network_enabled and not host else None,'message':message}
 

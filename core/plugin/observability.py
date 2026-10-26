@@ -346,7 +346,7 @@ class ObservabilityMixin(LibraryDashboardMixin):
         enabled=config.mesh.enabled or config.wireguard.enabled
         network=await self._network_status() if enabled else {}
         panel_host=request.headers.get("host", "").split(":")[0]
-        route=relay_route(port=bridge.port,host=str(request.query.get("host") or '').strip(),panel_host=panel_host,network_enabled=enabled,network=network)
+        route=relay_route(port=bridge.port,host=str(request.query.get("host") or '').strip(),panel_host=panel_host,network_enabled=enabled,network=network,peer=bridge.peer)
         return json_response({"enabled": True,"peer":bridge.peer,"port":bridge.port,
                               "code":bridge.pairing(route['host']) if route['host'] else '',
                               "route":route,"device_capabilities":peer_capabilities(bridge.peer),

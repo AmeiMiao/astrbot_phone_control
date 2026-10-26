@@ -37,3 +37,11 @@ def test_schema_hides_unused_fields_and_retains_saved_values():
     c['adb']['mode']='直连';c['traffic']['provider']='mitmproxy';populate_connection_options(c)
     assert not c.schema['control']['invisible'] and not c.schema['traffic']['items']['mitmdump_path']['invisible']
     assert c['control']['scrcpy']['max_size']==1920 and c['network']['zerotier']['adb_port']==33333
+
+
+def test_route_confirmation_requires_the_connected_actual_endpoint():
+    network={'provider':'wireguard','ready':True,'addresses':['10.66.0.1'],'app_port':6190}
+    peer={'connected':True,'relay_host':'10.66.0.1','relay_port':6190}
+    assert '已通过此入口' in relay_route(port=6190,network_enabled=True,network=network,peer=peer)['message']
+    for changed in ({'connected':False},{'relay_host':'192.0.2.2'},{'relay_port':6191}):
+        assert '等待手机回连' in relay_route(port=6190,network_enabled=True,network=network,peer=dict(peer,**changed))['message']
