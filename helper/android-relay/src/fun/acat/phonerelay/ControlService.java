@@ -40,8 +40,10 @@ public final class ControlService extends Service {
             throw new IOException("ADB 地址必须属于本机");
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null || "stop".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
-        String action = intent.getAction();
+        SharedPreferences prefs=getSharedPreferences("control",0);
+        if (intent!=null && "stop".equals(intent.getAction())) { prefs.edit().putBoolean("control_wanted",false).apply();stopSelf();return START_NOT_STICKY; }
+        if (intent==null && !(prefs.getBoolean("restore_enabled",false) && prefs.getBoolean("control_wanted",false))) {stopSelf();return START_NOT_STICKY;}
+        String action = intent==null ? "restore" : intent.getAction();
         if ("check".equals(action) || "install".equals(action)) {
             if (work == null || socket == null) { status = "请先连接插件"; return START_NOT_STICKY; }
             work.execute(() -> {
@@ -64,16 +66,18 @@ public final class ControlService extends Service {
         startForeground(31, new Notification.Builder(this, "control").setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("Phone ADB Relay").setContentText("本机 ADB 控制已启用")
             .addAction(new Notification.Action.Builder(null, "停止", stop).build()).build());
-        if (running) return START_NOT_STICKY;
+        prefs.edit().putBoolean("control_wanted",true).remove("recovery_error").apply();
+        if (running) return prefs.getBoolean("restore_enabled",false)?START_STICKY:START_NOT_STICKY;
         running = true;
         network = Executors.newSingleThreadExecutor();
         work = Executors.newFixedThreadPool(2);
         timers = Executors.newScheduledThreadPool(2);
         network.execute(this::connectLoop);
-        return START_NOT_STICKY;
+        return prefs.getBoolean("restore_enabled",false)?START_STICKY:START_NOT_STICKY;
     }
     private void connectLoop() {
         android.content.SharedPreferences prefs = getSharedPreferences("control", 0);
+        int retrySeconds=3;
         while (running) {
             String stage = "读取本机 ADB 身份";
             try {
@@ -81,7 +85,19 @@ public final class ControlService extends Service {
                 requireLocal(host);
                 adb = new LocalAdb(this);
                 stage = "连接本机 ADB";
-                if (!adb.connect(host, prefs.getInt("adb_port", 5555))) throw new IOException("本机 ADB 未授权或未连接");
+                int endpointPort=prefs.getInt("adb_port",5555);
+                try {
+                    if(!adb.connect(host,endpointPort))throw new IOException("本机ADB未授权");
+                } catch(Exception original) {
+                    if(!prefs.getBoolean("discover_port",false))throw original;
+                    status="本机ADB连接失败，正在发现本机无线连接端口…";
+                    WirelessAdbDiscovery.Endpoint endpoint=WirelessAdbDiscovery.find(this);
+                    adb.close();adb=new LocalAdb(this);
+                    if(!adb.connect(endpoint.host,endpoint.port))throw new IOException("发现了连接端口，但本机ADB尚未授权；请到无线配对页授权");
+                    host=endpoint.host;endpointPort=endpoint.port;
+                    prefs.edit().putString("adb_host",host).putInt("adb_port",endpointPort).apply();
+                }
+                JSONObject capabilities=LocalAdb.bounded("读取本机权限",5000,()->adb.capabilities(prefs.getString("adb_host","127.0.0.1"),prefs.getInt("adb_port",5555)));
                 JSONObject code = new JSONObject(new String(Base64.decode(prefs.getString("code", ""), Base64.URL_SAFE), "UTF-8"));
                 if (code.getInt("v") != 1) throw new IOException("配对码版本不支持");
                 connectionCode = code;
@@ -92,7 +108,7 @@ public final class ControlService extends Service {
                 String device = prefs.getString("device_id", "");
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 stage = "认证插件";
-                send(new JSONObject().put("v", 1).put("token", code.getString("token")).put("device_id", device)
+                send(capabilities.put("v", 1).put("token", code.getString("token")).put("device_id", device)
                     .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
@@ -102,7 +118,8 @@ public final class ControlService extends Service {
                 streams = new LocalStreams(adb, id -> dataConnection(id), id -> recorder.artifact(id));
                 connected = true;
                 stage = "控制会话";
-                status = "App 控制已连接；本机 ADB 权限：shell";
+                retrySeconds=3;
+                status = "App 控制已连接；ADB UID="+capabilities.getInt("adb_uid")+"；"+host+":"+endpointPort;
                 ScheduledFuture<?> heartbeat = timers.scheduleAtFixedRate(() -> {
                     try { send(new JSONObject().put("type", "ping")); }
                     catch (Exception e) { closeSocket(); }
@@ -119,7 +136,7 @@ public final class ControlService extends Service {
             } catch (Exception e) {
                 if (running) status = stage + "失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + "；等待重新连接";
             } finally { cleanupConnection(); }
-            if (running) try { Thread.sleep(3000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+            if (running) try { Thread.sleep(retrySeconds*1000L);retrySeconds=Math.min(30,retrySeconds*2); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
         }
     }
     private static SSLSocket connectPlugin(JSONObject code) throws Exception {

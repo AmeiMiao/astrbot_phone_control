@@ -164,6 +164,14 @@ final class LocalAdb extends AbsAdbConnectionManager {
             }
         } finally { active.remove(id); stream.close(); if(changesScreen)invalidateVideo(); }
     }
+    JSONObject capabilities(String host,int port) throws Exception {
+        JSONObject identity=shell("capabilities","id -u; command -v su || true",1024,false);
+        if(identity.getInt("rc")!=0)throw new IOException("读取ADB权限失败");
+        String[] lines=new String(Base64.decode(identity.getString("stdout"),Base64.DEFAULT),"UTF-8").trim().split("\\n");
+        int uid=Integer.parseInt(lines[0].trim());
+        return new JSONObject().put("sdk_int",Build.VERSION.SDK_INT).put("adb_uid",uid).put("su_present",lines.length>1)
+            .put("endpoint_host",host).put("endpoint_port",port);
+    }
     JSONObject nodes(String id, int limit) throws Exception {
         String file = "/data/local/tmp/acat-relay-ui-" + id + ".xml";
         String command = "if [ -x /system/bin/app_process32 ] && [ -n \"$(getprop ro.product.cpu.abilist32)\" ]; then "

@@ -20,7 +20,7 @@ public final class MainActivity extends Activity {
     private Bundle initialState;
     private byte[] pendingCertificate;
     private TextView certificateStatus;
-    private EditText address, peer, adbHost, adbPort, pairPort, pairCode, pluginCode;
+    private EditText address, peer, relayPort, targetPort, adbHost, adbPort, pairPort, pairCode, pluginCode;
     private TextView status, statusBadge, pairAddress;
     private Button startControl, checkUpdate, downloadUpdate;
     private ScrollView scroll;
@@ -144,9 +144,36 @@ public final class MainActivity extends Activity {
                 startForegroundService(new Intent(this, ControlService.class));
             } catch (Exception e) { ControlService.status = "配置错误：" + e.getMessage(); renderStatus(); }
         });
-        ui.button(local, "停止 App 控制", false, () -> stopService(new Intent(this, ControlService.class)));
+        ui.button(local, "停止 App 控制", false, () -> {
+            prefs.edit().putBoolean("control_wanted",false).apply();stopService(new Intent(this, ControlService.class));
+        });
+        ui.button(local, "发现并验证本机无线连接端口", false, () -> {
+            if(ControlService.connected) { ControlService.status="请先停止App控制再刷新连接端口";renderStatus();return; }
+            ControlService.status="正在发现本机无线调试连接端口…";renderStatus();
+            setupWorker.execute(() -> {
+                try {
+                    WirelessAdbDiscovery.Endpoint endpoint=WirelessAdbDiscovery.find(this);
+                    try(LocalAdb localAdb=new LocalAdb(this)) {
+                        if(!localAdb.connect(endpoint.host,endpoint.port))throw new java.io.IOException("连接端口已发现，但尚未授权；请先无线配对");
+                    }
+                    prefs.edit().putString("adb_host",endpoint.host).putInt("adb_port",endpoint.port).apply();
+                    handler.post(() -> { if(!isDestroyed()) { adbHost.setText(endpoint.host);adbPort.setText(String.valueOf(endpoint.port));ControlService.status="已验证本机连接端口，可启动App控制";renderStatus(); } });
+                } catch(Exception e) { handler.post(() -> { if(!isDestroyed()) {ControlService.status="端口刷新失败："+e.getMessage();renderStatus();} }); }
+            });
+        });
+        toggle(local,"本机连接失败时自动发现无线端口",prefs,"discover_port");
+        toggle(local,"开机、更新及系统回收后恢复控制连接",prefs,"restore_enabled");
+        ui.add(local,ui.text("自动发现仅接受本机接口，并以已有ADB身份验证后保存。自动恢复默认关闭；需系统允许后台启动，本机无线调试和VPN需分别就绪。恢复只建立新连接，设备操作由插件重新请求。",12,ui.muted,false),12);
         ui.add(local, ui.text("修改参数后，先停止再启动控制。视频帧、播放音频、文件与抓包数据通过 App 连接传送。", 12, ui.muted, false), 12);
         certificateSettings();
+    }
+    private void toggle(LinearLayout parent,String label,SharedPreferences prefs,String key) {
+        android.widget.CheckBox box=new android.widget.CheckBox(this);box.setText(label);box.setTextColor(ui.text);
+        box.setChecked(prefs.getBoolean(key,false));box.setOnCheckedChangeListener((button,checked)-> {
+            prefs.edit().putBoolean(key,checked).apply();
+            if(checked && android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED)
+                requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},304);
+        });ui.add(parent,box,12);
     }
     private void certificateSettings() {
         LinearLayout card = ui.card(pages[0], "App 抓包证书", "手机代理与 HTTPS 解密的状态分别确认。");
@@ -239,9 +266,11 @@ public final class MainActivity extends Activity {
         ui.button(about, "组件许可", false, this::showLicenses);
     }
     private void addRelaySettings() {
-        LinearLayout card = ui.card(pages[3], "组网 TCP 中转", "将本机 ADB:5555 转发到组网地址的 15555 端口，仅接受指定控制端。");
+        LinearLayout card = ui.card(pages[3], "组网 TCP 中转", "按配置端口转发原始ADB字节，仅接受指定控制端。插件直连模式使用本入口，ADB认证及TLS配对由插件的ADB客户端完成。");
         address = ui.field(card, "本机组网 IPv4", "手机的 WireGuard / Tailscale / ZeroTier 地址", restored("address", getPreferences(0).getString("address", "")), false, false);
         peer = ui.field(card, "唯一允许的控制端 IPv4", "插件所在控制端的组网地址", restored("peer", getPreferences(0).getString("peer", "")), false, false);
+        relayPort=ui.field(card,"组网监听端口","1024–65535",restored("relay_port",String.valueOf(getPreferences(0).getInt("relay_port",15555))),false,true);
+        targetPort=ui.field(card,"本机ADB目标端口","5555或无线调试连接端口",restored("target_port",String.valueOf(getPreferences(0).getInt("target_port",5555))),false,true);
         ui.button(card, "启动中转", true, this::startRelay);
         ui.button(card, "停止中转", false, () -> stopService(new Intent(this, RelayService.class)));
         ui.add(card, ui.text("先连接组网客户端并开启本机网络 ADB，在 VPN 的按应用设置中允许 Phone Relay。", 12, ui.muted, false), 12);
@@ -256,15 +285,19 @@ public final class MainActivity extends Activity {
     }
     private void startRelay() {
         String a = address.getText().toString().trim(), p = peer.getText().toString().trim();
-        getPreferences(0).edit().putString("address", a).putString("peer", p).apply();
+        int listen,target;
+        try {listen=port(relayPort,"监听端口");target=port(targetPort,"目标端口");if(listen<1024)throw new IllegalArgumentException("监听端口需1024及以上");}
+        catch(IllegalArgumentException e) {RelayService.status=e.getMessage();renderStatus();return;}
+        getPreferences(0).edit().putString("address", a).putString("peer", p).putInt("relay_port",listen).putInt("target_port",target).apply();
         Intent intent = new Intent(this, RelayService.class); intent.putExtra("address", a); intent.putExtra("peer", p);
+        intent.putExtra("listen_port",listen).putExtra("target_port",target);
         startForegroundService(intent);
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putInt("page", selectedPage);
         if (pendingCertificate != null) state.putByteArray("capture_certificate", pendingCertificate);
-        String[] keys = {"address", "peer", "adb_host", "adb_port", "pair_port", "pair_code", "code"};
-        EditText[] fields = {address, peer, adbHost, adbPort, pairPort, pairCode, pluginCode};
+        String[] keys = {"address", "peer", "adb_host", "adb_port", "pair_port", "pair_code", "code", "relay_port", "target_port"};
+        EditText[] fields = {address, peer, adbHost, adbPort, pairPort, pairCode, pluginCode, relayPort, targetPort};
         for (int i = 0; i < keys.length; i++) state.putString(keys[i], fields[i].getText().toString());
         super.onSaveInstanceState(state);
     }

@@ -63,26 +63,30 @@ public final class RelayService extends Service {
         final ExecutorService pool = workers;
         String address = intent.getStringExtra("address");
         String peer = intent.getStringExtra("peer");
+        int listenPort=intent.getIntExtra("listen_port",15555),targetPort=intent.getIntExtra("target_port",5555);
+        java.util.concurrent.Semaphore slots=new java.util.concurrent.Semaphore(16);
         pool.execute(() -> {
             try {
+                if(listenPort<1024 || listenPort>65535 || targetPort<1 || targetPort>65535)throw new IOException("中转端口无效");
                 InetAddress bind = ipv4(address);
                 InetAddress allowed = ipv4(peer);
                 requireTunnel(bind);
                 ServerSocket server = new ServerSocket();
                 listener = server;
                 server.setReuseAddress(true);
-                server.bind(new InetSocketAddress(bind, 15555), 16);
+                server.bind(new InetSocketAddress(bind, listenPort), 16);
                 server.setSoTimeout(1000);
-                status = "中转运行 " + address + ":15555 → 127.0.0.1:5555；允许 " + peer;
+                status = "中转运行 " + address + ":"+listenPort+" → 127.0.0.1:"+targetPort+"；允许 " + peer;
                 while (running) {
                     requireTunnel(bind);
                     Socket incoming;
                     try { incoming = server.accept(); } catch (SocketTimeoutException timeout) { continue; }
-                    if (!allowed.equals(incoming.getInetAddress()) || sockets.size() >= 32) {
+                    if (!allowed.equals(incoming.getInetAddress()) || !slots.tryAcquire()) {
                         close(incoming); continue;
                     }
                     sockets.add(incoming);
-                    pool.execute(() -> relay(incoming, pool));
+                    try { pool.execute(() -> {try {relay(incoming,pool,targetPort);}finally {slots.release();}}); }
+                    catch(java.util.concurrent.RejectedExecutionException e) {sockets.remove(incoming);close(incoming);slots.release();if(running)throw e;}
                 }
             } catch (Exception e) {
                 status = "中转结束：" + e.getMessage();
@@ -94,11 +98,11 @@ public final class RelayService extends Service {
         return START_NOT_STICKY;
     }
 
-    private void relay(Socket incoming, ExecutorService pool) {
+    private void relay(Socket incoming, ExecutorService pool,int targetPort) {
         Socket local = new Socket();
         sockets.add(local);
         try {
-            local.connect(new InetSocketAddress("127.0.0.1", 5555), 5000);
+            local.connect(new InetSocketAddress("127.0.0.1", targetPort), 5000);
             local.setTcpNoDelay(true);
             incoming.setTcpNoDelay(true);
             pool.execute(() -> pipe(local, incoming));
