@@ -18,6 +18,7 @@ from .process_lease import DeviceLease
 
 MAX_FILE_BYTES = 128 * 1024 * 1024
 CHUNK = 65536
+IO_IDLE_SECONDS = 15
 
 
 def phone_path(path):
@@ -39,7 +40,13 @@ class AppFiles:
         scope = current_scope()
         if scope:
             scope.checkpoint("file_transfer")
-        return await asyncio.wait_for(reader.readexactly(length), 15)
+        result=bytearray()
+        while len(result)<length:
+            if scope:scope.checkpoint("file_transfer")
+            chunk=await asyncio.wait_for(reader.read(length-len(result)),IO_IDLE_SECONDS)
+            if not chunk:raise asyncio.IncompleteReadError(bytes(result),length)
+            result.extend(chunk)
+        return bytes(result)
 
     async def _packet(self, writer, tag, data=b"", number=None):
         scope = current_scope()

@@ -18,6 +18,23 @@ def valid_service(service):
     )
 
 
+class ProgressWriter:
+    """以手机已写入本机ADB的字节数约束发送窗口。"""
+    def __init__(self,stream,entry,bridge):self.stream=stream;self.entry=entry;self.bridge=bridge
+    def __getattr__(self,name):return getattr(self.stream,name)
+    def write(self,data):
+        self.entry['sent']+=len(data)
+        self.stream.write(data)
+    async def drain(self):
+        await self.stream.drain()
+        entry=self.entry
+        while entry['received']<entry['sent']:
+            entry['progress'].clear()
+            if entry['closed'] or self.bridge.writer is None or entry['session']!=self.bridge.session:
+                raise DeviceOfflineError('手机数据连接已结束')
+            await entry['progress'].wait()
+
+
 class AppStreams:
     def __init__(self, bridge):
         self.bridge = bridge
@@ -35,16 +52,18 @@ class AppStreams:
         if len(self.entries) >= 8:
             raise ActionFailedError("手机数据通道已达到并发上限")
         nonce = secrets.token_hex(16)
+        flow=service=='sync:' and 'stream_progress' in bridge.peer.get('features',[])
         entry = {"session": bridge.session, "future": asyncio.get_running_loop().create_future(),
-                 "done": asyncio.Event(), "writer": None}
+                 "done": asyncio.Event(), "writer": None, 'flow':flow, 'sent':0,'received':0,'progress':asyncio.Event(),'closed':False}
         self.entries[nonce] = entry
         try:
             async with asyncio.timeout(timeout):
-                await bridge.call("stream_open", stream_id=nonce, service=service, timeout=timeout)
+                await bridge.call("stream_open", stream_id=nonce, service=service, timeout=timeout, **({'flow_control':True} if flow else {}))
                 reader, writer = await entry["future"]
-            yield reader, writer
+            yield reader, ProgressWriter(writer,entry,bridge) if flow else writer
         finally:
             self.entries.pop(nonce, None)
+            entry['closed']=True;entry['progress'].set()
             entry["done"].set()
             writer = entry["writer"]
             if writer is not None:
@@ -54,6 +73,17 @@ class AppStreams:
                 future.cancel()
             elif not future.cancelled():
                 future.exception()
+
+    def progress(self,value):
+        if value.get('session')!=self.bridge.session:raise ValueError('数据进度会话无效')
+        identity=value.get('stream_id')
+        if not isinstance(identity,str) or re.fullmatch('[0-9a-f]{32}',identity) is None:raise ValueError('数据进度身份无效')
+        entry=self.entries.get(identity)
+        if entry is None:return
+        received=value.get('received_bytes')
+        if not entry['flow'] or type(received) is not int or not entry['received']<=received<=entry['sent']:
+            raise ValueError('数据进度字节数无效')
+        entry['received']=received;entry['progress'].set()
 
     async def accept(self, hello, reader, writer):
         bridge = self.bridge
@@ -72,6 +102,7 @@ class AppStreams:
 
     async def close(self):
         for entry in list(self.entries.values()):
+            entry['closed']=True;entry['progress'].set()
             if entry["writer"] is not None:
                 entry["writer"].close()
             if not entry["future"].done():

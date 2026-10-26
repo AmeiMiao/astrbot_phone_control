@@ -89,3 +89,22 @@ def test_shared_image_prefix_reads_binary_without_control_packet_limit():
         assert await files.read('/sdcard/image.png',5)==b'image'
         with pytest.raises(ActionFailedError):await files.read('/sdcard/image.png',100*1024*1024)
     asyncio.run(run())
+
+
+def test_partial_download_progress_resets_idle_timeout_without_extending_total_deadline(monkeypatch):
+    monkeypatch.setattr(module,'IO_IDLE_SECONDS',.04)
+    async def run():
+        reader=asyncio.StreamReader();payload=b'progress'
+        async def deliver():
+            for byte in payload:
+                await asyncio.sleep(.015);reader.feed_data(bytes([byte]))
+            reader.feed_eof()
+        sender=asyncio.create_task(deliver())
+        try:
+            async with asyncio.timeout(1):
+                assert await AppFiles(None)._read(reader,len(payload))==payload
+            with pytest.raises(asyncio.IncompleteReadError):await AppFiles(None)._read(reader,1)
+            stalled=asyncio.StreamReader()
+            with pytest.raises(TimeoutError):await AppFiles(None)._read(stalled,1)
+        finally:await sender
+    asyncio.run(run())

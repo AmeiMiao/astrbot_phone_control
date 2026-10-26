@@ -116,13 +116,18 @@ public final class ControlService extends Service {
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 stage = "认证插件";
                 send(capabilities.put("relay_host",active.getInetAddress().getHostAddress()).put("relay_port",active.getPort()).put("v", 1).put("token", code.getString("token")).put("device_id", device)
-                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
+                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options", "stream_progress"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
                 session = ready.getString("session"); lastRequestSequence = 0;
                 traffic = new PhoneTraffic(this, adb);
                 recorder = new PhoneRecorder(this, adb);
-                streams = new LocalStreams(adb, id -> dataConnection(id), id -> recorder.artifact(id));
+                final String dataSession=session;
+                streams = new LocalStreams(adb, id -> dataConnection(id), id -> recorder.artifact(id),(id,count)-> {
+                    if(!dataSession.equals(session) || socket!=active)throw new IOException("数据会话已结束");
+                    try {send(new JSONObject().put("type","stream_progress").put("session",dataSession).put("stream_id",id).put("received_bytes",count));}
+                    catch(Exception e) {throw new IOException("数据接收进度上报失败",e);}
+                });
                 synchronized(ControlService.class) {
                     if(!running || activeService!=this)throw new IOException("控制服务已停止");
                     connected=true;
@@ -236,7 +241,7 @@ public final class ControlService extends Service {
                     case "media_status": data = currentRecorder.status(params.getString("recording_id")); break;
                     case "media_stop": data = currentRecorder.stop(params.getString("recording_id")); break;
                     case "media_delete": currentRecorder.delete(params.getString("recording_id")); data = new JSONObject().put("ok", true); break;
-                    case "stream_open": currentStreams.open(id, params.getString("stream_id"), params.getString("service")); data = new JSONObject().put("ok", true); break;
+                    case "stream_open": currentStreams.open(id, params.getString("stream_id"), params.getString("service"),params.optBoolean("flow_control",false)); data = new JSONObject().put("ok", true); break;
                     case "screen": data = local.screen(); break;
                     case "screen_config": local.configureVideo(params.getBoolean("enabled"), params.optBoolean("standby"),params); data = new JSONObject().put("ok", true).put("elapsed_ms",SystemClock.elapsedRealtime()); break;
                     case "clock": data = new JSONObject().put("elapsed_ms",SystemClock.elapsedRealtime()); break;

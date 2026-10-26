@@ -274,7 +274,7 @@ class AppBridge:
                 "features": [
                     feature
                     for feature in features
-                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options")
+                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options", "stream_progress")
                 ],
                 **details,
             }
@@ -301,6 +301,8 @@ class AppBridge:
                         future.set_result(value)
                 elif value.get("type") == "update":
                     await self.send(writer, self.update(value))
+                elif value.get("type") == "stream_progress":
+                    self.streams.progress(value)
                 elif value.get("type") == "traffic":
                     if (
                         value.get("session") != self.session

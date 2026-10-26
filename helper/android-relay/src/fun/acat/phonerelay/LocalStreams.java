@@ -9,13 +9,15 @@ import java.util.concurrent.*;
 final class LocalStreams implements AutoCloseable {
     interface Dial { Socket open(String id) throws Exception; }
     interface Artifact { InputStream open(String id) throws Exception; }
+    interface Progress { void report(String id,long received) throws IOException; }
+    private final Progress progress;
     private final LocalAdb adb;
     private final Dial dial;
     private final Artifact artifacts;
     private final ConcurrentHashMap<String, Channel> channels = new ConcurrentHashMap<>();
     private volatile boolean closed;
     private final Semaphore slots = new Semaphore(8);
-    LocalStreams(LocalAdb adb, Dial dial, Artifact artifacts) { this.adb = adb; this.dial = dial; this.artifacts = artifacts; }
+    LocalStreams(LocalAdb adb, Dial dial, Artifact artifacts,Progress progress) { this.adb = adb; this.dial = dial; this.artifacts = artifacts;this.progress=progress; }
     private final class Channel implements AutoCloseable {
         final String request, id;
         Socket peer;
@@ -35,7 +37,8 @@ final class LocalStreams implements AutoCloseable {
             if (stream != null) try { stream.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭数据ADB流失败", e); }
         }
     }
-    void open(String request, String id, String service) throws Exception {
+    void open(String request, String id, String service,boolean flowControl) throws Exception {
+        if(flowControl && !service.equals("sync:"))throw new IOException("进度确认仅用于文件通道");
         if (closed || !id.matches("[0-9a-f]{32}") || channels.size() >= 8
             || !(service.equals("sync:") || service.equals("frames:") || service.matches("localabstract:scrcpy_[0-9a-f]{8}") || service.matches("artifact:[0-9a-f]{32}"))) throw new IOException("手机数据通道参数或并发无效");
         if (!slots.tryAcquire()) throw new IOException("手机数据通道并发已满");
@@ -54,7 +57,16 @@ final class LocalStreams implements AutoCloseable {
             channel.stream(LocalAdb.bounded("打开手机数据流", 5000, () -> adb.openStream(service)));
             channel.peer(dial.open(id)); channel.peer.setSoTimeout(0);
             Thread upload = new Thread(() -> {
-                try { copy(channel.peer.getInputStream(), channel.stream.openOutputStream()); }
+                try {
+                    InputStream input=channel.peer.getInputStream();OutputStream output=channel.stream.openOutputStream();
+                    byte[] buffer=new byte[65536];int count;long received=0;
+                    while((count=input.read(buffer))>=0) {
+                        if(count==0)continue;
+                        output.write(buffer,0,count);output.flush();received+=count;
+                        if(received>Integer.MAX_VALUE)throw new IOException("文件数据通道超过字节上限");
+                        if(flowControl)progress.report(id,received);
+                    }
+                }
                 catch (IOException e) { if (!channel.ended) android.util.Log.d("PhoneRelay", "数据上传结束：" + e.getMessage()); }
                 finally { channel.close(); }
             }, "relay-data-upload"); upload.setDaemon(true);
