@@ -121,6 +121,7 @@ class MetricsStore:
         source: str = "adb",
         method: str = "png",
         ts: float | None = None,
+        frame_age_ms: float | None = None,
     ) -> dict[str, Any] | None:
         """记录一次截图耗时（ms / 来源 / 方法）。"""
         try:
@@ -131,6 +132,8 @@ class MetricsStore:
                 "source": str(source or "adb"),
                 "method": str(method or "png"),
             }
+            if frame_age_ms is not None:
+                entry["frame_age_ms"]=round(max(0.0,float(frame_age_ms)),1)
         except (TypeError, ValueError):
             return None
         self._append(entry)

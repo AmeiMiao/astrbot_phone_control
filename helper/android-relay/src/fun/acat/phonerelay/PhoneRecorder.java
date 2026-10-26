@@ -18,6 +18,7 @@ final class PhoneRecorder implements AutoCloseable {
     private final LocalAdb adb;
     private final File directory;
     private Job current;
+    private boolean closed;
     PhoneRecorder(Context context, LocalAdb adb) throws IOException {
         this.adb = adb; directory = new File(context.getCacheDir(), "recordings");
         if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("无法创建录制目录");
@@ -26,6 +27,7 @@ final class PhoneRecorder implements AutoCloseable {
             if (file.getName().matches("[0-9a-f]{32}\\.mp4") && !file.delete()) throw new IOException("无法清理录制缓存");
     }
     synchronized JSONObject start(JSONObject params) throws Exception {
+        if (closed) throw new IOException("录制控制会话已结束");
         if (current != null) throw new IOException("请先下载或取消当前录制");
         String mode = params.getString("mode"), source = params.getString("source");
         double seconds = params.getDouble("seconds");
@@ -66,6 +68,7 @@ final class PhoneRecorder implements AutoCloseable {
         }
     }
     public synchronized void close() {
+        closed=true;
         if (current == null) return;
         current.finish("connection_closed");
         if (current.file.exists() && !current.file.delete()) android.util.Log.w("PhoneRelay", "清理断线录制文件失败");

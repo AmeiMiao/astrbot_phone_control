@@ -24,6 +24,7 @@ final class LocalStreams implements AutoCloseable {
         boolean ended;
         Channel(String request, String id) { this.request = request; this.id = id; }
         synchronized void peer(Socket value) throws IOException { if (ended) { value.close(); throw new IOException("通道已取消"); } peer = value; }
+        synchronized void artifact(InputStream value) throws IOException { if(ended){value.close();throw new IOException("通道已取消");}artifact=value; }
         synchronized void stream(AdbStream value) throws IOException { if (ended) { value.close(); throw new IOException("通道已取消"); } stream = value; }
         public synchronized void close() {
             if (ended) return;
@@ -36,13 +37,13 @@ final class LocalStreams implements AutoCloseable {
     }
     void open(String request, String id, String service) throws Exception {
         if (closed || !id.matches("[0-9a-f]{32}") || channels.size() >= 8
-            || !(service.equals("sync:") || service.matches("localabstract:scrcpy_[0-9a-f]{8}") || service.matches("artifact:[0-9a-f]{32}"))) throw new IOException("手机数据通道参数或并发无效");
+            || !(service.equals("sync:") || service.equals("frames:") || service.matches("localabstract:scrcpy_[0-9a-f]{8}") || service.matches("artifact:[0-9a-f]{32}"))) throw new IOException("手机数据通道参数或并发无效");
         if (!slots.tryAcquire()) throw new IOException("手机数据通道并发已满");
         Channel channel = new Channel(request, id);
         if (channels.putIfAbsent(id, channel) != null) { channel.close(); throw new IOException("重复数据通道"); }
         try {
-            if (service.startsWith("artifact:")) {
-                channel.artifact = artifacts.open(service.substring(9));
+            if (service.startsWith("artifact:") || service.equals("frames:")) {
+                channel.artifact(service.equals("frames:") ? new LocalFrameStream(adb) : artifacts.open(service.substring(9)));
                 channel.peer(dial.open(id)); channel.peer.setSoTimeout(0);
                 Thread download = new Thread(() -> {
                     try (InputStream input = channel.artifact) { copy(input, channel.peer.getOutputStream()); }

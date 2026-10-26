@@ -2,6 +2,7 @@ package fun.acat.phonerelay;
 
 import android.content.Context;
 import android.os.Build;
+import android.os.SystemClock;
 import android.util.Base64;
 import io.github.muntashirakon.adb.AbsAdbConnectionManager;
 import io.github.muntashirakon.adb.AdbStream;
@@ -36,6 +37,9 @@ final class LocalAdb extends AbsAdbConnectionManager {
     private final Object pushLock = new Object();
     private volatile LocalVideo video;
     private final Object videoLock = new Object();
+    private volatile long changedAt, generation;
+    long videoChangedAt() { return changedAt; }
+    long videoGeneration() { return generation; }
 
     void configureVideo(boolean enabled, boolean standby) {
         synchronized (videoLock) {
@@ -46,18 +50,19 @@ final class LocalAdb extends AbsAdbConnectionManager {
     }
 
     void invalidateVideo() {
-        LocalVideo current = video;
-        if (current != null) current.invalidate();
-    }
-
-    JSONObject screen() throws Exception {
-        LocalVideo activeVideo;
         synchronized (videoLock) {
-            if (video == null || video.closed) video = new LocalVideo(this);
-            activeVideo = video;
+            changedAt=SystemClock.elapsedRealtime(); generation++;
+            if(video!=null) video.invalidate(changedAt,generation);
         }
-        return activeVideo.frame();
     }
+    LocalVideo.FrameImage frameImage() throws Exception { return video().next(); }
+    private LocalVideo video() {
+        synchronized (videoLock) {
+            if(video==null || video.closed) video=new LocalVideo(this);
+            return video;
+        }
+    }
+    JSONObject screen() throws Exception { return video().frame(); }
 
     LocalAdb(Context context) throws Exception {
         this.context = context;
@@ -115,7 +120,11 @@ final class LocalAdb extends AbsAdbConnectionManager {
         }
     }
 
-    JSONObject shell(String id, String command, int limit) throws Exception {
+    JSONObject foreground(String id) throws Exception {
+        return shell(id, "dumpsys window displays | grep -E \"mCurrentFocus|mFocusedApp\" || dumpsys activity activities | grep -E \"mResumedActivity|topResumedActivity\"", 8192, false);
+    }
+    JSONObject shell(String id, String command, int limit) throws Exception { return shell(id,command,limit,true); }
+    private JSONObject shell(String id, String command, int limit, boolean changesScreen) throws Exception {
         AdbStream stream = openStream("shell,v2,raw:" + command);
         active.put(id, stream);
         try {
@@ -138,14 +147,14 @@ final class LocalAdb extends AbsAdbConnectionManager {
                         .put("stderr", Base64.encodeToString(err.toByteArray(), Base64.NO_WRAP));
                 } else throw new IOException("ADB shell 消息无效");
             }
-        } finally { active.remove(id); stream.close(); invalidateVideo(); }
+        } finally { active.remove(id); stream.close(); if(changesScreen)invalidateVideo(); }
     }
     JSONObject nodes(String id, int limit) throws Exception {
         String file = "/data/local/tmp/acat-relay-ui-" + id + ".xml";
         String command = "if [ -x /system/bin/app_process32 ] && [ -n \"$(getprop ro.product.cpu.abilist32)\" ]; then "
             + "CLASSPATH=/system/framework/uiautomator.jar /system/bin/app_process32 /system/bin "
             + "com.android.commands.uiautomator.Launcher dump " + file + "; else uiautomator dump " + file + "; fi";
-        return shell(id, "trap 'rm -f " + file + "' EXIT; " + command + " >/dev/null && cat " + file, limit);
+        return shell(id, "trap 'rm -f " + file + "' EXIT; " + command + " >/dev/null && cat " + file, limit, false);
     }
     void cancel(String id) {
         AdbStream stream = active.remove(id);
@@ -165,7 +174,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
             bounded("准备手机组件", 7000, () -> {
                 componentStage = "校验已有组件";
                 String path = "/data/local/tmp/acat-phone-relay-scrcpy.jar";
-                JSONObject probe = shell("component-probe", "sha256sum " + path + " 2>/dev/null", 1024);
+                JSONObject probe = shell("component-probe", "sha256sum " + path + " 2>/dev/null", 1024, false);
                 String existing = new String(Base64.decode(probe.getString("stdout"), Base64.NO_WRAP), "UTF-8");
                 if (existing.startsWith("764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536 ")) { scrcpyPushed = true; componentStage = "组件已校验"; return null; }
                 componentStage = "打开组件写入";

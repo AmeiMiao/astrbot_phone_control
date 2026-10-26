@@ -577,6 +577,7 @@ class AdbPerceptionBackend:
         ):
             data, fmt, duration = await adb.capture_screen(fast=fast)
             return data, fmt, {
+                **getattr(adb,"last_screen_meta",{}),
                 "source": "app_scrcpy", "method": fmt, "format": fmt,
                 "elapsed_ms": duration,
             }

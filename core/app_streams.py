@@ -12,7 +12,7 @@ from .errors import ActionFailedError, DeviceOfflineError
 
 def valid_service(service):
     return isinstance(service, str) and (
-        service == "sync:"
+        service in ("sync:", "frames:")
         or re.fullmatch(r"localabstract:scrcpy_[0-9a-f]{8}", service) is not None
         or re.fullmatch(r"artifact:[0-9a-f]{32}", service) is not None
     )

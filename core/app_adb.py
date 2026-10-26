@@ -39,6 +39,12 @@ class AppAdbClient(AdbClient):
         self._video_standby = video_standby
         self._video_session = ""
         self._video_enabled = False
+        self._video_generation = 0
+        self._video_clock_offset_ms = None
+        self._video_clock_synced_at = 0
+        self.last_screen_meta = {}
+        from .app_frames import AppFrames
+        self._frames = AppFrames(self)
 
     @property
     def screen_source(self):
@@ -58,6 +64,8 @@ class AppAdbClient(AdbClient):
         started = time.perf_counter()
         if "video_standby" in getattr(self.bridge, "peer", {}).get("features", []) and (self._video_session != self.bridge.session or not self._video_enabled):
             await self.configure_video(enabled=True)
+        if self._video_standby and "frame_stream" in getattr(self.bridge,"peer",{}).get("features",[]):
+            return await self._frames.capture(timeout or self._command_timeout)
         value = await self.bridge.call(
             "screen", timeout=timeout or self._command_timeout
         )
@@ -77,16 +85,38 @@ class AppAdbClient(AdbClient):
             if frame.width * frame.height > 9000000 or frame.format != "JPEG":
                 raise ActionFailedError("手机 scrcpy 视频帧尺寸无效")
             frame.load()
+        self.last_screen_meta={"frame_age_ms":age}
         return data, "jpeg", round((time.perf_counter() - started) * 1000)
 
     async def configure_video(self, *, enabled):
         if "video_standby" not in getattr(self.bridge, "peer", {}).get("features", []):
             return
-        await self.bridge.call("screen_config", enabled=enabled, standby=self._video_standby)
+        await self._frames.close()
+        sent=time.monotonic()*1000
+        value=await self.bridge.call("screen_config", enabled=enabled, standby=self._video_standby)
+        if "frame_stream" in self.bridge.peer.get("features",[]):
+            self._set_video_clock(value,sent)
+        if self._video_session != self.bridge.session:
+            self._video_generation = 0
         self._video_session = self.bridge.session
         self._video_enabled = enabled
+        if enabled and self._video_standby and "frame_stream" in self.bridge.peer.get("features",[]):
+            self._frames.start()
+
+    def _set_video_clock(self, value, sent):
+        elapsed=value.get("elapsed_ms") if isinstance(value,dict) else None
+        if type(elapsed) is not int or elapsed<0:raise ActionFailedError("手机视频时钟无效")
+        # 以请求发出时刻作为保守下界，网络往返不会把旧帧误算成新帧。
+        self._video_clock_offset_ms=sent-elapsed
+        self._video_clock_synced_at=time.monotonic()
+
+    async def refresh_video_clock(self):
+        sent=time.monotonic()*1000
+        value=await self.bridge.call("clock",timeout=10)
+        self._set_video_clock(value,sent)
 
     async def stop_video(self):
+        await self._frames.close()
         if self.bridge.writer is not None:
             await self.configure_video(enabled=False)
         self._video_enabled = False
@@ -158,6 +188,7 @@ class AppAdbClient(AdbClient):
                 limit=output_limit or 8 * 1024 * 1024,
                 timeout=timeout or self._command_timeout,
             )
+        self._observe_generation(value)
         return (
             int(value["rc"]),
             base64.b64decode(value.get("stdout", ""), validate=True),
@@ -227,6 +258,15 @@ class AppAdbClient(AdbClient):
         for port in list(self._forwards):
             await self._forward(["--remove", f"tcp:{port}"])
 
+    async def foreground_output(self):
+        from .adb import FOCUS_DUMP_COMMAND
+        if "frame_stream" not in getattr(self.bridge,"peer",{}).get("features",[]):
+            return await self.shell(FOCUS_DUMP_COMMAND)
+        value=await self.bridge.call("foreground",timeout=self._command_timeout)
+        self._observe_generation(value)
+        if value.get("rc") != 0:raise ActionFailedError("手机前台查询失败")
+        return base64.b64decode(value.get("stdout",""),validate=True).decode("utf-8","replace")
+
     async def read_clipboard(self):
         value = await self.bridge.call("clipboard", timeout=self._command_timeout)
         return value.get("text", "")
@@ -238,16 +278,24 @@ class AppAdbClient(AdbClient):
 
         return (await self.shell(ui_dump_command(path), timeout=timeout)).encode()
 
+    def _observe_generation(self, value):
+        if "frame_stream" not in getattr(self.bridge,"peer",{}).get("features",[]):return
+        generation=value.get("video_generation")
+        if type(generation) is not int or generation<0:
+            raise ActionFailedError("手机操作代次无效")
+        self._video_generation=max(self._video_generation,generation)
+
     async def input_text(self, text, *, press_enter=False):
-        await self.bridge.call(
-            "input", text=text, press_enter=press_enter, timeout=self._command_timeout
-        )
+        value=await self.bridge.call("input",text=text,press_enter=press_enter,timeout=self._command_timeout)
+        self._observe_generation(value)
 
     async def disconnect(self):
+        await self._frames.close()
         await self._close_forwards()
         self._connected = False
 
     async def close(self):
+        await self._frames.close()
         await self._close_forwards()
         await self.bridge.close()
         self._connected = False

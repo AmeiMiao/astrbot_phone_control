@@ -935,6 +935,7 @@ class PhoneService:
                 ms=ms,
                 source=str(info.get("source") or "adb"),
                 method=str(info.get("method") or info.get("format") or "png"),
+                **({"frame_age_ms":info["frame_age_ms"]} if "frame_age_ms" in info else {}),
             )
         except Exception:  # noqa: BLE001 - 指标失败不影响截图
             pass

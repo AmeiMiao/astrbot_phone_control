@@ -21,8 +21,10 @@ MAX_PACKET = 12 * 1024 * 1024
 MAX_OUTPUT = 8 * 1024 * 1024
 CAPABILITIES = (
     "shell",
+    "foreground",
     "screen",
     "screen_config",
+    "clock",
     "stream_open",
     "media_start",
     "media_status",
@@ -255,7 +257,7 @@ class AppBridge:
                 "features": [
                     feature
                     for feature in features
-                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording")
+                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream")
                 ],
             }
             authenticated = True

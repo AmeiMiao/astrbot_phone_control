@@ -238,7 +238,7 @@
       setText("ov-shot", `${fmtNum(shot.ms, 1)} ms`);
       setText(
         "ov-shot-note",
-        `${shot.source || "?"} · ${fmtTime(shot.ts)} · ${ageLabel(shot.ts)}`,
+        `${shot.source || "?"}${shot.frame_age_ms != null ? " · 画面年龄 " + fmtNum(shot.frame_age_ms, 1) + " ms" : ""} · ${fmtTime(shot.ts)} · ${ageLabel(shot.ts)}`,
       );
     } else {
       setText("ov-shot", "—");

@@ -89,7 +89,7 @@ public final class ControlService extends Service {
                 String device = prefs.getString("device_id", "");
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 send(new JSONObject().put("v", 1).put("token", code.getString("token")).put("device_id", device)
-                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
+                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
                 session = ready.getString("session"); lastRequestSequence = 0;
@@ -187,6 +187,9 @@ public final class ControlService extends Service {
         final long deadline = SystemClock.elapsedRealtime() + ttl;
         final String requestSession = session;
         final LocalAdb local = adb;
+        final PhoneTraffic currentTraffic=traffic;
+        final PhoneRecorder currentRecorder=recorder;
+        final LocalStreams currentStreams=streams;
         FutureTask<Void> task = new FutureTask<>(() -> {
             ScheduledFuture<?> expiry = null;
             JSONObject result = new JSONObject().put("type", "result").put("id", id);
@@ -195,23 +198,27 @@ public final class ControlService extends Service {
                 expiry = timers.schedule(() -> cancel(id), Math.max(1, deadline - SystemClock.elapsedRealtime()), TimeUnit.MILLISECONDS);
                 JSONObject params = message.getJSONObject("params"), data;
                 switch (message.getString("op")) {
+                    case "foreground": data = local.foreground(id); break;
                     case "shell": data = local.shell(id, params.getString("command"), Math.min(8 * 1024 * 1024, params.optInt("limit", 8192))); break;
                     case "nodes": data = local.nodes(id, 8 * 1024 * 1024); break;
-                    case "media_start": data = recorder.start(params); break;
-                    case "media_status": data = recorder.status(params.getString("recording_id")); break;
-                    case "media_stop": data = recorder.stop(params.getString("recording_id")); break;
-                    case "media_delete": recorder.delete(params.getString("recording_id")); data = new JSONObject().put("ok", true); break;
-                    case "stream_open": streams.open(id, params.getString("stream_id"), params.getString("service")); data = new JSONObject().put("ok", true); break;
+                    case "media_start": data = currentRecorder.start(params); break;
+                    case "media_status": data = currentRecorder.status(params.getString("recording_id")); break;
+                    case "media_stop": data = currentRecorder.stop(params.getString("recording_id")); break;
+                    case "media_delete": currentRecorder.delete(params.getString("recording_id")); data = new JSONObject().put("ok", true); break;
+                    case "stream_open": currentStreams.open(id, params.getString("stream_id"), params.getString("service")); data = new JSONObject().put("ok", true); break;
                     case "screen": data = local.screen(); break;
-                    case "screen_config": local.configureVideo(params.getBoolean("enabled"), params.optBoolean("standby")); data = new JSONObject().put("ok", true); break;
-                    case "traffic_prepare": data = traffic.prepare(); break;
-                    case "traffic_start": data = traffic.start(params, () -> proxyConnection(params.getString("capture_id"))); break;
-                    case "traffic_status": data = traffic.status(); break;
-                    case "traffic_stop": traffic.stopOwned(params.getString("capture_id")); data = new JSONObject().put("running", false); break;
+                    case "screen_config": local.configureVideo(params.getBoolean("enabled"), params.optBoolean("standby")); data = new JSONObject().put("ok", true).put("elapsed_ms",SystemClock.elapsedRealtime()); break;
+                    case "clock": data = new JSONObject().put("elapsed_ms",SystemClock.elapsedRealtime()); break;
+                    case "traffic_prepare": data = currentTraffic.prepare(); break;
+                    case "traffic_start": data = currentTraffic.start(params, () -> proxyConnection(params.getString("capture_id"))); break;
+                    case "traffic_status": data = currentTraffic.status(); break;
+                    case "traffic_stop": currentTraffic.stopOwned(params.getString("capture_id")); data = new JSONObject().put("running", false); break;
                     case "clipboard": data = local.clipboard(); break;
                     case "input": data = local.input(id, params.getString("text"), params.optBoolean("press_enter")); local.invalidateVideo(); break;
                     default: throw new IOException("不支持的控制能力");
                 }
+                if (message.getString("op").equals("foreground") || message.getString("op").equals("shell") || message.getString("op").equals("nodes") || message.getString("op").equals("input"))
+                    data.put("video_generation",local.videoGeneration());
                 for (Iterator<String> keys = data.keys(); keys.hasNext();) { String key = keys.next(); result.put(key, data.get(key)); }
             } catch (Exception e) { result.put("error", e.getMessage() == null ? "本机 ADB 请求失败" : e.getMessage()); }
             finally { if (expiry != null) expiry.cancel(false); jobs.remove(id); }

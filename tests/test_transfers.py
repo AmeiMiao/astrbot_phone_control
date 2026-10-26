@@ -39,3 +39,19 @@ def test_bad_download_does_not_leave_partial_or_replace_existing(tmp_path):
         with pytest.raises(ActionFailedError,match='SHA256'):await files.download('/sdcard/file')
         assert not list(tmp_path.iterdir())
     asyncio.run(scenario())
+
+
+def test_upload_imports_only_current_message_attachment(tmp_path,monkeypatch):
+    import astrbot.api.message_components as components
+    source=tmp_path/'attachment.bin';source.write_bytes(b'current chat attachment')
+    class Attachment:
+        name='user.bin'
+        def get_file(self):return str(source)
+    monkeypatch.setattr(components,'File',Attachment)
+    async def run():
+        files=TransferFiles(None,tmp_path/'transfers')
+        identity=await files.attachment(SimpleNamespace(get_messages=lambda:[Attachment()]))
+        assert files.path(identity).read_bytes()==source.read_bytes()
+        assert identity!='user.bin'
+        with pytest.raises(ActionFailedError):await files.attachment(SimpleNamespace(get_messages=lambda:[]))
+    asyncio.run(run())

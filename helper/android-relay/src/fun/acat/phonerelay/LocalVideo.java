@@ -26,6 +26,11 @@ final class LocalVideo implements AutoCloseable {
     private Frame frame;
     private volatile boolean keepAlive;
     private volatile long requiredAfter;
+    private long requiredGeneration;
+    static final class FrameImage {
+        final byte[] data; final long at, generation;
+        FrameImage(byte[] data, long at, long generation) { this.data=data;this.at=at;this.generation=generation; }
+    }
     private static final class Frame {
         final byte[] pixels; final int width, height; final long at;
         volatile byte[] encoded;
@@ -47,13 +52,13 @@ final class LocalVideo implements AutoCloseable {
     private String error;
     private volatile String stage = "启动";
 
-    LocalVideo(LocalAdb adb) { this.adb = adb; }
+    LocalVideo(LocalAdb adb) { this.adb = adb; requiredAfter=adb.videoChangedAt(); requiredGeneration=adb.videoGeneration(); }
 
     synchronized void standby(boolean enabled) {
         keepAlive = enabled;
         if (enabled) start();
     }
-    void invalidate() { requiredAfter = SystemClock.elapsedRealtime(); }
+    synchronized void invalidate(long after, long generation) { requiredAfter=after;requiredGeneration=generation; }
     private synchronized void start() {
         if (running || closed) return;
         requestedAt = SystemClock.elapsedRealtime();
@@ -67,7 +72,12 @@ final class LocalVideo implements AutoCloseable {
         }, "relay-video-idle"); idle.setDaemon(true); idle.start();
     }
     JSONObject frame() throws Exception {
-        Frame selected;
+        FrameImage image=next();
+        return new JSONObject().put("image",Base64.encodeToString(image.data,Base64.NO_WRAP)).put("format","jpeg")
+            .put("source","app_scrcpy").put("age_ms",SystemClock.elapsedRealtime()-image.at).put("generation",image.generation);
+    }
+    FrameImage next() throws Exception {
+        Frame selected; long generation;
         synchronized (this) {
             if (closed) throw new IOException("手机视频通道已关闭");
             requestedAt = SystemClock.elapsedRealtime();
@@ -80,13 +90,9 @@ final class LocalVideo implements AutoCloseable {
                 wait(remaining);
             }
             if (error != null || !running) throw new IOException(error == null ? "手机视频已停止" : error);
-            selected = frame;
+            selected = frame; generation=requiredGeneration;
         }
-        long compressStarted = SystemClock.elapsedRealtime();
-        byte[] encoded = selected.jpeg();
-        return new JSONObject().put("image", Base64.encodeToString(encoded, Base64.NO_WRAP))
-            .put("format", "jpeg").put("source", "app_scrcpy").put("age_ms", SystemClock.elapsedRealtime() - selected.at)
-            .put("jpeg_ms", SystemClock.elapsedRealtime() - compressStarted);
+        return new FrameImage(selected.jpeg(),selected.at,generation);
     }
 
     private void decode() {

@@ -420,7 +420,8 @@ class DeviceActions:
         """返回前台 ``(package, activity)``；解析失败返回两个空串。"""
         await self._adb.ensure_ready()
         try:
-            output = await self._adb.shell(FOCUS_DUMP_COMMAND)
+            query = getattr(self._adb,"foreground_output",None)
+            output = await query() if callable(query) else await self._adb.shell(FOCUS_DUMP_COMMAND)
         except AdbCommandError as exc:
             self._log(f"查询前台应用失败：{exc}")
             return "", ""

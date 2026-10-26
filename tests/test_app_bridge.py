@@ -418,3 +418,17 @@ def test_ready_callback_can_request_device_without_blocking_socket_reader(tmp_pa
         assert not bridge.tasks
 
     asyncio.run(run())
+
+
+def test_typed_foreground_query_preserves_frame_operation_generation(tmp_path):
+    from core.actions import DeviceActions
+    class Bridge:
+        peer={'features':['frame_stream']}
+        async def call(self,operation,**params):
+            assert operation=='foreground'
+            return {'rc':0,'stdout':base64.b64encode(b'mCurrentFocus=Window{test u0 org.example/.Main}').decode(),'video_generation':7}
+    async def run():
+        adb=AppAdbClient(Bridge(),tmp_path);adb._connected=True;adb._video_generation=7
+        package,_=await DeviceActions(adb).foreground()
+        assert package=='org.example' and adb._video_generation==7
+    asyncio.run(run())
