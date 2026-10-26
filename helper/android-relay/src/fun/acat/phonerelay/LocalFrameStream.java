@@ -25,12 +25,13 @@ final class LocalFrameStream extends InputStream {
                 long pause = next-SystemClock.elapsedRealtime();
                 if (pause > 0) Thread.sleep(pause);
                 if (closed) return -1;
+                long started = SystemClock.elapsedRealtime();
                 LocalVideo.FrameImage image = adb.frameImage();
                 byte[] header = new JSONObject().put("generation",image.generation)
                     .put("captured_at_ms",image.at).put("age_ms",SystemClock.elapsedRealtime()-image.at).toString().getBytes("UTF-8");
                 packet = ByteBuffer.allocate(8+header.length+image.data.length).putInt(header.length).put(header)
                     .putInt(image.data.length).put(image.data).array(); position=0;
-                next = SystemClock.elapsedRealtime()+100;
+                next = started+100;
             } catch (Exception e) { throw new IOException("手机视频推流："+e.getMessage(),e); }
         }
         int count=Math.min(length,packet.length-position);System.arraycopy(packet,position,bytes,offset,count);position+=count;return count;
