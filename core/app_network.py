@@ -44,4 +44,5 @@ def peer_capabilities(peer):
             'traffic':'traffic_proxy' in features,'sdk_int':sdk,
             'adb_uid':peer.get('adb_uid'),'su_present':peer.get('su_present'),
             'endpoint_host':peer.get('endpoint_host'),'endpoint_port':peer.get('endpoint_port'),
-            'relay_host':peer.get('relay_host'),'relay_port':peer.get('relay_port'),'frame_options':'frame_options' in features}
+            'relay_host':peer.get('relay_host'),'relay_port':peer.get('relay_port'),'frame_options':'frame_options' in features, 'frame_ack':'frame_ack' in features,
+            'stream_credit':'stream_credit' in features and 'stream_progress' in features}

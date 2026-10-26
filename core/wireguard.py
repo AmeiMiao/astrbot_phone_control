@@ -1463,7 +1463,8 @@ class WireGuardManager:
         """
         settings = self._settings()
         keys = self.keys.ensure_all()
-        config = build_helper_config(settings, keys)
+        app_port=self._app_port_provider()
+        config = build_helper_config(settings, keys, app_port=app_port)
         mode = settings.mode if settings.mode in MODES else DEFAULT_MODE
         interface = dict(config.get("interface") or {})
         addresses = list(interface.get("addresses") or [])
@@ -1472,7 +1473,9 @@ class WireGuardManager:
         )
         network = _network_of(str(interface_address))
         preshared_key = str((config.get("peers") or [{}])[0].get("preshared_key") or "")
-        if settings.adb_local_port:
+        if app_port:
+            adb_line=f"Relay App TLS：{ipaddress.ip_interface(interface_address).ip}:{app_port}（手机App主动回连）"
+        elif settings.adb_local_port:
             adb_line = (
                 f"ADB over WG：127.0.0.1:{settings.adb_local_port} → "
                 f"{settings.effective_phone_wg_ip}:{settings.adb_target_port}"

@@ -459,3 +459,19 @@ def test_authenticated_frame_options_reach_phone_without_losing_capability(tmp_p
         finally:
             writer.close();await writer.wait_closed();await bridge.close()
     asyncio.run(run())
+
+
+def test_unsupported_phone_quality_settings_require_upgrade_but_stopping_works(tmp_path):
+    class Bridge:
+        peer={'features':['video_standby']}
+        session='session'
+        calls=[]
+        async def call(self,operation,**params):
+            self.calls.append((operation,params));return {'ok':True}
+    async def run():
+        bridge=Bridge();adb=AppAdbClient(bridge,tmp_path,frame_fps=5)
+        with pytest.raises(ActionFailedError,match='升级'):await adb.configure_video(enabled=True)
+        assert not bridge.calls
+        await adb.configure_video(enabled=False)
+        assert bridge.calls==[('screen_config',{'enabled':False,'standby':True})]
+    asyncio.run(run())

@@ -102,6 +102,8 @@ class AppAdbClient(AdbClient):
     async def configure_video(self, *, enabled):
         if "video_standby" not in getattr(self.bridge, "peer", {}).get("features", []):
             return
+        if enabled and "frame_options" not in self.bridge.peer.get("features",[]) and self._frame_options!={"max_size":0,"fps":10,"quality":85}:
+            raise ActionFailedError("当前App不支持所选画质参数，请从Relay App页面升级手机App")
         await self._frames.close()
         sent=time.monotonic()*1000
         options = self._frame_options if "frame_options" in self.bridge.peer.get("features", []) else {}
