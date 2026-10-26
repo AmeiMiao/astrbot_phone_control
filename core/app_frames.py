@@ -29,8 +29,10 @@ class AppFrames:
     async def receive(self):
         bridge = self.adb.bridge
         session = bridge.session
+        acknowledged='frame_ack' in getattr(bridge,'peer',{}).get('features',[])
+        last_frame=0
         try:
-            async with bridge.streams.connect('frames:') as (reader,_writer):
+            async with bridge.streams.connect('frames:') as (reader,writer):
                 while bridge.session == session:
                     sync=getattr(self.adb,'refresh_video_clock',None)
                     if callable(sync) and time.monotonic()-self.adb._video_clock_synced_at>60:
@@ -42,12 +44,15 @@ class AppFrames:
                             or type(meta.get('captured_at_ms')) is not int or meta['captured_at_ms']<0
                             or type(meta.get('age_ms')) is not int or not 0 <= meta['age_ms'] <= 2000):
                         raise ValueError('视频帧时间或操作代次无效')
+                    if acknowledged and (type(meta.get('frame_id')) is not int or not last_frame<meta['frame_id']<2**63):raise ValueError('视频帧序号无效')
                     length = struct.unpack('!I',await reader.readexactly(4))[0]
                     if not 0 < length <= 8*1024*1024:raise ValueError('视频帧大小无效')
                     data = await asyncio.wait_for(reader.readexactly(length),15)
                     if not data.startswith(b'\xff\xd8') or not data.endswith(b'\xff\xd9'):raise ValueError('视频帧不是JPEG')
                     self.latest = {'meta':meta,'data':data,'received':time.monotonic(),'session':session,'validated':False}
                     self.changed.set()
+                    if acknowledged:
+                        last_frame=meta['frame_id'];writer.write(b'FACK'+struct.pack('!Q',last_frame));await asyncio.wait_for(writer.drain(),10)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

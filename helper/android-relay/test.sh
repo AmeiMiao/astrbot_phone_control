@@ -18,6 +18,8 @@ mkdir -p "$OUT_DIR/test-classes"
   "$SOURCE_DIR/tests/ScrcpyPacketsTest.java" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/YuvPlanes.java" \
   "$SOURCE_DIR/tests/YuvPlanesTest.java" \
+  "$SOURCE_DIR/src/fun/acat/phonerelay/FrameCredit.java" \
+  "$SOURCE_DIR/tests/FrameCreditTest.java" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/H264Config.java" \
   "$SOURCE_DIR/tests/H264ConfigTest.java" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/ProxyCertificates.java" \
@@ -35,3 +37,5 @@ mkdir -p "$OUT_DIR/test-classes"
 "$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes" fun.acat.phonerelay.YuvPlanesTest
 
 "$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes" fun.acat.phonerelay.H264ConfigTest
+
+"$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes" fun.acat.phonerelay.FrameCreditTest

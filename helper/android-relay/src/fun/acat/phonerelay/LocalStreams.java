@@ -37,7 +37,8 @@ final class LocalStreams implements AutoCloseable {
             if (stream != null) try { stream.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭数据ADB流失败", e); }
         }
     }
-    void open(String request, String id, String service,boolean flowControl) throws Exception {
+    void open(String request, String id, String service,boolean flowControl,boolean frameAck) throws Exception {
+        if(frameAck && !service.equals("frames:"))throw new IOException("视频接收确认仅用于视频帧通道");
         if(flowControl && !service.equals("sync:"))throw new IOException("进度确认仅用于文件通道");
         if (closed || !id.matches("[0-9a-f]{32}") || channels.size() >= 8
             || !(service.equals("sync:") || service.equals("frames:") || service.matches("localabstract:scrcpy_[0-9a-f]{8}") || service.matches("artifact:[0-9a-f]{32}"))) throw new IOException("手机数据通道参数或并发无效");
@@ -47,7 +48,8 @@ final class LocalStreams implements AutoCloseable {
         try {
             if (service.startsWith("artifact:") || service.equals("frames:")) {
                 channel.artifact(service.equals("frames:") ? new LocalFrameStream(adb) : artifacts.open(service.substring(9)));
-                channel.peer(dial.open(id)); channel.peer.setSoTimeout(0);
+                channel.peer(dial.open(id)); channel.peer.setSoTimeout(frameAck?15000:0);
+                if(frameAck)((LocalFrameStream)channel.artifact).acknowledgements(channel.peer.getInputStream());
                 Thread download = new Thread(() -> {
                     try (InputStream input = channel.artifact) { copy(input, channel.peer.getOutputStream()); }
                     catch (IOException e) { if (!channel.ended) android.util.Log.w("PhoneRelay", "录制文件下载结束", e); }

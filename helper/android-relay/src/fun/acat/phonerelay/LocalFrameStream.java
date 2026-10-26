@@ -10,7 +10,9 @@ final class LocalFrameStream extends InputStream {
     private final LocalAdb adb;
     private byte[] packet = new byte[0];
     private int position;
-    private long next;
+    private long next,sequence;
+    private InputStream acknowledgements;
+    void acknowledgements(InputStream input) {acknowledgements=input;}
     private volatile boolean closed;
     private volatile Thread reader;
     LocalFrameStream(LocalAdb adb) { this.adb = adb; }
@@ -22,12 +24,14 @@ final class LocalFrameStream extends InputStream {
         reader = Thread.currentThread();
         if (position == packet.length) {
             try {
+                if(sequence>0 && acknowledgements!=null)FrameCredit.await(acknowledgements,sequence);
+                if(sequence==Long.MAX_VALUE)throw new IOException("视频帧序号已耗尽");
                 long pause = next-SystemClock.elapsedRealtime();
                 if (pause > 0) Thread.sleep(pause);
                 if (closed) return -1;
                 long started = SystemClock.elapsedRealtime();
                 LocalVideo.FrameImage image = adb.frameImage();
-                byte[] header = new JSONObject().put("generation",image.generation).put("screen_width",image.width).put("screen_height",image.height)
+                byte[] header = new JSONObject().put("frame_id",++sequence).put("generation",image.generation).put("screen_width",image.width).put("screen_height",image.height)
                     .put("captured_at_ms",image.at).put("age_ms",SystemClock.elapsedRealtime()-image.at).toString().getBytes("UTF-8");
                 packet = ByteBuffer.allocate(8+header.length+image.data.length).putInt(header.length).put(header)
                     .putInt(image.data.length).put(image.data).array(); position=0;

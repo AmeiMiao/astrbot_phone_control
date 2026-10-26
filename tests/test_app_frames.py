@@ -117,3 +117,24 @@ def test_reduced_frame_restores_touch_coordinate_dimensions():
     with Image.open(io.BytesIO(restored)) as image:assert image.size==(24,32)
     for meta in ({'screen_width':9000,'screen_height':32},{'screen_width':True,'screen_height':32},{'screen_width':24,'screen_height':60}):
         with pytest.raises(ActionFailedError):AppFrames.restore_size(data,meta)
+
+
+def test_frame_credit_acknowledges_complete_frame_and_rejects_replay():
+    async def run():
+        packet=jpeg('blue');now=int(time.monotonic()*1000)
+        metadata={'generation':1,'captured_at_ms':now,'age_ms':0,'frame_id':1}
+        header=json.dumps(metadata).encode();wire=struct.pack('!I',len(header))+header+struct.pack('!I',len(packet))+packet
+        reader=asyncio.StreamReader();reader.feed_data(wire+wire);reader.feed_eof()
+        sent=[]
+        class Writer:
+            def write(self,data):sent.append(data)
+            async def drain(self):pass
+        class Streams:
+            @asynccontextmanager
+            async def connect(self,service):yield reader,Writer()
+        bridge=SimpleNamespace(session='session',streams=Streams(),peer={'features':['frame_ack']})
+        frames=AppFrames(SimpleNamespace(bridge=bridge))
+        await frames.receive()
+        assert sent==[b'FACK'+struct.pack('!Q',1)]
+        assert frames.latest['data']==packet and '序号无效' in frames.error
+    asyncio.run(run())

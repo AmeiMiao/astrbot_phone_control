@@ -53,12 +53,13 @@ class AppStreams:
             raise ActionFailedError("手机数据通道已达到并发上限")
         nonce = secrets.token_hex(16)
         flow=service=='sync:' and 'stream_progress' in bridge.peer.get('features',[])
+        frame_ack=service=='frames:' and 'frame_ack' in bridge.peer.get('features',[])
         entry = {"session": bridge.session, "future": asyncio.get_running_loop().create_future(),
                  "done": asyncio.Event(), "writer": None, 'flow':flow, 'sent':0,'received':0,'progress':asyncio.Event(),'closed':False}
         self.entries[nonce] = entry
         try:
             async with asyncio.timeout(timeout):
-                await bridge.call("stream_open", stream_id=nonce, service=service, timeout=timeout, **({'flow_control':True} if flow else {}))
+                await bridge.call("stream_open", stream_id=nonce, service=service, timeout=timeout, **({'flow_control':True} if flow else {}), **({'frame_ack':True} if frame_ack else {}))
                 reader, writer = await entry["future"]
             yield reader, ProgressWriter(writer,entry,bridge) if flow else writer
         finally:
