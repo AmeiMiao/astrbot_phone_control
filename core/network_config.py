@@ -36,7 +36,7 @@ def unified_network(source):
     result["wireguard"] = {key: copy.deepcopy(wg[key]) for key in WG_KEYS if key in wg}
     for provider in ("tailscale", "zerotier"):
         excluded = (
-            {"zerotier_network_id", "zerotier_library"}
+            {"zerotier_network_id", "zerotier_library", "zerotier_force_tcp_relay"}
             if provider == "tailscale"
             else {"hostname", "tailscale_auth_key", "tailscale_path", "tailscaled_path"}
         )

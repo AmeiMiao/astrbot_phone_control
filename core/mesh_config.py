@@ -13,6 +13,7 @@ class MeshSettings:
     tailscaled_path: str = ""
     zerotier_network_id: str = ""
     zerotier_library: str = ""
+    zerotier_force_tcp_relay: bool = False
     phone_ip: str = ""
     auto_adb: bool = False
     adb_port: int = 15555

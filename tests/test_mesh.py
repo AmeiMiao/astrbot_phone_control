@@ -433,3 +433,40 @@ def test_zerotier_accept_uses_exact_sdk_address_buffer_and_reports_invalid_argum
     with pytest.raises(OSError, match="code -2"):
         listener.accept()
     assert not calls
+
+
+def test_zerotier_tcp_policy_is_preserved_and_restarts_mesh():
+    from core.network_config import unified_network
+    base=PhoneConfig.from_mapping({'network':{'enabled':True,'provider':'zerotier','zerotier':{'zerotier_network_id':'0123456789abcdef'}}})
+    chosen=PhoneConfig.from_mapping({'network':{'enabled':True,'provider':'zerotier','zerotier':{'zerotier_network_id':'0123456789abcdef','zerotier_force_tcp_relay':True}}})
+    assert not base.mesh.zerotier_force_tcp_relay and chosen.mesh.zerotier_force_tcp_relay
+    assert build_apply_plan(base,chosen).mesh_changed
+    migrated=unified_network({'mesh':{'provider':'zerotier','zerotier_force_tcp_relay':True}})
+    assert migrated['zerotier']['zerotier_force_tcp_relay']
+    assert 'zerotier_force_tcp_relay' not in migrated['tailscale']
+
+
+def test_sdk_tcp_policy_support_and_native_failure_are_explicit():
+    from core.mesh_zerotier_worker import SDK
+    sdk=SDK.__new__(SDK);sdk.lib=SimpleNamespace()
+    sdk.configure_transport(False)
+    with pytest.raises(RuntimeError,match='不支持强制TCP'):
+        sdk.configure_transport(True)
+    class Configure:
+        result=0
+        def __call__(self,enabled):
+            assert enabled==1
+            return self.result
+    configure=Configure();sdk.lib.zts_init_force_tcp_relay=configure
+    sdk.configure_transport(True)
+    configure.result=-3
+    with pytest.raises(OSError,match='code -3'):
+        sdk.configure_transport(True)
+
+
+def test_zerotier_transport_policy_status_does_not_imply_connected(tmp_path):
+    async def run():
+        manager=MeshManager(service(tmp_path,provider='zerotier',zerotier_force_tcp_relay=True))
+        status=await manager.status()
+        assert status['transport_policy']=='tcp_relay' and not status['ready'] and not status['running']
+    asyncio.run(run())

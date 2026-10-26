@@ -74,6 +74,16 @@ class SDK:
         self.lib.zts_set_send_timeout(fd, 30, 0)
         return Stream(self, fd)
 
+    def configure_transport(self, force_tcp_relay):
+        if not force_tcp_relay:
+            return
+        configure = getattr(self.lib, "zts_init_force_tcp_relay", None)
+        if configure is None:
+            raise RuntimeError("当前ZeroTier SDK不支持强制TCP中继，请更新动态库")
+        configure.argtypes = [c.c_int]
+        configure.restype = c.c_int
+        self.check(configure(1))
+
     def address(self, network):
         buf = c.create_string_buffer(IP_STRING_SIZE)
         if self.lib.zts_addr_get_str(network, 2, buf, IP_STRING_SIZE) != 0:
@@ -292,6 +302,7 @@ def run(config):
     sdk = SDK(config["library"])
     network = int(config["network_id"], 16)
     sdk.check(sdk.lib.zts_init_from_storage(str(root).encode()))
+    sdk.configure_transport(config.get("force_tcp_relay", False))
     sdk.check(sdk.lib.zts_node_start())
     joined = False
     stopping = threading.Event()
@@ -386,6 +397,7 @@ def run(config):
                 Path(config["status_path"]),
                 dict(
                     provider="zerotier",
+                    transport_policy="tcp_relay" if config.get("force_tcp_relay", False) else "auto",
                     network_id=config["network_id"],
                     running=True,
                     ready=bool(ready and address),

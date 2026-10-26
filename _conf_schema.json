@@ -1550,6 +1550,12 @@
             "default": "",
             "description": "ZeroTier Sockets SDK 路径",
             "hint": "仅手动提供与宿主架构及 SDK API 兼容的动态库绝对路径；构建要求见 helper/mesh/README.md。"
+          },
+          "zerotier_force_tcp_relay": {
+            "type": "bool",
+            "default": false,
+            "description": "强制 TCP 中继",
+            "hint": "默认关闭，由SDK自动选择路径。节点在线但两端UDP互访受限时可开启，保存重载后强制使用官方TCP中继；仍需成员授权和入口来源校验，延迟和吞吐取决于中继链路。"
           }
         }
       }

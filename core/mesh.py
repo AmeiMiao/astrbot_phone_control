@@ -200,6 +200,8 @@ class MeshManager:
             "adb_forward": self.server is not None,
             "proxy_port": self.exposed_port,
         }
+        if self.settings.provider == "zerotier":
+            result["transport_policy"] = "tcp_relay" if self.settings.zerotier_force_tcp_relay else "auto"
         if not self.running:
             return result
         if self.settings.provider == "zerotier":
@@ -396,6 +398,7 @@ class MeshManager:
                     config_path,
                     dict(
                         library=str(library.resolve()),
+                        force_tcp_relay=settings.zerotier_force_tcp_relay,
                         state_dir=str(state),
                         network_id=settings.zerotier_network_id,
                         socks_port=self.socks_port,
