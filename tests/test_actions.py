@@ -870,3 +870,19 @@ def test_real_device_tap_swipe_input_screenshot(tmp_path):
     assert size[0] > 0 and size[1] > 0
     assert default_ms > 0 and fast_ms > 0
     assert default_method in ("png", "jpeg") and fast_method in ("png", "jpeg")
+
+
+def test_app_frame_age_includes_post_capture_foreground_check(tmp_path):
+    class App(FakeAdb):
+        screen_source='app_scrcpy'
+        last_screen_meta={'frame_age_ms':240,'frame_age_limit_ms':250}
+        checks=0
+        async def shell(self,*args,**kwargs):
+            self.checks+=1
+            if self.checks>1:await asyncio.sleep(.03)
+            return await super().shell(*args,**kwargs)
+    app=App(foreground_sequence=['com.example.app'])
+    actions=make_actions(app)
+    with pytest.raises(ActionFailedError,match='画面已超过'):
+        run(actions.screenshot(tmp_path/'stale',expected_package='com.example.app'))
+    assert not list(tmp_path.iterdir())

@@ -245,21 +245,22 @@ class AppBridge:
             if not isinstance(features, list) or len(features) > 16:
                 raise ValueError("App 能力列表无效")
             details = {}
-            for key, maximum in (("sdk_int", 200), ("adb_uid", 2147483647), ("endpoint_port", 65535)):
+            for key, maximum in (("sdk_int", 200), ("adb_uid", 2147483647), ("endpoint_port", 65535), ("relay_port",65535)):
                 if key in hello:
                     value = hello[key]
-                    minimum=26 if key=="sdk_int" else 1 if key=="endpoint_port" else 0
+                    minimum=26 if key=="sdk_int" else 1 if key in ("endpoint_port","relay_port") else 0
                     if type(value) is not int or not minimum <= value <= maximum:
                         raise ValueError("App 设备能力信息无效")
                     details[key] = value
             if "su_present" in hello:
                 if type(hello["su_present"]) is not bool: raise ValueError("App su信息无效")
                 details["su_present"] = hello["su_present"]
-            if "endpoint_host" in hello:
-                host = hello["endpoint_host"]
+            for host_key in ("endpoint_host","relay_host"):
+                if host_key not in hello:continue
+                host = hello[host_key]
                 if not isinstance(host,str) or not 0 < len(host) <= 253 or any(ord(c)<33 or ord(c)>126 or c in '/?#@' for c in host):
                     raise ValueError("App目标地址信息无效")
-                details["endpoint_host"] = host
+                details[host_key] = host
             # 配对秘密仅授权一台设备；后续连接继续核对已绑定身份。
             self._state["device_id"] = device
             self._save_state()
@@ -273,7 +274,7 @@ class AppBridge:
                 "features": [
                     feature
                     for feature in features
-                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream")
+                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options")
                 ],
                 **details,
             }

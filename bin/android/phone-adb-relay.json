@@ -1,8 +1,8 @@
 {
   "package": "fun.acat.phonerelay",
-  "versionCode": 34,
-  "versionName": "0.7.1",
-  "size": 6231351,
-  "sha256": "1ab0725dcdbbba3081e1a63bbc6c40f90b986a20ac38e385ec4acdfd9d0963a6",
+  "versionCode": 35,
+  "versionName": "0.7.2",
+  "size": 6231348,
+  "sha256": "56a56ec7ad33339ec41bfe24b4f59197fc61419406a3ec399deb56917001439b",
   "protocol": 1
 }

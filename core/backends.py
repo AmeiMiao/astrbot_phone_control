@@ -593,6 +593,8 @@ class AdbPerceptionBackend:
         except TypeError:
             result = await self.actions.screenshot(path)
         resolved, meta = _normalize_screenshot_result(result, path)
+        action_meta=getattr(self.actions,"last_screenshot_meta",{})
+        if action_meta.get("path")==str(resolved):meta={**action_meta,**meta}
         try:
             data = Path(resolved).read_bytes()
         except OSError as exc:

@@ -85,3 +85,5 @@ App scrcpy 模式在原生配置中提供推帧长边、频率、JPEG 质量和�
 开启恢复后，开机、App更新或系统回收可重建控制会话。本机无线调试、VPN与后台启动权限需就绪；系统拒绝时打开App启动控制。停止按钮会清除本次运行意愿。新会话只处理新请求，录制、文件传输和设备动作由插件重新请求。前台服务使用Android的[connectedDevice类型及权限](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device)。
 
 TCP中转提供组网监听端口（默认15555）与本机ADB目标端口（默认5555），目标也可填写无线调试连接端口；仅隧道接口指定源IP可访问，最多16个活动会话。转发原始ADB字节，TLS和ADB授权在插件ADB客户端与系统adbd之间完成。App主动回连的插件配对与此认证分别配置。
+
+连接插件卡片可单独更改插件主机和端口，保存后停止再启动控制。Relay页面同时显示手机实际连接的插件地址和本机ADB端点，便于确认组网路径。

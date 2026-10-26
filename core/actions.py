@@ -581,6 +581,8 @@ class DeviceActions:
         used_fast = False
         mismatch = False
         attempts_used = 0
+        capture_meta = {}
+        captured_returned = 0.0
         for attempt in range(attempts):
             attempts_used = attempt
             before_package, _ = await self.foreground()
@@ -590,6 +592,8 @@ class DeviceActions:
             data, image_format, duration_ms = await self._adb.capture_screen(
                 fast=used_fast,
             )
+            captured_returned=time.monotonic()
+            capture_meta=dict(getattr(self._adb,"last_screen_meta",{})) if getattr(self._adb,"screen_source","")=="app_scrcpy" else {}
             if not data:
                 raise ActionFailedError("截图数据为空")
             after_package, _ = await self.foreground()
@@ -626,6 +630,10 @@ class DeviceActions:
                 await asyncio.sleep(_SCREENSHOT_RETRY_INTERVAL_S)
         if last_data is None:
             raise ActionFailedError("截图失败：没有获取到任何画面")
+        if "frame_age_ms" in capture_meta:
+            capture_meta["frame_age_ms"]=round(capture_meta["frame_age_ms"]+(time.monotonic()-captured_returned)*1000,1)
+            if capture_meta["frame_age_ms"]>capture_meta.get("frame_age_limit_ms",250):
+                raise ActionFailedError("截图前台校验后画面已超过允许年龄，请降低推帧带宽或调整明确的帧龄上限")
         target = self._resolve_screenshot_target(Path(path).expanduser(), last_format)
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -635,6 +643,7 @@ class DeviceActions:
         resolved = target.resolve()
         actual = last_after or last_before
         self.last_screenshot_meta = {
+            **capture_meta,
             "method": last_format,
             "duration_ms": last_duration_ms,
             "retries": attempts_used,

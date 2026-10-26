@@ -132,6 +132,7 @@ public final class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences("control", 0);
         LinearLayout card = ui.card(pages[0], "连接插件", "在插件的 Relay App 页面获取配对码，填写后启动控制。");
         pluginCode = ui.field(card, "插件配对码", "粘贴插件提供的配对码", restored("code", prefs.getString("code", "")), true, false);
+        ui.button(card,"更改插件连接地址",false,this::editPluginAddress);
         LinearLayout local = ui.card(pages[0], "本机 ADB", "支持本机 TCP ADB，也可使用无线调试的连接端口。");
         adbHost = ui.field(local, "本机 ADB 地址", "127.0.0.1", restored("adb_host", prefs.getString("adb_host", "127.0.0.1")), false, false);
         adbPort = ui.field(local, "ADB 连接端口", "与配对端口不同", restored("adb_port", String.valueOf(prefs.getInt("adb_port", 5555))), false, true);
@@ -166,6 +167,28 @@ public final class MainActivity extends Activity {
         ui.add(local,ui.text("自动发现仅接受本机接口，并以已有ADB身份验证后保存。自动恢复默认关闭；需系统允许后台启动，本机无线调试和VPN需分别就绪。恢复只建立新连接，设备操作由插件重新请求。",12,ui.muted,false),12);
         ui.add(local, ui.text("修改参数后，先停止再启动控制。视频帧、播放音频、文件与抓包数据通过 App 连接传送。", 12, ui.muted, false), 12);
         certificateSettings();
+    }
+    private void editPluginAddress() {
+        try {
+            org.json.JSONObject code=new org.json.JSONObject(new String(android.util.Base64.decode(pluginCode.getText().toString().trim(),android.util.Base64.URL_SAFE),"UTF-8"));
+            if(code.getInt("v")!=1 || !code.has("pin") || !code.has("token"))throw new IllegalArgumentException("配对码不完整");
+            LinearLayout form=ui.vertical();form.setPadding(ui.dp(20),ui.dp(16),ui.dp(20),0);
+            ui.add(form,ui.text("填写手机可访问的插件地址。保存后停止再启动控制。",13,ui.muted,false),12);
+            EditText host=ui.field(form,"插件主机或组网IP","例如 relay.example.com",code.getString("host"),false,false);
+            EditText number=ui.field(form,"插件连接端口","与本机ADB连接端口分别配置",String.valueOf(code.getInt("port")),false,true);
+            android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this,ui.dark?android.R.style.Theme_Material_Dialog_Alert:android.R.style.Theme_Material_Light_Dialog_Alert)
+                .setTitle("插件连接地址").setView(form).setPositiveButton("保存",null).setNegativeButton("取消",null).create();
+            dialog.setOnShowListener(ignored->dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                try {
+                    String value=host.getText().toString().trim();
+                    if(value.isEmpty() || value.length()>253 || value.matches(".*[\\s/?#@].*")) {host.setError("请输入主机名或IP地址");return;}
+                    code.put("host",value).put("port",port(number,"插件连接端口"));
+                    String encoded=android.util.Base64.encodeToString(code.toString().getBytes("UTF-8"),android.util.Base64.URL_SAFE|android.util.Base64.NO_WRAP);
+                    pluginCode.setText(encoded);getSharedPreferences("control",0).edit().putString("code",encoded).apply();
+                    ControlService.status="插件地址已保存："+value+":"+code.getInt("port")+"；停止再启动控制后生效";renderStatus();dialog.dismiss();
+                } catch(Exception e) {number.setError("地址保存失败："+e.getMessage());}
+            }));dialog.show();
+        } catch(Exception e) {ControlService.status="请先填写完整的插件配对码，再更改连接地址";renderStatus();}
     }
     private void toggle(LinearLayout parent,String label,SharedPreferences prefs,String key) {
         android.widget.CheckBox box=new android.widget.CheckBox(this);box.setText(label);box.setTextColor(ui.text);

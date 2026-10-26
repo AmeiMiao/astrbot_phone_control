@@ -432,3 +432,30 @@ def test_typed_foreground_query_preserves_frame_operation_generation(tmp_path):
         package,_=await DeviceActions(adb).foreground()
         assert package=='org.example' and adb._video_generation==7
     asyncio.run(run())
+
+
+def test_authenticated_frame_options_reach_phone_without_losing_capability(tmp_path):
+    import ssl
+    import time
+    async def run():
+        bridge=AppBridge(tmp_path,tmp_path/'app.apk');await bridge.start(0)
+        ctx=ssl.create_default_context(cafile=str(tmp_path/'server.pem'))
+        ctx.check_hostname=False
+        reader,writer=await asyncio.open_connection('127.0.0.1',bridge.port,ssl=ctx)
+        try:
+            await bridge.send(writer,{'v':1,'token':bridge._state['token'],'device_id':'profile-test','version':'0.7.1',
+                                      'features':['video_standby','frame_options'],'sdk_int':35,'adb_uid':2000,'su_present':False,'endpoint_host':'127.0.0.1','endpoint_port':45077,'relay_host':'100.64.0.5','relay_port':6190})
+            assert (await bridge.read(reader))['type']=='ready'
+            assert 'frame_options' in bridge.peer['features']
+            adb=AppAdbClient(bridge,tmp_path,frame_max_size=720,frame_fps=5,frame_quality=65)
+            task=asyncio.create_task(adb.configure_video(enabled=True))
+            request=await bridge.read(reader)
+            assert request['op']=='screen_config'
+            assert request['params']=={'enabled':True,'standby':True,'max_size':720,'fps':5,'quality':65}
+            await bridge.send(writer,{'type':'result','id':request['id'],'session':bridge.session,'ok':True,'elapsed_ms':int(time.monotonic()*1000)})
+            await task
+            assert bridge.peer['adb_uid']==2000 and bridge.peer['sdk_int']==35
+            assert bridge.peer['relay_host']=='100.64.0.5' and bridge.peer['relay_port']==6190
+        finally:
+            writer.close();await writer.wait_closed();await bridge.close()
+    asyncio.run(run())

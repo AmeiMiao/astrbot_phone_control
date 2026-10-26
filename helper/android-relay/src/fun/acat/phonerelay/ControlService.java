@@ -108,7 +108,7 @@ public final class ControlService extends Service {
                 String device = prefs.getString("device_id", "");
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 stage = "认证插件";
-                send(capabilities.put("v", 1).put("token", code.getString("token")).put("device_id", device)
+                send(capabilities.put("relay_host",active.getInetAddress().getHostAddress()).put("relay_port",active.getPort()).put("v", 1).put("token", code.getString("token")).put("device_id", device)
                     .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
