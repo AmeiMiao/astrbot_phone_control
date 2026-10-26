@@ -447,6 +447,7 @@ def _validate_adb_local_port(settings: WireGuardSettings) -> int:
 def build_helper_config(
     settings: WireGuardSettings,
     keys: Mapping[str, Mapping[str, str]],
+    *, app_port: int = 0,
 ) -> dict[str, Any]:
     """按 helper 契约生成配置 JSON（``helper-contract.md`` 第 2 节）。
 
@@ -563,12 +564,15 @@ def build_helper_config(
             "listen_port": listen_port,
             "mtu": DEFAULT_MTU,
         }
+    if type(app_port) is not int or app_port != 0 and not 1024 <= app_port <= 65535:
+        raise WireGuardConfigError("App入口端口需为1024–65535")
     return {
         "interface": interface,
         "peers": peers,
         "forwards": forwards,
         "socks_listen": f"127.0.0.1:{settings.socks_port}" if settings.socks_port else "",
         "log_level": "info",
+        **({"app_port": app_port, "app_peer": str(phone_ip)} if app_port else {}),
     }
 
 
@@ -751,6 +755,7 @@ class WireGuardManager:
         *,
         data_dir: str | Path,
         settings_provider: Callable[[], WireGuardSettings] | None = None,
+        app_port_provider: Callable[[], int] | None = None,
         adb: Any = None,
         adb_target_provider: Callable[[], Mapping[str, Any]] | None = None,
         config_patch: Callable[..., Any] | None = None,
@@ -776,6 +781,7 @@ class WireGuardManager:
             )
         )
         self._settings_provider = settings_provider or (lambda: WireGuardSettings())
+        self._app_port_provider = app_port_provider or (lambda: 0)
         self._adb = adb
         self._adb_target_provider = adb_target_provider
         self._config_patch = config_patch
@@ -1156,7 +1162,7 @@ class WireGuardManager:
             )
         helper = self._resolve_helper()
         keys = self.keys.ensure_all()
-        config = build_helper_config(settings, keys)
+        config = build_helper_config(settings, keys, app_port=self._app_port_provider())
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         _write_private_json(self.config_path, config)
         # 清掉上次运行可能遗留的进程句柄与状态文件。
@@ -1300,6 +1306,7 @@ class WireGuardManager:
             "rx_bytes": peers["rx_bytes"],
             "tx_bytes": peers["tx_bytes"],
             "forwards": forwards,
+            "app_port": int(document.get("app_port") or 0) if document and self.running and health.get("ok") else 0,
             "socks_listen": f"127.0.0.1:{settings.socks_port}" if settings.socks_port else "",
             "error": self._last_error,
             "unavailable": self.unavailable,

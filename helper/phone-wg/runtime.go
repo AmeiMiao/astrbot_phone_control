@@ -34,6 +34,8 @@ type runtime struct {
 	publicKey string
 	forwards  []*forward
 	socks     net.Listener
+	app       net.Listener
+	appSlots  chan struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -124,6 +126,17 @@ func startRuntime(cfg *config, log *logger) (*runtime, error) {
 		rt.socks = listener
 		rt.wg.Add(1)
 		go rt.serveSocks()
+	}
+	if cfg.AppPort != 0 {
+		listener, err := tnet.ListenTCPAddrPort(netip.AddrPortFrom(cfg.prefixes[0].Addr(), uint16(cfg.AppPort)))
+		if err != nil {
+			rt.shutdown()
+			return nil, fmt.Errorf("App组网入口监听失败: %w", err)
+		}
+		rt.app = listener
+		rt.appSlots = make(chan struct{}, 32)
+		rt.wg.Add(1)
+		go rt.serveApp()
 	}
 	if state := rt.deviceState(); state != nil && state.listenPort != 0 {
 		log.infof("WireGuard 设备已就绪: listen_port=%d public_key=%s", state.listenPort, rt.publicKey)
@@ -251,6 +264,9 @@ func pipeBidirectional(left, right net.Conn) {
 func (rt *runtime) trackConn(conn net.Conn, add bool) {
 	if add {
 		rt.conns.Store(conn, struct{}{})
+		if rt.ctx.Err() != nil {
+			conn.Close()
+		}
 		return
 	}
 	rt.conns.Delete(conn)
@@ -284,6 +300,7 @@ func (rt *runtime) snapshotStatus(now time.Time) *statusFile {
 		Running:       true,
 		Version:       version,
 		UpdatedAtUnix: now.Unix(),
+		AppPort:       rt.cfg.AppPort,
 	}
 	status.Interface = statusInterface{
 		ListenPort: rt.cfg.Interface.ListenPort,
@@ -373,6 +390,9 @@ func (rt *runtime) startStatusWriter(path string, interval time.Duration) error 
 // shutdown 取消上下文、关闭监听与活动连接，最后关闭 WireGuard 设备。可重复调用。
 func (rt *runtime) shutdown() {
 	rt.shutdownOnce.Do(func() {
+		if rt.app != nil {
+			rt.app.Close()
+		}
 		rt.cancel()
 		if rt.socks != nil {
 			rt.socks.Close()

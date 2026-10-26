@@ -23,7 +23,7 @@ import (
 )
 
 // version 是 helper 版本号，同时写入状态文件的 version 字段。
-const version = "0.1.3"
+const version = "0.1.4"
 
 // 退出码约定（与插件侧对齐）：
 //

@@ -464,6 +464,7 @@ class BootstrapMixin:
         # helper 健康后把 ADB 目标切到 WG 隧道本地端口，停止/异常时恢复。
         self._wireguard = WireGuardManager(
             data_dir=self.data_dir,
+            app_port_provider=lambda: self.service.config.adb.app_port if self.service.config.adb.mode == "app" else 0,
             settings_provider=lambda: self.service.config.wireguard,
             adb=self.adb,
             adb_target_provider=lambda: {

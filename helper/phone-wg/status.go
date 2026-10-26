@@ -19,6 +19,7 @@ type statusFile struct {
 	Peers         []statusPeer    `json:"peers"`
 	Forwards      []statusForward `json:"forwards"`
 	UpdatedAtUnix int64           `json:"updated_at_unix"`
+	AppPort       int             `json:"app_port"`
 }
 
 type statusInterface struct {

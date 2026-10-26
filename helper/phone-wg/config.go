@@ -28,6 +28,8 @@ type config struct {
 	Forwards    []forwardConfig `json:"forwards"`
 	LogLevel    string          `json:"log_level"`
 	SocksListen string          `json:"socks_listen"`
+	AppPort     int             `json:"app_port"`
+	AppPeer     string          `json:"app_peer"`
 
 	// prefixes 是 interface.addresses 解析后的前缀（供 netstack 使用）。
 	prefixes []netip.Prefix
@@ -92,6 +94,15 @@ func (cfg *config) normalizeAndValidate() error {
 	}
 	if err := cfg.validateForwards(); err != nil {
 		return err
+	}
+	if cfg.AppPort != 0 {
+		peer, err := netip.ParseAddr(cfg.AppPeer)
+		if cfg.AppPort < 1024 || cfg.AppPort > 65535 || err != nil || !peer.Is4() || !cfg.targetCoveredByPeers(peer) {
+			return errors.New("App入口要求1024–65535端口及已配置peer内的手机IPv4")
+		}
+		if !cfg.prefixes[0].Addr().Is4() {
+			return errors.New("App入口需要首个interface地址为IPv4")
+		}
 	}
 	if cfg.SocksListen != "" {
 		host, port, err := net.SplitHostPort(cfg.SocksListen)
