@@ -274,7 +274,7 @@ class AppBridge:
                 "features": [
                     feature
                     for feature in features
-                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options", "stream_progress", "frame_ack")
+                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options", "stream_progress", "frame_ack", "stream_credit")
                 ],
                 **details,
             }

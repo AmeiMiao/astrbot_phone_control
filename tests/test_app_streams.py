@@ -124,3 +124,34 @@ def test_file_window_waits_for_authenticated_phone_progress_and_disconnect(tmp_p
             if data_writer is not None:data_writer.close()
             writer.close();await bridge.close()
     asyncio.run(run())
+
+
+def test_download_credit_releases_partial_readexactly_and_binds_session(tmp_path):
+    async def run():
+        bridge=AppBridge(tmp_path,tmp_path/'app.apk');await bridge.start(0)
+        ctx=ssl.create_default_context(cafile=str(tmp_path/'server.pem'));ctx.check_hostname=False
+        control,phone=await asyncio.open_connection('127.0.0.1',bridge.port,ssl=ctx)
+        await bridge.send(phone,{'v':1,'token':bridge._state['token'],'device_id':'download','features':['binary_streams','stream_credit']})
+        ready=await bridge.read(control);payload=b'z'*16384
+        async def consume():
+            async with bridge.streams.connect('sync:') as (reader,_writer):
+                assert await reader.readexactly(len(payload))==payload
+        task=asyncio.create_task(consume());data_phone=None
+        try:
+            call=await bridge.read(control);assert call['params']['download_credit'] is True
+            nonce=call['params']['stream_id']
+            peer,data_phone=await asyncio.open_connection('127.0.0.1',bridge.port,ssl=ctx)
+            await bridge.send(data_phone,{'v':1,'type':'stream','token':bridge._state['token'],'device_id':'download','session':ready['session'],'stream_id':nonce})
+            assert (await bridge.read(peer))['type']=='stream_ready'
+            await bridge.send(phone,{'type':'result','id':call['id'],'ok':True})
+            for total in (8192,16384):
+                data_phone.write(payload[:8192]);await data_phone.drain()
+                ack=await asyncio.wait_for(bridge.read(control),2)
+                assert ack=={'type':'stream_received','session':ready['session'],'stream_id':nonce,'received_bytes':total}
+            await asyncio.wait_for(task,2)
+            assert not bridge.streams.entries
+        finally:
+            task.cancel();await asyncio.gather(task,return_exceptions=True)
+            if data_phone is not None:data_phone.close()
+            phone.close();await bridge.close()
+    asyncio.run(run())

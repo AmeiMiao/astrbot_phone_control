@@ -18,6 +18,31 @@ def valid_service(service):
     )
 
 
+class ProgressReader:
+    """数据消费进度释放手机发送窗口，控制消息与大文件分别传输。"""
+    def __init__(self,stream,entry,bridge,identity):self.stream=stream;self.entry=entry;self.bridge=bridge;self.identity=identity;self.received=0
+    def __getattr__(self,name):return getattr(self.stream,name)
+    async def read(self,length=-1):
+        if length<0:
+            chunks=[]
+            while data:=await self.read(65536):chunks.append(data)
+            return b''.join(chunks)
+        data=await self.stream.read(length)
+        if data:
+            if self.entry['closed'] or self.bridge.writer is None or self.entry['session']!=self.bridge.session:
+                raise DeviceOfflineError('手机数据连接已结束')
+            self.received+=len(data)
+            await self.bridge.send(self.bridge.writer,{'type':'stream_received','session':self.entry['session'],'stream_id':self.identity,'received_bytes':self.received})
+        return data
+    async def readexactly(self,length):
+        data=bytearray()
+        while len(data)<length:
+            chunk=await self.read(length-len(data))
+            if not chunk:raise asyncio.IncompleteReadError(bytes(data),length)
+            data.extend(chunk)
+        return bytes(data)
+
+
 class ProgressWriter:
     """以手机已写入本机ADB的字节数约束发送窗口。"""
     def __init__(self,stream,entry,bridge):self.stream=stream;self.entry=entry;self.bridge=bridge
@@ -54,14 +79,15 @@ class AppStreams:
         nonce = secrets.token_hex(16)
         flow=service=='sync:' and 'stream_progress' in bridge.peer.get('features',[])
         frame_ack=service=='frames:' and 'frame_ack' in bridge.peer.get('features',[])
+        download_credit=service!='frames:' and 'stream_credit' in bridge.peer.get('features',[])
         entry = {"session": bridge.session, "future": asyncio.get_running_loop().create_future(),
                  "done": asyncio.Event(), "writer": None, 'flow':flow, 'sent':0,'received':0,'progress':asyncio.Event(),'closed':False}
         self.entries[nonce] = entry
         try:
             async with asyncio.timeout(timeout):
-                await bridge.call("stream_open", stream_id=nonce, service=service, timeout=timeout, **({'flow_control':True} if flow else {}), **({'frame_ack':True} if frame_ack else {}))
+                await bridge.call("stream_open", stream_id=nonce, service=service, timeout=timeout, **({'flow_control':True} if flow else {}), **({'frame_ack':True} if frame_ack else {}), **({'download_credit':True} if download_credit else {}))
                 reader, writer = await entry["future"]
-            yield reader, ProgressWriter(writer,entry,bridge) if flow else writer
+            yield ProgressReader(reader,entry,bridge,nonce) if download_credit else reader, ProgressWriter(writer,entry,bridge) if flow else writer
         finally:
             self.entries.pop(nonce, None)
             entry['closed']=True;entry['progress'].set()
