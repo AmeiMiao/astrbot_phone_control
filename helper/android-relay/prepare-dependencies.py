@@ -1,6 +1,7 @@
 """下载并校验固定依赖，将类与本地库展开到构建目录。"""
 
 import hashlib
+import io
 import json
 import sys
 import urllib.request
@@ -25,6 +26,15 @@ for item in json.loads((root / "dependencies.json").read_text()):
     if path.suffix == ".aar":
         with zipfile.ZipFile(path) as archive:
             path.with_suffix(".jar").write_bytes(archive.read("classes.jar"))
+            if path.name == "libadb.aar":
+                classes = path.with_suffix(".jar")
+                with zipfile.ZipFile(io.BytesIO(classes.read_bytes())) as source:
+                    with zipfile.ZipFile(classes, "w") as target:
+                        for entry in source.infolist():
+                            name = entry.filename
+                            if name == "io/github/muntashirakon/adb/AdbConnection.class" or name.startswith("io/github/muntashirakon/adb/AdbConnection$"):
+                                continue
+                            target.writestr(entry, source.read(name))
             for name in archive.namelist():
                 if name.startswith("jni/") and name.endswith(".so"):
                     relative = Path(name)

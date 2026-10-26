@@ -75,19 +75,23 @@ public final class ControlService extends Service {
     private void connectLoop() {
         android.content.SharedPreferences prefs = getSharedPreferences("control", 0);
         while (running) {
+            String stage = "读取本机 ADB 身份";
             try {
                 String host = prefs.getString("adb_host", "127.0.0.1");
                 requireLocal(host);
                 adb = new LocalAdb(this);
+                stage = "连接本机 ADB";
                 if (!adb.connect(host, prefs.getInt("adb_port", 5555))) throw new IOException("本机 ADB 未授权或未连接");
                 JSONObject code = new JSONObject(new String(Base64.decode(prefs.getString("code", ""), Base64.URL_SAFE), "UTF-8"));
                 if (code.getInt("v") != 1) throw new IOException("配对码版本不支持");
                 connectionCode = code;
+                stage = "连接插件 TLS";
                 SSLSocket active = connectPlugin(code); socket = active;
                 output = new DataOutputStream(active.getOutputStream());
                 DataInputStream input = new DataInputStream(active.getInputStream());
                 String device = prefs.getString("device_id", "");
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
+                stage = "认证插件";
                 send(new JSONObject().put("v", 1).put("token", code.getString("token")).put("device_id", device)
                     .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
@@ -97,6 +101,7 @@ public final class ControlService extends Service {
                 recorder = new PhoneRecorder(this, adb);
                 streams = new LocalStreams(adb, id -> dataConnection(id), id -> recorder.artifact(id));
                 connected = true;
+                stage = "控制会话";
                 status = "App 控制已连接；本机 ADB 权限：shell";
                 ScheduledFuture<?> heartbeat = timers.scheduleAtFixedRate(() -> {
                     try { send(new JSONObject().put("type", "ping")); }
@@ -112,7 +117,7 @@ public final class ControlService extends Service {
                 try { while (running && socket == active) handle(read(input)); }
                 finally { heartbeat.cancel(false); uploads.cancel(false); }
             } catch (Exception e) {
-                if (running) status = "连接失败：" + e.getMessage() + "；等待重新连接";
+                if (running) status = stage + "失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + "；等待重新连接";
             } finally { cleanupConnection(); }
             if (running) try { Thread.sleep(3000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
         }

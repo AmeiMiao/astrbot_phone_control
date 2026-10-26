@@ -97,3 +97,7 @@ gVisor 的声明：Copyright 2018 The gVisor Authors，许可证为 Apache-2.0�
 Relay App 使用 LibADB Android 3.1.1（Apache-2.0，https://github.com/MuntashirAkon/libadb-android）、SPAKE2-Java 2.2.1（LGPL-3.0，https://github.com/MuntashirAkon/spake2-java）、Conscrypt Android 2.5.3（Apache-2.0，https://github.com/google/conscrypt）、Bouncy Castle 1.81（MIT，https://www.bouncycastle.org/）与 AndroidX Annotation 1.9.1（Apache-2.0，https://developer.android.com/jetpack/androidx/releases/annotation）。
 
 固定制品地址及 SHA256 见 `helper/android-relay/dependencies.json`；构建脚本从这些制品重新生成 APK，签名密钥由构建者自行提供。SPAKE2-Java 可从上述源码仓获取和修改，并替换构建依赖重新构建。LGPL 完整许可随 `helper/android-relay/licenses/` 提供。scrcpy 控制组件采用项目已有的同版本分发与许可声明。
+
+### ADB连接类源码
+
+`helper/android-relay/src/io/github/muntashirakon/adb/AdbConnection.java` 来源于 [LibADB Android 3.1.1](https://github.com/MuntashirAkon/libadb-android/blob/3.1.1/libadb/src/main/java/io/github/muntashirakon/adb/AdbConnection.java)（Copyright 2013 Cameron Gutman；BSD-3-Clause AND Apache-2.0），连接类维护建流确认状态、条件等待和失败资源清理。BSD声明位于 `helper/android-relay/licenses/BSD-3-Clause-AdbConnection.txt`，Apache声明位于同目录 `Apache-2.0.txt`。
