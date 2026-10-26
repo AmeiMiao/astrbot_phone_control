@@ -13,7 +13,8 @@ public final class InstallReceiver extends BroadcastReceiver {
             ControlService.status = "请点击确认系统安装";
         } else if (status == PackageInstaller.STATUS_SUCCESS) {
             confirmation = null; UpdateInstaller.pending = null;
-            ControlService.status = "更新成功，请重新启动 App 控制";
+            if(!ControlService.connected)ControlService.status = "更新成功，请重新启动 App 控制";
+            RecoveryReceiver.restoreIfWanted(context,"系统安装完成");
         } else {
             confirmation = null;
             ControlService.status = "安装未完成：" + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
