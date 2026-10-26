@@ -87,7 +87,7 @@ public final class ControlService extends Service {
                 String device = prefs.getString("device_id", "");
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 send(new JSONObject().put("v", 1).put("token", code.getString("token")).put("device_id", device)
-                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
+                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
                 session = ready.getString("session"); lastRequestSequence = 0;
@@ -180,12 +180,13 @@ public final class ControlService extends Service {
                     case "shell": data = local.shell(id, params.getString("command"), Math.min(8 * 1024 * 1024, params.optInt("limit", 8192))); break;
                     case "nodes": data = local.nodes(id, 8 * 1024 * 1024); break;
                     case "screen": data = local.screen(); break;
+                    case "screen_config": local.configureVideo(params.getBoolean("enabled"), params.optBoolean("standby")); data = new JSONObject().put("ok", true); break;
                     case "traffic_prepare": data = traffic.prepare(); break;
                     case "traffic_start": data = traffic.start(params, () -> proxyConnection(params.getString("capture_id"))); break;
                     case "traffic_status": data = traffic.status(); break;
                     case "traffic_stop": traffic.stopOwned(params.getString("capture_id")); data = new JSONObject().put("running", false); break;
                     case "clipboard": data = local.clipboard(); break;
-                    case "input": data = local.input(id, params.getString("text"), params.optBoolean("press_enter")); break;
+                    case "input": data = local.input(id, params.getString("text"), params.optBoolean("press_enter")); local.invalidateVideo(); break;
                     default: throw new IOException("不支持的控制能力");
                 }
                 for (Iterator<String> keys = data.keys(); keys.hasNext();) { String key = keys.next(); result.put(key, data.get(key)); }

@@ -430,6 +430,15 @@ class RuntimeMixin:
         self._live_task_sessions.clear()
         self._live_last_activity = 0.0
 
+    async def _initialize_app_peer(self):
+        if "video_standby" in self._app_bridge.peer.get("features", []):
+            settings = self.service.config.adb
+            await self._app_bridge.call(
+                "screen_config", enabled=settings.app_screen_source == "scrcpy",
+                standby=settings.app_video_standby,
+            )
+        await self._ensure_traffic_started()
+
     async def _ensure_traffic_started(self) -> None:
         """按配置启动/重启抓包（禁用时确保停止）。
 

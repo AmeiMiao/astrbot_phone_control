@@ -35,6 +35,19 @@ final class LocalAdb extends AbsAdbConnectionManager {
     private volatile LocalVideo video;
     private final Object videoLock = new Object();
 
+    void configureVideo(boolean enabled, boolean standby) {
+        synchronized (videoLock) {
+            if (!enabled) { if (video != null) video.close(); video = null; return; }
+            if (video == null || video.closed) video = new LocalVideo(this);
+            video.standby(standby);
+        }
+    }
+
+    void invalidateVideo() {
+        LocalVideo current = video;
+        if (current != null) current.invalidate();
+    }
+
     JSONObject screen() throws Exception {
         LocalVideo activeVideo;
         synchronized (videoLock) {
@@ -123,7 +136,7 @@ final class LocalAdb extends AbsAdbConnectionManager {
                         .put("stderr", Base64.encodeToString(err.toByteArray(), Base64.NO_WRAP));
                 } else throw new IOException("ADB shell 消息无效");
             }
-        } finally { active.remove(id); stream.close(); }
+        } finally { active.remove(id); stream.close(); invalidateVideo(); }
     }
     JSONObject nodes(String id, int limit) throws Exception {
         String file = "/data/local/tmp/acat-relay-ui-" + id + ".xml";

@@ -569,6 +569,17 @@ class AdbPerceptionBackend:
     async def screenshot(
         self, *, fast: bool = False, expected_package: str = ""
     ) -> tuple[bytes, str, dict[str, Any]]:
+        adb = getattr(self.actions, "_adb", None)
+        if (
+            getattr(adb, "app_mode", False)
+            and getattr(adb, "screen_source", "") == "app_scrcpy"
+            and not expected_package
+        ):
+            data, fmt, duration = await adb.capture_screen(fast=fast)
+            return data, fmt, {
+                "source": "app_scrcpy", "method": fmt, "format": fmt,
+                "elapsed_ms": duration,
+            }
         self.output_dir.mkdir(parents=True, exist_ok=True)
         path = self.output_dir / f"frame-{int(time.time() * 1000)}.png"
         started = time.monotonic()

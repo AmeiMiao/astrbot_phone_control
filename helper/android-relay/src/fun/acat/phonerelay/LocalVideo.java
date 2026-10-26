@@ -23,37 +23,68 @@ final class LocalVideo implements AutoCloseable {
     private volatile boolean running;
     volatile boolean closed;
     private Thread worker;
-    private byte[] frame;
-    private long frameAt;
+    private Frame frame;
+    private volatile boolean keepAlive;
+    private volatile long requiredAfter;
+    private static final class Frame {
+        final byte[] pixels; final int width, height; final long at;
+        volatile byte[] encoded;
+        Frame(byte[] pixels, int width, int height, long capturedAt) {
+            this.pixels = pixels; this.width = width; this.height = height;
+            at = capturedAt;
+        }
+        synchronized byte[] jpeg() throws IOException {
+            if (encoded == null) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                if (!new YuvImage(pixels, ImageFormat.NV21, width, height, null)
+                    .compressToJpeg(new Rect(0, 0, width, height), 85, out)) throw new IOException("视频帧编码失败");
+                encoded = out.toByteArray();
+            }
+            return encoded;
+        }
+    }
     private volatile long requestedAt;
     private String error;
     private volatile String stage = "启动";
 
     LocalVideo(LocalAdb adb) { this.adb = adb; }
 
-    synchronized JSONObject frame() throws Exception {
-        if (closed) throw new IOException("手机视频通道已关闭");
+    synchronized void standby(boolean enabled) {
+        keepAlive = enabled;
+        if (enabled) start();
+    }
+    void invalidate() { requiredAfter = SystemClock.elapsedRealtime(); }
+    private synchronized void start() {
+        if (running || closed) return;
         requestedAt = SystemClock.elapsedRealtime();
-        long after = requestedAt;
-        if (!running) {
-            frame = null; error = null; running = true;
-            worker = new Thread(this::decode, "relay-video"); worker.start();
-            Thread idle = new Thread(() -> {
-                while (running) {
-                    try { Thread.sleep(1000); } catch (InterruptedException e) { return; }
-                    if (SystemClock.elapsedRealtime() - requestedAt > 90000) close();
-                }
-            }, "relay-video-idle"); idle.setDaemon(true); idle.start();
+        frame = null; error = null; running = true;
+        worker = new Thread(this::decode, "relay-video"); worker.start();
+        Thread idle = new Thread(() -> {
+            while (running) {
+                try { Thread.sleep(1000); } catch (InterruptedException e) { return; }
+                if (!keepAlive && SystemClock.elapsedRealtime() - requestedAt > 90000) close();
+            }
+        }, "relay-video-idle"); idle.setDaemon(true); idle.start();
+    }
+    JSONObject frame() throws Exception {
+        Frame selected;
+        synchronized (this) {
+            if (closed) throw new IOException("手机视频通道已关闭");
+            requestedAt = SystemClock.elapsedRealtime();
+            long after = Math.max(requestedAt - 80, requiredAfter);
+            start();
+            long deadline = requestedAt + 15000;
+            while (running && error == null && (frame == null || frame.at < after)) {
+                long remaining = deadline - SystemClock.elapsedRealtime();
+                if (remaining <= 0) { close(); throw new IOException("手机 scrcpy 等待新视频帧超时：" + stage); }
+                wait(remaining);
+            }
+            if (error != null || !running) throw new IOException(error == null ? "手机视频已停止" : error);
+            selected = frame;
         }
-        long deadline = after + 15000;
-        while (running && error == null && (frame == null || frameAt < after)) {
-            long remaining = deadline - SystemClock.elapsedRealtime();
-            if (remaining <= 0) { close(); throw new IOException("手机 scrcpy 等待新视频帧超时：" + stage); }
-            wait(remaining);
-        }
-        if (error != null || !running) throw new IOException(error == null ? "手机视频已停止" : error);
-        return new JSONObject().put("image", Base64.encodeToString(frame, Base64.NO_WRAP))
-            .put("format", "jpeg").put("source", "app_scrcpy").put("age_ms", SystemClock.elapsedRealtime() - frameAt);
+        byte[] encoded = selected.jpeg();
+        return new JSONObject().put("image", Base64.encodeToString(encoded, Base64.NO_WRAP))
+            .put("format", "jpeg").put("source", "app_scrcpy").put("age_ms", SystemClock.elapsedRealtime() - selected.at);
     }
 
     private void decode() {
@@ -63,7 +94,7 @@ final class LocalVideo implements AutoCloseable {
             stage = "启动服务";
             int scid = new SecureRandom().nextInt() & 0x7fffffff;
             String command = "shell:CLASSPATH=/data/local/tmp/acat-phone-relay-scrcpy.jar app_process / com.genymobile.scrcpy.Server 5.0.1"
-                + " log_level=error video=true audio=false control=false video_codec=h264 max_fps=6 video_bit_rate=2000000"
+                + " log_level=error video=true audio=false control=false video_codec=h264 max_fps=30 video_bit_rate=4000000"
                 + " send_device_meta=false send_stream_meta=true send_frame_meta=true send_dummy_byte=true tunnel_forward=true cleanup=false scid="
                 + Integer.toHexString(scid);
             server = LocalAdb.bounded("启动视频组件", 5000, () -> adb.openStream(command));
@@ -108,8 +139,8 @@ final class LocalVideo implements AutoCloseable {
                     try (Image image = codec.getOutputImage(output)) {
                         stage = image == null ? "解码帧没有Image" : "转换JPEG";
                         if (image != null) {
-                            byte[] jpeg = jpeg(image);
-                            synchronized (this) { frame = jpeg; frameAt = SystemClock.elapsedRealtime(); notifyAll(); }
+                            Frame decoded = pixels(image, info.presentationTimeUs);
+                            synchronized (this) { frame = decoded; notifyAll(); }
                         }
                     } finally { codec.releaseOutputBuffer(output, false); }
                 }
@@ -123,26 +154,12 @@ final class LocalVideo implements AutoCloseable {
         }
     }
 
-    static byte[] jpeg(Image image) throws IOException {
-        Rect crop = image.getCropRect(); int width = crop.width(), height = crop.height();
-        if ((width & 1) != 0 || (height & 1) != 0) throw new IOException("视频YUV尺寸无效");
-        byte[] nv21 = new byte[width * height * 3 / 2];
+    private static Frame pixels(Image image, long presentationUs) throws IOException {
+        Rect crop = image.getCropRect();
         Image.Plane[] planes = image.getPlanes();
-        for (int plane = 0; plane < 3; plane++) {
-            int shift = plane == 0 ? 0 : 1;
-            int w = width >> shift, h = height >> shift;
-            ByteBuffer data = planes[plane].getBuffer();
-            int origin = data.position() + (crop.top >> shift) * planes[plane].getRowStride()
-                + (crop.left >> shift) * planes[plane].getPixelStride();
-            for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
-                int target = plane == 0 ? y * width + x : width * height + y * width + x * 2 + (plane == 1 ? 1 : 0);
-                nv21[target] = data.get(origin + y * planes[plane].getRowStride() + x * planes[plane].getPixelStride());
-            }
-        }
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        if (!new YuvImage(nv21, ImageFormat.NV21, width, height, null).compressToJpeg(new Rect(0, 0, width, height), 85, out))
-            throw new IOException("视频帧编码失败");
-        return out.toByteArray();
+        ByteBuffer[] data = new ByteBuffer[3]; int[] rows = new int[3], strides = new int[3];
+        for (int i = 0; i < 3; i++) { data[i] = planes[i].getBuffer(); rows[i] = planes[i].getRowStride(); strides[i] = planes[i].getPixelStride(); }
+        return new Frame(YuvPlanes.nv21(data, rows, strides, crop.left, crop.top, crop.width(), crop.height()), crop.width(), crop.height(), SystemClock.elapsedRealtime() - (System.nanoTime() / 1000000 - presentationUs / 1000));
     }
 
     public void close() {

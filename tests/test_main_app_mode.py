@@ -61,12 +61,39 @@ def test_app_configuration_constructs_app_transport(tmp_path, monkeypatch):
     async def run():
         try:
             assert p.service.config.adb.mode == "app"
-            assert p._app_bridge.on_ready == p._ensure_traffic_started
+            assert p._app_bridge.on_ready == p._initialize_app_peer
             await p._ensure_traffic_started()
             assert not p._traffic.status()["error"]
             assert p.adb.app_mode and not p._components.needs_prepare(p.service.config)
             await p.service.backends.ensure()
             assert p.service.backends._scrcpy_client is None
+        finally:
+            await p.terminate()
+
+    asyncio.run(run())
+
+
+def test_ready_configures_phone_video_and_starts_capture(tmp_path, monkeypatch):
+    plugin_main = helper.plugin_main
+    monkeypatch.setattr(plugin_main, "_resolve_data_dir", lambda: tmp_path)
+    raw = helper._raw_config()
+    raw["adb"].update(mode="使用 App 控制", app_video_standby=False)
+    p = plugin_main.PhoneControlPlugin(helper.FakeContext(), raw)
+    calls = []
+
+    async def video(op, **params):
+        calls.append((op, params))
+
+    async def capture():
+        calls.append(("capture", {}))
+
+    async def run():
+        try:
+            monkeypatch.setattr(p._app_bridge, "call", video)
+            monkeypatch.setattr(p, "_ensure_traffic_started", capture)
+            p._app_bridge.peer = {"features": ["video_standby"]}
+            await p._app_bridge.on_ready()
+            assert calls == [("screen_config", {"enabled": True, "standby": False}), ("capture", {})]
         finally:
             await p.terminate()
 

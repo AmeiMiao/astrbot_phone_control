@@ -12,6 +12,8 @@ mkdir -p "$OUT_DIR/test-classes"
   "$SOURCE_DIR/tests/ClipboardInputTest.java" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/ScrcpyPackets.java" \
   "$SOURCE_DIR/tests/ScrcpyPacketsTest.java" \
+  "$SOURCE_DIR/src/fun/acat/phonerelay/YuvPlanes.java" \
+  "$SOURCE_DIR/tests/YuvPlanesTest.java" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/ProxyCertificates.java" \
   "$SOURCE_DIR/src/fun/acat/phonerelay/PhoneHttpProxy.java" \
   "$SOURCE_DIR/tests/PhoneHttpProxyTest.java"
@@ -22,3 +24,5 @@ mkdir -p "$OUT_DIR/test-classes"
 "$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes" fun.acat.phonerelay.ScrcpyPacketsTest
 
 "$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes:$OUT_DIR/deps/bcprov.jar" fun.acat.phonerelay.PhoneHttpProxyTest "$OUT_DIR"
+
+"$JAVA_HOME/bin/java" -classpath "$OUT_DIR/test-classes" fun.acat.phonerelay.YuvPlanesTest

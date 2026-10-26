@@ -960,3 +960,35 @@ def test_app_backend_sources_do_not_report_host_scrcpy_fallback(tmp_path):
         await manager.close()
 
     asyncio.run(scenario())
+
+
+def test_app_video_perception_uses_frame_without_foreground_or_temporary_copy(tmp_path):
+    from core.backends import AdbPerceptionBackend
+
+    class Adb:
+        app_mode = True
+        screen_source = "app_scrcpy"
+
+        async def capture_screen(self, **kwargs):
+            return b"frame", "jpeg", 9
+
+    class Actions:
+        _adb = Adb()
+        checked = False
+
+        async def screenshot(self, path, **kwargs):
+            assert kwargs["expected_package"] == "org.example"
+            self.checked = True
+            path.write_bytes(b"checked")
+            return path
+
+    async def run():
+        actions = Actions()
+        backend = AdbPerceptionBackend(actions, tmp_path)
+        data, fmt, meta = await backend.screenshot()
+        assert (data, fmt, meta["elapsed_ms"]) == (b"frame", "jpeg", 9)
+        assert not list(tmp_path.iterdir()) and not actions.checked
+        data, _, _ = await backend.screenshot(expected_package="org.example")
+        assert data == b"checked" and actions.checked
+
+    asyncio.run(run())

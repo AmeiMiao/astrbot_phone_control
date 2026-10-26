@@ -183,6 +183,7 @@ RECONCILE_KEYS: frozenset[str] = frozenset(
         "adb.mode",
         "adb.app_port",
         "adb.app_screen_source",
+        "adb.app_video_standby",
         "adb.host",
         "adb.port",
         "adb.path",

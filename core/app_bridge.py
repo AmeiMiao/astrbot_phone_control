@@ -21,6 +21,7 @@ MAX_OUTPUT = 8 * 1024 * 1024
 CAPABILITIES = (
     "shell",
     "screen",
+    "screen_config",
     "nodes",
     "input",
     "clipboard",
@@ -246,7 +247,7 @@ class AppBridge:
                 "features": [
                     feature
                     for feature in features
-                    if feature in ("screen_frames", "traffic_proxy")
+                    if feature in ("screen_frames", "traffic_proxy", "video_standby")
                 ],
             }
             authenticated = True
