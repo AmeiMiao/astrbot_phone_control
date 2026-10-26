@@ -18,6 +18,8 @@ def populate_connection_options(config):
     def hide(path,hidden):
         spec=field(path)
         if spec is not None:spec['invisible']=bool(hidden)
+    for name in ('app_frame_max_size','app_frame_fps','app_frame_quality','app_frame_max_age_ms'):
+        hide('adb.'+name,not (app and video))
     hide('control',app)
     hide('adb.connect_timeout',app)
     hide('perception.screen_source',app)

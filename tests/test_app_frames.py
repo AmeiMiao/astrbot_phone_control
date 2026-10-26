@@ -94,3 +94,26 @@ def test_closed_control_connection_rejects_fresh_cached_frame():
         with pytest.raises(DeviceOfflineError):await frames.capture(1)
         assert frames.task is None
     asyncio.run(run())
+
+
+def test_weak_network_policy_keeps_generation_guard_and_reports_age():
+    async def run():
+        adb=SimpleNamespace(bridge=SimpleNamespace(session='session',writer=True),_video_generation=8,_video_clock_offset_ms=0,_frame_max_age_ms=1200)
+        frames=AppFrames(adb);frames.task=asyncio.create_task(asyncio.sleep(30))
+        frames.latest=frame(jpeg('blue'),8,age=600)
+        try:
+            assert (await frames.capture(.1))[1]=='jpeg'
+            assert adb.last_screen_meta['frame_age_ms']>=600
+            assert adb.last_screen_meta['frame_age_limit_ms']==1200
+            frames.latest['meta']['generation']=7
+            with pytest.raises(ActionFailedError,match='操作后'):await frames.capture(.03)
+        finally:await frames.close()
+    asyncio.run(run())
+
+
+def test_reduced_frame_restores_touch_coordinate_dimensions():
+    data=jpeg('blue')
+    restored=AppFrames.restore_size(data,{'screen_width':24,'screen_height':32})
+    with Image.open(io.BytesIO(restored)) as image:assert image.size==(24,32)
+    for meta in ({'screen_width':9000,'screen_height':32},{'screen_width':True,'screen_height':32},{'screen_width':24,'screen_height':60}):
+        with pytest.raises(ActionFailedError):AppFrames.restore_size(data,meta)

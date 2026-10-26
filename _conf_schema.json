@@ -92,6 +92,46 @@
           "mode": "使用 App 控制",
           "app_screen_source": "scrcpy 视频取帧"
         }
+      },
+      "app_frame_max_size": {
+        "description": "推帧长边上限",
+        "type": "int",
+        "default": 0,
+        "hint": "0 保持屏幕尺寸；弱网可设 720。仅压缩传输画面，插件恢复手机坐标尺寸后交给模型。 修改后保存并重新加载插件。",
+        "condition": {
+          "mode": "使用 App 控制",
+          "app_screen_source": "scrcpy 视频取帧"
+        }
+      },
+      "app_frame_fps": {
+        "description": "App 推帧频率",
+        "type": "int",
+        "default": 10,
+        "hint": "每秒 1–30 帧，默认 10；弱网可设 5，调低会增加等待新画面的时间。 修改后保存并重新加载插件。",
+        "condition": {
+          "mode": "使用 App 控制",
+          "app_screen_source": "scrcpy 视频取帧"
+        }
+      },
+      "app_frame_quality": {
+        "description": "App JPEG 质量",
+        "type": "int",
+        "default": 85,
+        "hint": "40–95，默认 85；弱网可设 65。画质过低可能影响文字识别。 修改后保存并重新加载插件。",
+        "condition": {
+          "mode": "使用 App 控制",
+          "app_screen_source": "scrcpy 视频取帧"
+        }
+      },
+      "app_frame_max_age_ms": {
+        "description": "可接受画面年龄（毫秒）",
+        "type": "int",
+        "default": 250,
+        "hint": "100–10000，默认 250。包含传输与排队；超龄拒绝。仅在接受更旧画面时手动增加，操作代次约束始终生效。 修改后保存并重新加载插件。",
+        "condition": {
+          "mode": "使用 App 控制",
+          "app_screen_source": "scrcpy 视频取帧"
+        }
       }
     },
     "hint": "选择直连或使用 Relay App 控制；两种方式的参数分别保留。App 模式支持基础控制、截图和节点。"

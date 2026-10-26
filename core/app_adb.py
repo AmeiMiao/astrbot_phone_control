@@ -23,6 +23,7 @@ class AppAdbClient(AdbClient):
         logger=None,
         screen_source="scrcpy",
         video_standby=True,
+        frame_max_size=0, frame_fps=10, frame_quality=85, frame_max_age_ms=250,
     ):
         super().__init__(
             None,
@@ -37,6 +38,8 @@ class AppAdbClient(AdbClient):
         self._video_screen = screen_source == "scrcpy"
         self._forwards = {}
         self._video_standby = video_standby
+        self._frame_options = {"max_size": frame_max_size, "fps": frame_fps, "quality": frame_quality}
+        self._frame_max_age_ms = frame_max_age_ms
         self._video_session = ""
         self._video_enabled = False
         self._video_generation = 0
@@ -85,7 +88,15 @@ class AppAdbClient(AdbClient):
             if frame.width * frame.height > 9000000 or frame.format != "JPEG":
                 raise ActionFailedError("手机 scrcpy 视频帧尺寸无效")
             frame.load()
-        self.last_screen_meta={"frame_age_ms":age}
+        captured=value.get("captured_at_ms")
+        if type(captured) is int and self._video_clock_offset_ms is not None:
+            age=max(age,time.monotonic()*1000-(captured+self._video_clock_offset_ms))
+        else:
+            age += (time.perf_counter()-started)*1000
+        if age > self._frame_max_age_ms:
+            raise ActionFailedError("手机视频帧超过可接受画面年龄")
+        data=await asyncio.to_thread(self._frames.restore_size,data,value)
+        self.last_screen_meta={"frame_age_ms":round(age,1),"frame_age_limit_ms":self._frame_max_age_ms}
         return data, "jpeg", round((time.perf_counter() - started) * 1000)
 
     async def configure_video(self, *, enabled):
@@ -93,7 +104,8 @@ class AppAdbClient(AdbClient):
             return
         await self._frames.close()
         sent=time.monotonic()*1000
-        value=await self.bridge.call("screen_config", enabled=enabled, standby=self._video_standby)
+        options = self._frame_options if "frame_options" in self.bridge.peer.get("features", []) else {}
+        value=await self.bridge.call("screen_config", enabled=enabled, standby=self._video_standby, **options)
         if "frame_stream" in self.bridge.peer.get("features",[]):
             self._set_video_clock(value,sent)
         if self._video_session != self.bridge.session:
@@ -107,6 +119,7 @@ class AppAdbClient(AdbClient):
         elapsed=value.get("elapsed_ms") if isinstance(value,dict) else None
         if type(elapsed) is not int or elapsed<0:raise ActionFailedError("手机视频时钟无效")
         # 以请求发出时刻作为保守下界，网络往返不会把旧帧误算成新帧。
+        self._video_clock_rtt_ms=round(time.monotonic()*1000-sent,1)
         self._video_clock_offset_ms=sent-elapsed
         self._video_clock_synced_at=time.monotonic()
 

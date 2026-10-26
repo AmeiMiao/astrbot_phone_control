@@ -93,7 +93,7 @@ public final class ControlService extends Service {
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 stage = "认证插件";
                 send(new JSONObject().put("v", 1).put("token", code.getString("token")).put("device_id", device)
-                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
+                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording", "frame_stream", "frame_options"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
                 session = ready.getString("session"); lastRequestSequence = 0;
@@ -212,7 +212,7 @@ public final class ControlService extends Service {
                     case "media_delete": currentRecorder.delete(params.getString("recording_id")); data = new JSONObject().put("ok", true); break;
                     case "stream_open": currentStreams.open(id, params.getString("stream_id"), params.getString("service")); data = new JSONObject().put("ok", true); break;
                     case "screen": data = local.screen(); break;
-                    case "screen_config": local.configureVideo(params.getBoolean("enabled"), params.optBoolean("standby")); data = new JSONObject().put("ok", true).put("elapsed_ms",SystemClock.elapsedRealtime()); break;
+                    case "screen_config": local.configureVideo(params.getBoolean("enabled"), params.optBoolean("standby"),params); data = new JSONObject().put("ok", true).put("elapsed_ms",SystemClock.elapsedRealtime()); break;
                     case "clock": data = new JSONObject().put("elapsed_ms",SystemClock.elapsedRealtime()); break;
                     case "traffic_prepare": data = currentTraffic.prepare(); break;
                     case "traffic_start": data = currentTraffic.start(params, () -> proxyConnection(params.getString("capture_id"))); break;

@@ -28,8 +28,8 @@ final class LocalVideo implements AutoCloseable {
     private volatile long requiredAfter;
     private long requiredGeneration;
     static final class FrameImage {
-        final byte[] data; final long at, generation;
-        FrameImage(byte[] data, long at, long generation) { this.data=data;this.at=at;this.generation=generation; }
+        final byte[] data; final long at, generation; final int width,height;
+        FrameImage(byte[] data, long at, long generation,int width,int height) { this.data=data;this.at=at;this.generation=generation;this.width=width;this.height=height; }
     }
     private static final class Frame {
         final byte[] pixels; final int width, height; final long at;
@@ -38,11 +38,17 @@ final class LocalVideo implements AutoCloseable {
             this.pixels = pixels; this.width = width; this.height = height;
             at = capturedAt;
         }
-        synchronized byte[] jpeg() throws IOException {
+        synchronized byte[] jpeg(int maxSize,int quality) throws IOException {
             if (encoded == null) {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
-                if (!new YuvImage(pixels, ImageFormat.NV21, width, height, null)
-                    .compressToJpeg(new Rect(0, 0, width, height), 85, out)) throw new IOException("视频帧编码失败");
+                int targetWidth=width,targetHeight=height;
+                if(maxSize>0 && Math.max(width,height)>maxSize) {
+                    double scale=(double)maxSize/Math.max(width,height);
+                    targetWidth=Math.max(2,(int)(width*scale)&~1);targetHeight=Math.max(2,(int)(height*scale)&~1);
+                }
+                byte[] data=YuvPlanes.resize(pixels,width,height,targetWidth,targetHeight);
+                if (!new YuvImage(data, ImageFormat.NV21, targetWidth, targetHeight, null)
+                    .compressToJpeg(new Rect(0, 0, targetWidth, targetHeight), quality, out)) throw new IOException("视频帧编码失败");
                 encoded = out.toByteArray();
             }
             return encoded;
@@ -74,7 +80,7 @@ final class LocalVideo implements AutoCloseable {
     JSONObject frame() throws Exception {
         FrameImage image=next();
         return new JSONObject().put("image",Base64.encodeToString(image.data,Base64.NO_WRAP)).put("format","jpeg")
-            .put("source","app_scrcpy").put("age_ms",SystemClock.elapsedRealtime()-image.at).put("generation",image.generation);
+            .put("captured_at_ms",image.at).put("screen_width",image.width).put("screen_height",image.height).put("source","app_scrcpy").put("age_ms",SystemClock.elapsedRealtime()-image.at).put("generation",image.generation);
     }
     FrameImage next() throws Exception {
         Frame selected; long generation;
@@ -92,7 +98,7 @@ final class LocalVideo implements AutoCloseable {
             if (error != null || !running) throw new IOException(error == null ? "手机视频已停止" : error);
             selected = frame; generation=requiredGeneration;
         }
-        return new FrameImage(selected.jpeg(),selected.at,generation);
+        return new FrameImage(selected.jpeg(adb.frameMaxSize(),adb.frameQuality()),selected.at,generation,selected.width,selected.height);
     }
 
     private void decode() {

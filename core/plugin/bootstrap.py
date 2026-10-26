@@ -385,7 +385,7 @@ class BootstrapMixin:
         from ..app_adb import AppAdbClient
         self._app_bridge = AppBridge(self.data_dir / "app-bridge", plugin_root_dir() / "bin/android/phone-adb-relay.apk")
         if initial.adb.mode == "app":
-            self.adb = AppAdbClient(self._app_bridge, adb_home, command_timeout=initial.adb.command_timeout, logger=self._device_log, screen_source=initial.adb.app_screen_source, video_standby=initial.adb.app_video_standby)
+            self.adb = AppAdbClient(self._app_bridge, adb_home, command_timeout=initial.adb.command_timeout, logger=self._device_log, screen_source=initial.adb.app_screen_source, video_standby=initial.adb.app_video_standby, frame_max_size=initial.adb.app_frame_max_size, frame_fps=initial.adb.app_frame_fps, frame_quality=initial.adb.app_frame_quality, frame_max_age_ms=initial.adb.app_frame_max_age_ms)
         self.actions = DeviceActions(self.adb, logger=self._device_log)
         self.diary = PhoneDiary(self.data_dir / "diary")
         self.quota = TokenQuota(self.data_dir)
@@ -1194,6 +1194,9 @@ class BootstrapMixin:
                     "ADB 地址/端口已清空：手机后台任务已停止，重新加载插件后保持未启用状态"
                 )
             return
+
+        if current.adb.mode == "app" and previous.adb != current.adb:
+            raise PhoneControlError("App 采集与连接参数变更需要保存并重新加载插件")
 
         if previous.adb.mode != current.adb.mode or previous.adb.app_port != current.adb.app_port or previous.adb.app_screen_source != current.adb.app_screen_source:
             raise PhoneControlError("连接方式变更需要先停止任务，再从原生配置页保存并重新加载插件")

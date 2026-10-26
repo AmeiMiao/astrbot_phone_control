@@ -166,6 +166,8 @@ class PhoneScreenTool(_PhoneToolBase):
                 sections.append(
                     f"附带截图：method={method}，耗时={elapsed_text} ms"
                 )
+            if isinstance(meta.get("frame_age_ms"), (int,float)):
+                sections.append(f"画面年龄：{meta['frame_age_ms']} ms；允许上限：{meta.get('frame_age_limit_ms',250)} ms")
             if meta.get("fallback"):
                 sections.append("（快速截图失败，已回退普通截图）")
             slow_ms = config.perception.screenshot_slow_ms
@@ -539,6 +541,8 @@ class PhoneScreenshotTool(_PhoneToolBase):
             f"{float(elapsed):.1f}" if isinstance(elapsed, (int, float)) else "未知"
         )
         summary = f"截图完成：method={method}，耗时={elapsed_text} ms"
+        if isinstance(meta.get("frame_age_ms"), (int,float)):
+            summary += f"，画面年龄={meta['frame_age_ms']} ms（上限 {meta.get('frame_age_limit_ms',250)} ms）"
         if meta.get("fallback"):
             summary += "（快速截图失败，已回退普通截图）"
         if meta.get("mismatch"):

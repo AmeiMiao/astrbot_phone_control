@@ -41,6 +41,21 @@ final class LocalAdb extends AbsAdbConnectionManager {
     long videoChangedAt() { return changedAt; }
     long videoGeneration() { return generation; }
 
+    private volatile int frameMaxSize=0, frameFps=10, frameQuality=85;
+    int frameInterval() { return Math.max(1,1000/frameFps); }
+    int frameMaxSize() { return frameMaxSize; }
+    int frameQuality() { return frameQuality; }
+    void configureVideo(boolean enabled, boolean standby, JSONObject options) throws IOException {
+        int size=options.optInt("max_size",0), fps=options.optInt("fps",10), quality=options.optInt("quality",85);
+        if (size<0 || size>4096 || fps<1 || fps>30 || quality<40 || quality>95) throw new IOException("视频传输参数越界");
+        synchronized (videoLock) {
+            if (size!=frameMaxSize || fps!=frameFps || quality!=frameQuality) {
+                if(video!=null)video.close(); video=null;
+                frameMaxSize=size; frameFps=fps; frameQuality=quality;
+            }
+        }
+        configureVideo(enabled,standby);
+    }
     void configureVideo(boolean enabled, boolean standby) {
         synchronized (videoLock) {
             if (!enabled) { if (video != null) video.close(); video = null; return; }

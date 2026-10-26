@@ -63,6 +63,24 @@ class AppFrames:
                 raise ActionFailedError('手机视频帧尺寸或格式无效')
             image.load()
 
+    @staticmethod
+    def restore_size(data, meta):
+        """低带宽帧恢复原始屏幕像素尺寸，统一模型与触控坐标。"""
+        from PIL import Image
+        width, height = meta.get('screen_width'), meta.get('screen_height')
+        if width is None and height is None:return data
+        if type(width) is not int or type(height) is not int or not 0 < width <= 8192 or not 0 < height <= 8192 or width*height > 9000000:
+            raise ActionFailedError('手机视频原始尺寸无效')
+        with Image.open(io.BytesIO(data)) as image:
+            if (image.width,image.height)==(width,height):return data
+            # 手机采用偶数YUV尺寸；缩放舍入误差最多2像素。
+            ratio=min(width/image.width,height/image.height)
+            if image.width>width or image.height>height or abs(image.width*ratio-width)>2*ratio or abs(image.height*ratio-height)>2*ratio:
+                raise ActionFailedError('手机视频缩放比例无效')
+            out=io.BytesIO()
+            image.resize((width,height),Image.Resampling.BILINEAR).save(out,format='JPEG',quality=90)
+            return out.getvalue()
+
     def age(self, frame):
         offset=getattr(self.adb,'_video_clock_offset_ms',None)
         if offset is None:return float('inf')
@@ -87,15 +105,18 @@ class AppFrames:
             frame = self.latest
             if frame and frame['session'] == self.adb.bridge.session:
                 age = self.age(frame)
-                if age <= 250 and frame['meta']['generation'] >= self.adb._video_generation:
+                limit=getattr(self.adb,'_frame_max_age_ms',250)
+                if age <= limit and frame['meta']['generation'] >= self.adb._video_generation:
                     if not frame['validated']:
-                        await asyncio.to_thread(self.validate,frame['data']);frame['validated']=True
+                        await asyncio.to_thread(self.validate,frame['data'])
+                        frame['data']=await asyncio.to_thread(self.restore_size,frame['data'],frame['meta'])
+                        frame['validated']=True
                     # 解码校验期间可能又完成了设备操作，再核对一次代次与时间。
                     age = self.age(frame)
-                    if age <= 250 and frame['meta']['generation'] >= self.adb._video_generation:
+                    if age <= limit and frame['meta']['generation'] >= self.adb._video_generation:
                         if getattr(self.adb.bridge,'writer',None) is None:raise DeviceOfflineError('Relay App 已断线')
                         if scope:scope.checkpoint('screen')
-                        self.adb.last_screen_meta={'frame_age_ms':round(age,1),'generation':frame['meta']['generation']}
+                        self.adb.last_screen_meta={'frame_age_ms':round(age,1),'generation':frame['meta']['generation'], 'frame_age_limit_ms':limit, 'clock_rtt_ms':getattr(self.adb,'_video_clock_rtt_ms',None)}
                         return frame['data'],'jpeg',round((time.monotonic()-started)*1000,1)
             remaining = deadline-time.monotonic()
             if remaining <= 0:raise ActionFailedError('等待当前操作后的手机视频帧超时')

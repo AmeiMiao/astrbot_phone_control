@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+- Relay App 支持按组网连接显示适用配置与入口诊断，内置 WireGuard/ZeroTier 提供认证 TLS 入站。
+- App 推帧可配置传输尺寸、频率、JPEG 质量和可接受画面年龄，保持手机坐标与操作代次校验。
+
 - Relay页面区分组网入口、本机ADB授权、实际连接目标和Android能力；配对优先组网地址，表单隐藏不适用项并保留原参数。
 
 - ZeroTier按App与抓包分别维护虚拟网入口、来源限制和连接收尾；Tailscale状态展示App用户态回环入口。

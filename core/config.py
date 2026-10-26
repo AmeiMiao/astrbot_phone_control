@@ -327,6 +327,10 @@ class AdbSettings:
     app_port: int = 6190
     app_screen_source: str = "scrcpy"
     app_video_standby: bool = True
+    app_frame_max_size: int = 0
+    app_frame_fps: int = 10
+    app_frame_quality: int = 85
+    app_frame_max_age_ms: int = 250
     host: str = DEFAULT_ADB_HOST
     port: int = DEFAULT_ADB_PORT
     path: str = ""
@@ -862,6 +866,10 @@ class PhoneConfig:
             app_port=_as_int((adb_card or {}).get("app_port"), 6190, "adb.app_port", warn_fn, minimum=1, maximum=65535),
             app_screen_source="screencap" if (adb_card or {}).get("app_screen_source") in ("screencap", "按需截图") else "scrcpy",
             app_video_standby=_as_bool((adb_card or {}).get("app_video_standby"), True, "adb.app_video_standby", warn_fn),
+            app_frame_max_size=_as_int((adb_card or {}).get("app_frame_max_size"), 0, "adb.app_frame_max_size", warn_fn, minimum=0, maximum=4096),
+            app_frame_fps=_as_int((adb_card or {}).get("app_frame_fps"), 10, "adb.app_frame_fps", warn_fn, minimum=1, maximum=30),
+            app_frame_quality=_as_int((adb_card or {}).get("app_frame_quality"), 85, "adb.app_frame_quality", warn_fn, minimum=40, maximum=95),
+            app_frame_max_age_ms=_as_int((adb_card or {}).get("app_frame_max_age_ms"), 250, "adb.app_frame_max_age_ms", warn_fn, minimum=100, maximum=10000),
             host=_as_str(
                 _pick(adb_card, source, "host"),
                 DEFAULT_ADB_HOST,
