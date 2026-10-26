@@ -142,7 +142,7 @@ public final class MainActivity extends Activity {
             } catch (Exception e) { ControlService.status = "配置错误：" + e.getMessage(); renderStatus(); }
         });
         ui.button(local, "停止 App 控制", false, () -> stopService(new Intent(this, ControlService.class)));
-        ui.add(local, ui.text("修改参数后，先停止再启动控制。音视频、文件与抓包使用插件直连模式。", 12, ui.muted, false), 12);
+        ui.add(local, ui.text("修改参数后，先停止再启动控制。视频帧、播放音频、文件与抓包数据通过 App 连接传送。", 12, ui.muted, false), 12);
     }
     private void addPairingSettings() {
         LinearLayout guide = ui.card(pages[1], "无线调试配对", "Android 11 及以上可使用六位配对码授权本机 ADB。");

@@ -22,6 +22,7 @@ public final class ControlService extends Service {
     private volatile SSLSocket socket;
     private volatile LocalAdb adb;
     private volatile PhoneTraffic traffic;
+    private volatile LocalStreams streams;
     private volatile JSONObject connectionCode;
     private volatile DataOutputStream output;
     private volatile String session;
@@ -87,11 +88,12 @@ public final class ControlService extends Service {
                 String device = prefs.getString("device_id", "");
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 send(new JSONObject().put("v", 1).put("token", code.getString("token")).put("device_id", device)
-                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
+                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
                 session = ready.getString("session"); lastRequestSequence = 0;
                 traffic = new PhoneTraffic(this, adb);
+                streams = new LocalStreams(adb, id -> dataConnection(id));
                 connected = true;
                 status = "App 控制已连接；本机 ADB 权限：shell";
                 ScheduledFuture<?> heartbeat = timers.scheduleAtFixedRate(() -> {
@@ -150,6 +152,20 @@ public final class ControlService extends Service {
             return peer;
         } catch (Exception e) { peer.close(); throw e; }
     }
+    private Socket dataConnection(String id) throws Exception {
+        JSONObject code = connectionCode; String current = session;
+        if (!connected || code == null || current == null) throw new IOException("插件连接已结束");
+        SSLSocket peer = connectPlugin(code);
+        try {
+            JSONObject hello = new JSONObject().put("v", 1).put("type", "stream").put("token", code.getString("token"))
+                .put("device_id", getSharedPreferences("control", 0).getString("device_id", ""))
+                .put("session", current).put("stream_id", id);
+            byte[] bytes = hello.toString().getBytes("UTF-8");
+            DataOutputStream out = new DataOutputStream(peer.getOutputStream()); out.writeInt(bytes.length); out.write(bytes); out.flush();
+            if (!"stream_ready".equals(read(new DataInputStream(peer.getInputStream())).optString("type"))) throw new IOException("数据通道授权失败");
+            return peer;
+        } catch (Exception e) { peer.close(); throw e; }
+    }
     private void handle(JSONObject message) throws Exception {
         String type = message.optString("type"), id = message.optString("id");
         if ("pong".equals(type)) return;
@@ -179,6 +195,7 @@ public final class ControlService extends Service {
                 switch (message.getString("op")) {
                     case "shell": data = local.shell(id, params.getString("command"), Math.min(8 * 1024 * 1024, params.optInt("limit", 8192))); break;
                     case "nodes": data = local.nodes(id, 8 * 1024 * 1024); break;
+                    case "stream_open": streams.open(id, params.getString("stream_id"), params.getString("service")); data = new JSONObject().put("ok", true); break;
                     case "screen": data = local.screen(); break;
                     case "screen_config": local.configureVideo(params.getBoolean("enabled"), params.optBoolean("standby")); data = new JSONObject().put("ok", true); break;
                     case "traffic_prepare": data = traffic.prepare(); break;
@@ -200,6 +217,7 @@ public final class ControlService extends Service {
     private void cancel(String id) {
         FutureTask<Void> task = jobs.remove(id);
         if (task != null) task.cancel(true);
+        LocalStreams data = streams; if (data != null) data.cancel(id);
         LocalAdb local = adb; if (local != null) local.cancel(id);
     }
     static JSONObject read(DataInputStream input) throws Exception {
@@ -255,6 +273,7 @@ public final class ControlService extends Service {
         for (CompletableFuture<JSONObject> future : downloads.values()) future.completeExceptionally(new IOException("插件已断线"));
         PhoneTraffic capture = traffic; traffic = null; connectionCode = null;
         if (capture != null) capture.close();
+        LocalStreams data = streams; streams = null; if (data != null) data.close();
         LocalAdb local = adb; adb = null;
         if (local != null) try { local.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭本机 ADB 失败", e); }
     }

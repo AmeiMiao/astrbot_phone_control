@@ -13,6 +13,7 @@ import struct
 import time
 from pathlib import Path
 
+from .app_streams import AppStreams
 from .device_gate import current_scope
 from .errors import ActionFailedError, DeviceOfflineError
 
@@ -22,6 +23,7 @@ CAPABILITIES = (
     "shell",
     "screen",
     "screen_config",
+    "stream_open",
     "nodes",
     "input",
     "clipboard",
@@ -30,9 +32,7 @@ CAPABILITIES = (
     "traffic_status",
     "traffic_stop",
 )
-APP_UNSUPPORTED = (
-    "App 控制模式暂不支持音频采集、媒体录制和通用文件传输；这些能力请使用直连"
-)
+APP_UNSUPPORTED = "App 通道不支持该 ADB 子命令，请使用对应的手机控制能力"
 
 
 class AppBridge:
@@ -56,6 +56,7 @@ class AppBridge:
         self.proxy_session = ""
         self.proxy_tasks = set()
         self.on_ready = None
+        self.streams = AppStreams(self)
 
     async def close_proxies(self):
         tasks = list(self.proxy_tasks)
@@ -216,6 +217,9 @@ class AppBridge:
         ready_task = None
         try:
             hello = await asyncio.wait_for(self.read(reader), 5)
+            if hello.get("type") == "stream":
+                await self.streams.accept(hello, reader, writer)
+                return
             if hello.get("type") == "proxy":
                 await self._proxy(hello, reader, writer)
                 return
@@ -247,7 +251,7 @@ class AppBridge:
                 "features": [
                     feature
                     for feature in features
-                    if feature in ("screen_frames", "traffic_proxy", "video_standby")
+                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams")
                 ],
             }
             authenticated = True
@@ -293,6 +297,7 @@ class AppBridge:
                 self.proxy_capture_id = ""
                 self.proxy_session = ""
                 await self.close_proxies()
+                await self.streams.close()
                 self.peer["connected"] = False
                 for future in self.pending.values():
                     if not future.done():

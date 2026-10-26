@@ -25,7 +25,7 @@ def test_app_never_runs_host_adb(tmp_path):
         adb = AppAdbClient(bridge, tmp_path)
         with pytest.raises(DeviceOfflineError):
             await adb.shell("input tap 1 1")
-        with pytest.raises(ActionFailedError, match="文件传输"):
+        with pytest.raises(ActionFailedError, match="文件"):
             await adb.run(["push", "a", "b"])
         with pytest.raises(ActionFailedError):
             await adb.exec_out("cat", "/data/private")

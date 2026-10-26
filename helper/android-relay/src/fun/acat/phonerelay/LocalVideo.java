@@ -82,13 +82,15 @@ final class LocalVideo implements AutoCloseable {
             if (error != null || !running) throw new IOException(error == null ? "手机视频已停止" : error);
             selected = frame;
         }
+        long compressStarted = SystemClock.elapsedRealtime();
         byte[] encoded = selected.jpeg();
         return new JSONObject().put("image", Base64.encodeToString(encoded, Base64.NO_WRAP))
-            .put("format", "jpeg").put("source", "app_scrcpy").put("age_ms", SystemClock.elapsedRealtime() - selected.at);
+            .put("format", "jpeg").put("source", "app_scrcpy").put("age_ms", SystemClock.elapsedRealtime() - selected.at)
+            .put("jpeg_ms", SystemClock.elapsedRealtime() - compressStarted);
     }
 
     private void decode() {
-        MediaCodec codec = null;
+        Decoder decoder = null;
         try {
             stage = "写入组件"; adb.pushControlServer();
             stage = "启动服务";
@@ -112,45 +114,75 @@ final class LocalVideo implements AutoCloseable {
                 if (in.readUnsignedByte() != 0 || in.readInt() != 0x68323634) throw new IOException("视频协议无效");
                 return null;
             });
-            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             while (running) {
                 stage = "读取视频包";
                 ScrcpyPackets packet = ScrcpyPackets.read(in);
-                stage = packet.data == null ? "建立解码器" : "送入解码帧";
                 if (packet.data == null) {
-                    if (codec != null) { codec.stop(); codec.release(); }
-                    codec = MediaCodec.createDecoderByType("video/avc");
-                    MediaFormat format = MediaFormat.createVideoFormat("video/avc", packet.width, packet.height);
-                    format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
-                    codec.configure(format, null, null, 0); codec.start();
+                    if (decoder != null) decoder.close();
                     synchronized (this) { frame = null; }
-                    continue;
-                }
-                if (codec == null) throw new IOException("视频缺少会话尺寸");
-                int input = codec.dequeueInputBuffer(100000);
-                if (input < 0) throw new IOException("手机视频解码输入阻塞");
-                ByteBuffer buffer = codec.getInputBuffer(input);
-                if (buffer == null || packet.data.length > buffer.capacity()) throw new IOException("视频解码缓冲不足");
-                buffer.clear(); buffer.put(packet.data);
-                codec.queueInputBuffer(input, 0, packet.data.length, packet.flags & ((1L << 61) - 1),
-                    (packet.flags & ScrcpyPackets.CONFIG) != 0 ? MediaCodec.BUFFER_FLAG_CODEC_CONFIG : 0);
-                int output;
-                while ((output = codec.dequeueOutputBuffer(info, 10000)) >= 0) {
-                    try (Image image = codec.getOutputImage(output)) {
-                        stage = image == null ? "解码帧没有Image" : "转换JPEG";
-                        if (image != null) {
-                            Frame decoded = pixels(image, info.presentationTimeUs);
-                            synchronized (this) { frame = decoded; notifyAll(); }
-                        }
-                    } finally { codec.releaseOutputBuffer(output, false); }
+                    decoder = new Decoder(packet.width, packet.height);
+                } else {
+                    if (decoder == null) throw new IOException("视频缺少会话尺寸");
+                    decoder.input(packet);
                 }
             }
         } catch (Exception e) {
             synchronized (this) { error = "手机 scrcpy：" + e.getClass().getSimpleName() + " " + e.getMessage(); notifyAll(); }
         } finally {
-            if (codec != null) try { codec.stop(); } catch (IllegalStateException ignored) { }
-            if (codec != null) codec.release();
+            if (decoder != null) decoder.close();
             close();
+        }
+    }
+
+    private final class Decoder implements AutoCloseable {
+        final MediaCodec codec;
+        final Thread output;
+        volatile boolean active = true;
+        Decoder(int width, int height) throws Exception {
+            stage = "建立解码器";
+            codec = MediaCodec.createDecoderByType("video/avc");
+            try {
+                MediaFormat format = MediaFormat.createVideoFormat("video/avc", width, height);
+                format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
+                format.setInteger(MediaFormat.KEY_PRIORITY, 0);
+                format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
+                codec.configure(format, null, null, 0); codec.start();
+            } catch (Exception e) { codec.release(); throw e; }
+            output = new Thread(() -> {
+                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+                try {
+                    while (active && running) {
+                        int index = codec.dequeueOutputBuffer(info, 10000);
+                        if (index < 0) continue;
+                        try (Image image = codec.getOutputImage(index)) {
+                            if (image != null) {
+                                Frame decoded = pixels(image, info.presentationTimeUs);
+                                synchronized (LocalVideo.this) { frame = decoded; LocalVideo.this.notifyAll(); }
+                            }
+                        } finally { codec.releaseOutputBuffer(index, false); }
+                    }
+                } catch (Exception e) {
+                    if (active && running) {
+                        synchronized (LocalVideo.this) { error = "手机视频解码失败：" + e.getMessage(); LocalVideo.this.notifyAll(); }
+                        LocalVideo.this.close();
+                    }
+                }
+            }, "relay-video-output"); output.setDaemon(true); output.start();
+        }
+        void input(ScrcpyPackets packet) throws Exception {
+            int index = codec.dequeueInputBuffer(100000);
+            if (index < 0) throw new IOException("手机视频解码输入阻塞");
+            ByteBuffer buffer = codec.getInputBuffer(index);
+            if (buffer == null || packet.data.length > buffer.capacity()) throw new IOException("视频解码缓冲不足");
+            buffer.clear(); buffer.put(packet.data);
+            codec.queueInputBuffer(index, 0, packet.data.length, packet.flags & ((1L << 61) - 1),
+                (packet.flags & ScrcpyPackets.CONFIG) != 0 ? MediaCodec.BUFFER_FLAG_CODEC_CONFIG : 0);
+        }
+        public void close() {
+            active = false;
+            try { output.join(1000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            try { codec.stop(); } catch (IllegalStateException e) { android.util.Log.w("PhoneRelay", "停止视频解码器失败", e); }
+            codec.release();
         }
     }
 

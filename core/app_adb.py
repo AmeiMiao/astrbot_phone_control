@@ -1,6 +1,7 @@
 """复用设备控制契约，通过 Relay App 的本机 ADB 执行。"""
 
 from __future__ import annotations
+import asyncio
 import base64
 import shlex
 import io
@@ -33,6 +34,7 @@ class AppAdbClient(AdbClient):
         )
         self.bridge = bridge
         self._video_screen = screen_source == "scrcpy"
+        self._forwards = {}
 
     @property
     def screen_source(self):
@@ -94,6 +96,15 @@ class AppAdbClient(AdbClient):
 
     async def _run_adb(self, argv, *, timeout=None, output_limit=None):
         args = list(argv)[3:]  # _base_command 的程序、-s 和 serial。
+        if args and args[0] in ("push", "pull"):
+            if len(args) != 3:
+                raise ActionFailedError("文件传输需指定一个源文件和目标路径")
+            from .app_files import AppFiles
+            files = AppFiles(self)
+            size = await (files.push(args[1], args[2]) if args[0] == "push" else files.pull(args[1], args[2]))
+            return 0, (str(size) + " bytes transferred").encode(), b""
+        if args and args[0] == "forward":
+            return 0, (await self._forward(args[1:])).encode(), b""
         if not args or args[0] not in ("shell", "exec-out"):
             raise ActionFailedError(APP_UNSUPPORTED)
         if args[0] == "exec-out" and args[1:2] not in (
@@ -138,6 +149,58 @@ class AppAdbClient(AdbClient):
             )
         return rc, out, err
 
+    async def _forward(self, args):
+        from .app_streams import valid_service
+        if args == ["--list"]:
+            return "\n".join(f"relay-app tcp:{port} {entry['service']}" for port, entry in self._forwards.items())
+        if args and args[0] == "--remove":
+            if len(args) != 2 or not args[1].startswith("tcp:"):
+                raise ActionFailedError("手机数据转发参数无效")
+            entry = self._forwards.pop(int(args[1][4:]), None)
+            if entry:
+                entry["server"].close()
+                await entry["server"].wait_closed()
+                for task in list(entry["tasks"]):
+                    task.cancel()
+                await asyncio.gather(*entry["tasks"], return_exceptions=True)
+            return ""
+        if len(args) != 2 or not args[0].startswith("tcp:") or not valid_service(args[1]) or not args[1].startswith("localabstract:"):
+            raise ActionFailedError("手机转发仅接受本机TCP与scrcpy数据流")
+        port = int(args[0][4:])
+        if not 0 <= port <= 65535 or port in self._forwards or len(self._forwards) >= 8:
+            raise ActionFailedError("手机数据转发端口或并发无效")
+        entry = {"tasks": set(), "service": args[1]}
+
+        async def serve(reader, writer):
+            task = asyncio.current_task(); entry["tasks"].add(task)
+            copies = []
+            try:
+                async with self.bridge.streams.connect(args[1]) as (remote, upstream):
+                    async def copy(source, target):
+                        while chunk := await source.read(65536):
+                            target.write(chunk)
+                            await asyncio.wait_for(target.drain(), 15)
+                    copies = [asyncio.create_task(copy(reader, upstream)), asyncio.create_task(copy(remote, writer))]
+                    done, _ = await asyncio.wait(copies, return_when=asyncio.FIRST_COMPLETED)
+                    for completed in done:
+                        completed.result()
+            except (OSError, ActionFailedError, DeviceOfflineError) as exc:
+                self._log(f"手机数据转发结束：{exc}")
+            finally:
+                for child in copies:
+                    child.cancel()
+                await asyncio.gather(*copies, return_exceptions=True)
+                writer.close(); entry["tasks"].discard(task)
+        server = await asyncio.start_server(serve, "127.0.0.1", port)
+        entry["server"] = server
+        actual = server.sockets[0].getsockname()[1]
+        self._forwards[actual] = entry
+        return str(actual) if port == 0 else ""
+
+    async def _close_forwards(self):
+        for port in list(self._forwards):
+            await self._forward(["--remove", f"tcp:{port}"])
+
     async def read_clipboard(self):
         value = await self.bridge.call("clipboard", timeout=self._command_timeout)
         return value.get("text", "")
@@ -155,9 +218,11 @@ class AppAdbClient(AdbClient):
         )
 
     async def disconnect(self):
+        await self._close_forwards()
         self._connected = False
 
     async def close(self):
+        await self._close_forwards()
         await self.bridge.close()
         self._connected = False
 
