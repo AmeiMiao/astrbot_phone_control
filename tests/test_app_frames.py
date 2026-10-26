@@ -23,7 +23,7 @@ def frame(data,generation=0,age=0):
 
 def test_push_cache_rejects_old_operation_generation_and_expired_image():
     async def run():
-        adb=SimpleNamespace(bridge=SimpleNamespace(session='session'),_video_generation=7,_video_clock_offset_ms=0)
+        adb=SimpleNamespace(bridge=SimpleNamespace(session='session',writer=True),_video_generation=7,_video_clock_offset_ms=0)
         frames=AppFrames(adb);frames.task=asyncio.create_task(asyncio.sleep(30))
         old=jpeg('red');fresh=jpeg('blue');frames.latest=frame(old,6)
         async def deliver():
@@ -43,7 +43,7 @@ def test_push_cache_rejects_old_operation_generation_and_expired_image():
 
 def test_same_frame_is_validated_once_and_cache_does_not_request_phone():
     async def run():
-        frames=AppFrames(SimpleNamespace(bridge=SimpleNamespace(session='session'),_video_generation=0,_video_clock_offset_ms=0))
+        frames=AppFrames(SimpleNamespace(bridge=SimpleNamespace(session='session',writer=True),_video_generation=0,_video_clock_offset_ms=0))
         frames.task=asyncio.create_task(asyncio.sleep(30));frames.latest=frame(jpeg('green'))
         calls=[];original=frames.validate
         def validate(data):calls.append(1);original(data)
@@ -75,11 +75,22 @@ def test_binary_frame_bounds_before_allocation(meta,length):
 def test_network_queue_delay_cannot_relabel_old_frame_as_fresh():
     async def run():
         now=time.monotonic()*1000
-        adb=SimpleNamespace(bridge=SimpleNamespace(session='session'),_video_generation=0,
+        adb=SimpleNamespace(bridge=SimpleNamespace(session='session',writer=True),_video_generation=0,
                             _video_clock_offset_ms=now-1000-500)
         frames=AppFrames(adb);frames.task=asyncio.create_task(asyncio.sleep(30))
         frames.latest=frame(jpeg('green'));frames.latest['meta']['captured_at_ms']=1000
         try:
             with pytest.raises(ActionFailedError,match='操作后'):await frames.capture(.03)
         finally:await frames.close()
+    asyncio.run(run())
+
+
+def test_closed_control_connection_rejects_fresh_cached_frame():
+    from core.errors import DeviceOfflineError
+    async def run():
+        bridge=SimpleNamespace(session='session',writer=None)
+        frames=AppFrames(SimpleNamespace(bridge=bridge,_video_generation=0,_video_clock_offset_ms=0))
+        frames.latest=frame(jpeg('blue'))
+        with pytest.raises(DeviceOfflineError):await frames.capture(1)
+        assert frames.task is None
     asyncio.run(run())

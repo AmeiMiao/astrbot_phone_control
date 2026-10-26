@@ -6,7 +6,7 @@ import io
 import json
 import struct
 import time
-from .errors import ActionFailedError
+from .errors import ActionFailedError, DeviceOfflineError
 from .device_gate import current_scope
 from .identity import PLUGIN_NAME
 
@@ -72,6 +72,7 @@ class AppFrames:
 
     async def capture(self, timeout):
         started = time.monotonic();deadline = started+timeout
+        if getattr(self.adb.bridge,'writer',None) is None:raise DeviceOfflineError('Relay App 已断线')
         if timeout<=0:raise ActionFailedError('截图期限无效')
         scope=current_scope()
         if scope:
@@ -79,6 +80,7 @@ class AppFrames:
             deadline=min(deadline,scope.deadline)
         self.start()
         while True:
+            if getattr(self.adb.bridge,'writer',None) is None:raise DeviceOfflineError('Relay App 已断线')
             if scope:scope.checkpoint('screen')
             self.changed.clear()
             if self.error:raise ActionFailedError(self.error)
@@ -91,6 +93,7 @@ class AppFrames:
                     # 解码校验期间可能又完成了设备操作，再核对一次代次与时间。
                     age = self.age(frame)
                     if age <= 250 and frame['meta']['generation'] >= self.adb._video_generation:
+                        if getattr(self.adb.bridge,'writer',None) is None:raise DeviceOfflineError('Relay App 已断线')
                         if scope:scope.checkpoint('screen')
                         self.adb.last_screen_meta={'frame_age_ms':round(age,1),'generation':frame['meta']['generation']}
                         return frame['data'],'jpeg',round((time.monotonic()-started)*1000,1)
