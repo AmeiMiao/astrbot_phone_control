@@ -19,6 +19,10 @@ public final class ControlService extends Service {
     public static volatile boolean connected;
     public static volatile JSONObject updateInfo;
     private volatile boolean running;
+    private static volatile ControlService activeService;
+    private final Object cleanupLock=new Object();
+    private static CompletableFuture<Void> lastCleanup=CompletableFuture.completedFuture(null);
+    private CompletableFuture<Void> predecessorCleanup=CompletableFuture.completedFuture(null);
     private volatile SSLSocket socket;
     private volatile LocalAdb adb;
     private volatile PhoneTraffic traffic;
@@ -68,7 +72,7 @@ public final class ControlService extends Service {
             .addAction(new Notification.Action.Builder(null, "停止", stop).build()).build());
         prefs.edit().putBoolean("control_wanted",true).remove("recovery_error").apply();
         if (running) return prefs.getBoolean("restore_enabled",false)?START_STICKY:START_NOT_STICKY;
-        running = true;
+        synchronized(ControlService.class) {predecessorCleanup=lastCleanup;running=true;activeService=this;}
         network = Executors.newSingleThreadExecutor();
         work = Executors.newFixedThreadPool(2);
         timers = Executors.newScheduledThreadPool(2);
@@ -79,8 +83,11 @@ public final class ControlService extends Service {
         android.content.SharedPreferences prefs = getSharedPreferences("control", 0);
         int retrySeconds=3;
         while (running) {
-            String stage = "读取本机 ADB 身份";
+            String stage = "等待前次控制服务收尾";
             try {
+                predecessorCleanup.get();
+                if(!running)break;
+                stage="读取本机 ADB 身份";
                 String host = prefs.getString("adb_host", "127.0.0.1");
                 requireLocal(host);
                 adb = new LocalAdb(this);
@@ -116,10 +123,12 @@ public final class ControlService extends Service {
                 traffic = new PhoneTraffic(this, adb);
                 recorder = new PhoneRecorder(this, adb);
                 streams = new LocalStreams(adb, id -> dataConnection(id), id -> recorder.artifact(id));
-                connected = true;
-                stage = "控制会话";
-                retrySeconds=3;
-                status = "App 控制已连接；ADB UID="+capabilities.getInt("adb_uid")+"；"+host+":"+endpointPort;
+                synchronized(ControlService.class) {
+                    if(!running || activeService!=this)throw new IOException("控制服务已停止");
+                    connected=true;
+                    status="App 控制已连接；ADB UID="+capabilities.getInt("adb_uid")+"；"+host+":"+endpointPort;
+                }
+                stage="控制会话";retrySeconds=3;
                 ScheduledFuture<?> heartbeat = timers.scheduleAtFixedRate(() -> {
                     try { send(new JSONObject().put("type", "ping")); }
                     catch (Exception e) { closeSocket(); }
@@ -302,7 +311,8 @@ public final class ControlService extends Service {
     }
     private void closeSocket() { SSLSocket s = socket; socket = null; if (s != null) try { s.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭连接失败", e); } }
     private void cleanupConnection() {
-        connected = false;
+        synchronized(cleanupLock) {
+        synchronized(ControlService.class) {if(activeService==this)connected=false;}
         session = null; closeSocket(); output = null;
         for (String id : jobs.keySet()) cancel(id);
         for (CompletableFuture<JSONObject> future : downloads.values()) future.completeExceptionally(new IOException("插件已断线"));
@@ -312,13 +322,24 @@ public final class ControlService extends Service {
         PhoneRecorder media = recorder; recorder = null; if (media != null) media.close();
         LocalAdb local = adb; adb = null;
         if (local != null) try { local.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭本机 ADB 失败", e); }
+        }
     }
     @Override public void onDestroy() {
-        running = false; cleanupConnection();
+        CompletableFuture<Void> completion=new CompletableFuture<>();
+        synchronized(ControlService.class) {
+            lastCleanup=completion;
+            running=false;
+            if(activeService==this) {activeService=null;connected=false;status="App 控制已停止";}
+        }
         if (network != null) network.shutdownNow();
         if (work != null) work.shutdownNow();
         if (timers != null) timers.shutdownNow();
-        status = "App 控制已停止"; super.onDestroy();
+        // TLS close_notify、本机ADB与媒体收尾均在工作线程执行。
+        Thread cleanup=new Thread(()-> {
+            try {cleanupConnection();completion.complete(null);}
+            catch(RuntimeException e) {completion.completeExceptionally(e);android.util.Log.e("PhoneRelay","控制服务收尾失败",e);}
+        },"relay-control-cleanup");cleanup.start();
+        super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent) { return null; }
 }

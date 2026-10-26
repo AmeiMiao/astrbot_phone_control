@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- App 停止控制时在后台回收 TLS、本机 ADB 与媒体资源，后续连接等待前次清理完成。
+
 - Relay App 支持按组网连接显示适用配置与入口诊断，内置 WireGuard/ZeroTier 提供认证 TLS 入站。
 - App 推帧可配置传输尺寸、频率、JPEG 质量和可接受画面年龄，保持手机坐标与操作代次校验。
 
