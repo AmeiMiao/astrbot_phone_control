@@ -35,6 +35,8 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); initialState = state; ui = new RelayUi(this);
+        String recoveryError=getSharedPreferences("control",0).getString("recovery_error","");
+        if(!ControlService.connected && !recoveryError.isEmpty())ControlService.status=recoveryError;
         boolean compact = getResources().getConfiguration().screenHeightDp < 480;
         getWindow().setStatusBarColor(ui.background); getWindow().setNavigationBarColor(ui.background);
         getWindow().getDecorView().setSystemUiVisibility(ui.dark ? 0
@@ -114,6 +116,13 @@ public final class MainActivity extends Activity {
         String summary = selectedPage == 3 ? RelayService.status : ControlService.status;
         if (!summary.contentEquals(status.getText())) status.setText(summary);
         boolean connected = ControlService.connected;
+        adbHost.setEnabled(!connected);adbPort.setEnabled(!connected);
+        if(connected) {
+            SharedPreferences prefs=getSharedPreferences("control",0);
+            String host=prefs.getString("adb_host","127.0.0.1"),port=String.valueOf(prefs.getInt("adb_port",5555));
+            if(!host.contentEquals(adbHost.getText()))adbHost.setText(host);
+            if(!port.contentEquals(adbPort.getText()))adbPort.setText(port);
+        }
         String badge = selectedPage == 3 ? "组网中转" : connected ? "已连接" : "待连接";
         if (!badge.contentEquals(statusBadge.getText())) statusBadge.setText(badge);
         statusBadge.setTextColor(connected && selectedPage != 3 ? ui.green : ui.muted);
@@ -165,7 +174,7 @@ public final class MainActivity extends Activity {
         toggle(local,"本机连接失败时自动发现无线端口",prefs,"discover_port");
         toggle(local,"开机、更新及系统回收后恢复控制连接",prefs,"restore_enabled");
         ui.add(local,ui.text("自动发现仅接受本机接口，并以已有ADB身份验证后保存。自动恢复默认关闭；需系统允许后台启动，本机无线调试和VPN需分别就绪。恢复只建立新连接，设备操作由插件重新请求。",12,ui.muted,false),12);
-        ui.add(local, ui.text("修改参数后，先停止再启动控制。视频帧、播放音频、文件与抓包数据通过 App 连接传送。", 12, ui.muted, false), 12);
+        ui.add(local, ui.text("修改本机ADB参数前先停止控制，连接后显示实际使用的端点。视频帧、播放音频、文件与抓包数据通过App连接传送。", 12, ui.muted, false), 12);
         certificateSettings();
     }
     private void editPluginAddress() {
