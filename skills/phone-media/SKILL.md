@@ -25,3 +25,9 @@ description: 单篇图文与音视频任务，先理解正文或试看，再独�
 `phone_content` 的 begin/read/decide 精读流程和 `phone_learn` 学习记录均按需使用，
 无需为休闲编造兴趣、学习成果或分享理由。只有实际看到或听到的内容才可描述。
 各项弹性能力以运行时提示为准；每日次数按当前配置，互动授权、总额度、分享冷却与设备停止规则继续生效。
+
+## 独立录制与文件传输
+
+- 用户需要保存手机媒体时，App模式可用`phone_record_media(action="start",mode="both",seconds=60)`开始手机内封装；status查看，stop下载成品，cancel清理。最多900秒/128 MiB，录制成品本身不代表已理解；理解内容使用观看工具。
+- `phone_files`的download下载手机共享文件，upload上传当前消息附件或已有file_id，list查看缓存，delete清理指定缓存。手机路径包含完整文件名，单文件128 MiB。
+- 文件和录制默认保存在插件传输目录；用户需要接收时显式send_to_chat=true发到当前聊天。独立录音与媒体理解的连续音频分别使用资源，先结束当前音频采集再启动另一种。

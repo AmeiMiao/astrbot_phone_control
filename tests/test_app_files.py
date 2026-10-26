@@ -79,3 +79,13 @@ def test_pull_rejects_oversized_block_before_reading_payload(tmp_path):
 @pytest.mark.parametrize('path',['/proc/1/mem','/sdcard/../data/secret','/sdcard/abc\nxyz','relative','/data/private'])
 def test_transfer_path_boundary(path):
     with pytest.raises(ActionFailedError):phone_path(path)
+
+
+def test_shared_image_prefix_reads_binary_without_control_packet_limit():
+    payload = b"image-prefix-and-rest"
+    response = b"STAT"+struct.pack("<III",0o100644,len(payload),1)+b"DATA"+struct.pack("<I",len(payload))+payload
+    files = AppFiles(SimpleNamespace(bridge=SimpleNamespace(streams=Streams(response))))
+    async def run():
+        assert await files.read('/sdcard/image.png',5)==b'image'
+        with pytest.raises(ActionFailedError):await files.read('/sdcard/image.png',100*1024*1024)
+    asyncio.run(run())

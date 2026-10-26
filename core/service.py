@@ -256,6 +256,9 @@ class PhoneService:
         self.verification: Any = None
         # 流媒体内容识别：设备播放音频采集客户端（由插件装配，缺省时降级为仅画面）。
         self.media: Any = None
+        from .transfers import TransferFiles
+        self.files = TransferFiles(adb, self.data_dir / "transfers")
+        self.recordings: Any = None
         # 统一设备执行入口（插件装配；None 表示未启用门禁，供离线单测使用）。
         self.gate: Any = None
         self._last_screenshot_cleanup = 0.0

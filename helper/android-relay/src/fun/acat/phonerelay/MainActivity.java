@@ -18,6 +18,8 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     private RelayUi ui;
     private Bundle initialState;
+    private byte[] pendingCertificate;
+    private TextView certificateStatus;
     private EditText address, peer, adbHost, adbPort, pairPort, pairCode, pluginCode;
     private TextView status, statusBadge, pairAddress;
     private Button startControl, checkUpdate, downloadUpdate;
@@ -79,6 +81,7 @@ public final class MainActivity extends Activity {
         FrameLayout holder = new FrameLayout(this);
         for (int i = 0; i < pages.length; i++) { pages[i] = ui.vertical(); holder.addView(pages[i]); }
         scroll.addView(holder); root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        if (state != null) pendingCertificate = state.getByteArray("capture_certificate");
         addControlSettings(); addPairingSettings(); addUpdateSettings(); addRelaySettings();
         setContentView(root); root.requestApplyInsets();
         selectPage(state == null ? 0 : state.getInt("page", 0));
@@ -143,6 +146,51 @@ public final class MainActivity extends Activity {
         });
         ui.button(local, "停止 App 控制", false, () -> stopService(new Intent(this, ControlService.class)));
         ui.add(local, ui.text("修改参数后，先停止再启动控制。视频帧、播放音频、文件与抓包数据通过 App 连接传送。", 12, ui.muted, false), 12);
+        certificateSettings();
+    }
+    private void certificateSettings() {
+        LinearLayout card = ui.card(pages[0], "App 抓包证书", "手机代理与 HTTPS 解密的状态分别确认。");
+        ui.add(card, ui.text("无 root 时，在插件选择手动 CA。导出证书后，在系统设置 → 安全 → 加密与凭据 → 安装证书 → CA 证书中选择该文件。目标 App 需信任用户 CA；证书固定策略可能阻止解密。mitmproxy 方式从插件下载其对应 CA。", 13, ui.muted, false), 12);
+        certificateStatus = ui.text("证书属于本机 App 抓包身份，导出只包含公开证书。", 12, ui.muted, false);
+        ui.button(card, "导出 App 抓包 CA", true, () -> {
+            certificateStatus.setText("正在读取抓包证书…");
+            setupWorker.execute(() -> {
+                try {
+                    byte[] certificate = ProxyCertificates.load(getFilesDir()).encoded();
+                    String fingerprint = ControlService.hex(java.security.MessageDigest.getInstance("SHA-256").digest(certificate));
+                    handler.post(() -> {
+                        if (isDestroyed()) return;
+                        pendingCertificate = certificate;
+                        certificateStatus.setText("SHA256：" + fingerprint + "\n请选择保存位置，完成后进入系统证书设置。");
+                        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                            .setType("application/x-x509-ca-cert").putExtra(Intent.EXTRA_TITLE, "PhoneRelay-App-Capture-" + fingerprint.substring(0,8) + ".crt");
+                        try { startActivityForResult(save, 303); }
+                        catch (android.content.ActivityNotFoundException e) { certificateStatus.setText("系统文件选择器不可用，可在插件下载当前抓包 CA。"); }
+                    });
+                } catch (Exception e) { handler.post(() -> { if (!isDestroyed()) certificateStatus.setText("证书读取失败：" + e.getMessage()); }); }
+            });
+        });
+        ui.button(card, "打开证书安装设置", false, () -> {
+            try { startActivity(new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS)); }
+            catch (android.content.ActivityNotFoundException e) { certificateStatus.setText("请从系统设置进入安全与凭据设置，安装刚导出的 CA 证书。"); }
+        });
+        ui.add(card, certificateStatus, 12);
+    }
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != 303) return;
+        byte[] certificate = pendingCertificate;
+        if (result != RESULT_OK || data == null || data.getData() == null || certificate == null) {
+            certificateStatus.setText("证书导出已取消。"); return;
+        }
+        android.net.Uri target = data.getData();
+        setupWorker.execute(() -> {
+            try (java.io.OutputStream output = getContentResolver().openOutputStream(target, "wt")) {
+                if (output == null) throw new java.io.IOException("保存位置不可写");
+                output.write(certificate); output.flush();
+                handler.post(() -> { if (!isDestroyed()) { pendingCertificate = null; certificateStatus.setText("CA 已导出。请在系统证书设置中选择该文件安装；安装用户 CA 后，目标 App 仍需信任该 CA。"); } });
+            } catch (Exception e) { handler.post(() -> { if (!isDestroyed()) certificateStatus.setText("证书导出失败：" + e.getMessage()); }); }
+        });
     }
     private void addPairingSettings() {
         LinearLayout guide = ui.card(pages[1], "无线调试配对", "Android 11 及以上可使用六位配对码授权本机 ADB。");
@@ -214,6 +262,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putInt("page", selectedPage);
+        if (pendingCertificate != null) state.putByteArray("capture_certificate", pendingCertificate);
         String[] keys = {"address", "peer", "adb_host", "adb_port", "pair_port", "pair_code", "code"};
         EditText[] fields = {address, peer, adbHost, adbPort, pairPort, pairCode, pluginCode};
         for (int i = 0; i < keys.length; i++) state.putString(keys[i], fields[i].getText().toString());

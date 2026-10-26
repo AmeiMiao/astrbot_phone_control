@@ -432,11 +432,8 @@ class RuntimeMixin:
 
     async def _initialize_app_peer(self):
         if "video_standby" in self._app_bridge.peer.get("features", []):
-            settings = self.service.config.adb
-            await self._app_bridge.call(
-                "screen_config", enabled=settings.app_screen_source == "scrcpy",
-                standby=settings.app_video_standby,
-            )
+            await self.adb.configure_video(enabled=self.service.config.adb.app_screen_source == "scrcpy")
+        self._traffic.reset_unavailable()
         await self._ensure_traffic_started()
 
     async def _ensure_traffic_started(self) -> None:

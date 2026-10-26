@@ -706,7 +706,8 @@ def test_tool_registry_and_help_wiring() -> None:
     shared_text = (PLUGIN_ROOT / "core" / "plugin" / "shared.py").read_text(
         encoding="utf-8"
     )
-    assert "36 个 phone_* 工具" in shared_text
+    assert "38 个 phone_* 工具" in shared_text
+    assert '"phone_files"' in registry_text and '"phone_record_media"' in registry_text
     assert "/phone wg [status|start|stop|restart|config]" in shared_text
     main_text = (PLUGIN_ROOT / "main.py").read_text(encoding="utf-8")
     assert 'frozenset({"stop", "verify", "wg"})' in main_text

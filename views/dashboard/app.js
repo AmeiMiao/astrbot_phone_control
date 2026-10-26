@@ -281,6 +281,7 @@
     if (previewEl) {
       previewEl.textContent =
         traffic.flows ? traffic.preview : traffic.error || (traffic.running ? "代理已启动，尚未收到请求。打开目标 App 产生新请求；HTTPS 需信任当前抓包 CA。" : "抓包尚未运行。");
+      if (traffic.ca_help) previewEl.textContent += "\n\n" + traffic.ca_help;
     }
 
     const today = data.today || {};
@@ -1081,15 +1082,17 @@
       finally { $("app-apk").disabled = false; $("app-apk").textContent = "下载 Relay APK"; }
     });
     $("mesh-refresh").addEventListener("click", loadMesh);
-    $("mesh-ca").addEventListener("click", async () => {
+    const downloadCaptureCa = async feedback => {
       try {
         const certificate = await apiGet("dashboard/mesh/ca");
         const bytes = Uint8Array.from(atob(certificate.content_base64), c => c.charCodeAt(0));
         const url = URL.createObjectURL(new Blob([bytes], { type: "application/x-x509-ca-cert" }));
         const link = document.createElement("a"); link.href = url; link.download = certificate.name;
         document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      } catch (error) { setText("mesh-status", `证书下载失败：${error.message || error}`); }
-    });
+      } catch (error) { setText(feedback, `证书下载失败：${error.message || error}`); }
+    };
+    $("mesh-ca").addEventListener("click", () => downloadCaptureCa("mesh-status"));
+    $("traffic-ca").addEventListener("click", () => downloadCaptureCa("traffic-ca-status"));
     for (const action of ["start", "stop"]) {
       $("mesh-" + action).addEventListener("click", async () => {
         const button = $("mesh-" + action); button.disabled = true;

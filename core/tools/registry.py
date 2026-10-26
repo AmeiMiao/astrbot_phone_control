@@ -45,6 +45,7 @@ from .solve import PhoneSolveVerificationTool
 from .screen_ai import PhoneLiveScreenTool, PhoneReadScreenTool, PhoneWatchMediaTool
 from .traffic import PhoneTrafficTool
 from .wireguard import PhoneWireguardTool
+from .files import PhoneFilesTool, PhoneRecordMediaTool
 
 
 # 工具名常量：插件入口注册与测试断言共用，避免拼写漂移。
@@ -85,6 +86,8 @@ TOOL_NAMES = (
     "phone_content",
     "phone_save_image",
     "phone_saved_images",
+    "phone_files",
+    "phone_record_media",
 )
 
 
@@ -266,6 +269,8 @@ def build_phone_tools(service: Any) -> list[FunctionTool]:
         PhoneContentTool(service=service),
         PhoneSaveImageTool(service=service),
         PhoneSavedImagesTool(service=service),
+        PhoneFilesTool(service=service),
+        PhoneRecordMediaTool(service=service),
     ]
     names = tuple(tool.name for tool in tools)
     if names != TOOL_NAMES:  # pragma: no cover - 常量与实现不一致时直接暴露

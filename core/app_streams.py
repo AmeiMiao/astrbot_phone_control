@@ -57,7 +57,8 @@ class AppStreams:
 
     async def accept(self, hello, reader, writer):
         bridge = self.bridge
-        entry = self.entries.get(hello.get("stream_id"))
+        identity = hello.get("stream_id")
+        entry = self.entries.get(identity) if isinstance(identity, str) else None
         if (entry is None or entry["future"].done() or entry["writer"] is not None
                 or hello.get("v") != 1 or bridge.writer is None
                 or entry["session"] != bridge.session or hello.get("session") != bridge.session

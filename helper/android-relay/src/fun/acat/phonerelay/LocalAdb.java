@@ -32,6 +32,8 @@ final class LocalAdb extends AbsAdbConnectionManager {
     private DataOutputStream controlOut;
     private long sequence;
     private boolean scrcpyPushed;
+    volatile String componentStage = "等待组件";
+    private final Object pushLock = new Object();
     private volatile LocalVideo video;
     private final Object videoLock = new Object();
 
@@ -151,24 +153,34 @@ final class LocalAdb extends AbsAdbConnectionManager {
         closeControl();
     }
     private void syncPacket(OutputStream out, String tag, byte[] bytes, int length) throws IOException {
-        out.write(tag.getBytes("US-ASCII"));
-        out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(length).array());
-        if (bytes != null) out.write(bytes);
-        out.flush();
+        ByteArrayOutputStream packet = new ByteArrayOutputStream();
+        packet.write(tag.getBytes("US-ASCII"));
+        packet.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(length).array());
+        if (bytes != null) packet.write(bytes);
+        out.write(packet.toByteArray()); out.flush();
     }
-    synchronized void pushControlServer() throws Exception {
-        if (scrcpyPushed) return;
-        String path = "/data/local/tmp/acat-phone-relay-scrcpy.jar";
-        try (AdbStream sync = openStream("sync:"); InputStream jar = context.getAssets().open("scrcpy-server")) {
-            OutputStream out = sync.openOutputStream();
-            byte[] name = (path + ",33188").getBytes("UTF-8");
-            syncPacket(out, "SEND", name, name.length);
-            byte[] buf = new byte[65536]; int n;
-            while ((n = jar.read(buf)) > 0) syncPacket(out, "DATA", Arrays.copyOf(buf, n), n);
-            syncPacket(out, "DONE", null, (int)(System.currentTimeMillis() / 1000));
-            byte[] response = new byte[8]; exact(new LocalAdbInputStream(sync), response);
-            if (!new String(response, 0, 4, "US-ASCII").equals("OKAY")) throw new IOException("控制组件写入失败");
-            scrcpyPushed = true;
+    void pushControlServer() throws Exception {
+        synchronized (pushLock) {
+            if (scrcpyPushed) return;
+            bounded("准备手机组件", 7000, () -> {
+                componentStage = "校验已有组件";
+                String path = "/data/local/tmp/acat-phone-relay-scrcpy.jar";
+                JSONObject probe = shell("component-probe", "sha256sum " + path + " 2>/dev/null", 1024);
+                String existing = new String(Base64.decode(probe.getString("stdout"), Base64.NO_WRAP), "UTF-8");
+                if (existing.startsWith("764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536 ")) { scrcpyPushed = true; componentStage = "组件已校验"; return null; }
+                componentStage = "打开组件写入";
+                try (AdbStream sync = openStream("sync:"); InputStream jar = context.getAssets().open("scrcpy-server")) {
+                    OutputStream out = sync.openOutputStream();
+                    byte[] name = (path + ",33188").getBytes("UTF-8"); syncPacket(out, "SEND", name, name.length);
+                    byte[] buf = new byte[65536]; int n, total = 0;
+                    while ((n = jar.read(buf)) > 0) { total += n; componentStage = "组件写入 " + total; syncPacket(out, "DATA", Arrays.copyOf(buf, n), n); }
+                    syncPacket(out, "DONE", null, (int)(System.currentTimeMillis() / 1000)); componentStage = "等待组件确认";
+                    byte[] response = new byte[8]; exact(new LocalAdbInputStream(sync), response);
+                    if (!new String(response, 0, 4, "US-ASCII").equals("OKAY")) throw new IOException("控制组件写入失败");
+                }
+                componentStage = "组件就绪"; scrcpyPushed = true;
+                return null;
+            });
         }
     }
     interface AdbAction<T> { T run() throws Exception; }

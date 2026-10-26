@@ -1310,6 +1310,9 @@ class BackendManager:
             self._scrcpy_error_logged = False
             self._retry_at = 0.0
             await self._stop_current_client()
+            stop_video = getattr(self._adb, "stop_video", None)
+            if getattr(self._adb, "app_mode", False) and callable(stop_video):
+                await stop_video()
 
     async def close(self) -> None:
         """插件停用：停止后端并禁止再次懒启动。"""

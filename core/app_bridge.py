@@ -24,6 +24,10 @@ CAPABILITIES = (
     "screen",
     "screen_config",
     "stream_open",
+    "media_start",
+    "media_status",
+    "media_stop",
+    "media_delete",
     "nodes",
     "input",
     "clipboard",
@@ -251,7 +255,7 @@ class AppBridge:
                 "features": [
                     feature
                     for feature in features
-                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams")
+                    if feature in ("screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording")
                 ],
             }
             authenticated = True

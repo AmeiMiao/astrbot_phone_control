@@ -1,10 +1,10 @@
 """LLM 工具层：把手机操控能力注册成 AstrBot 的 Function-calling 工具。
 
-36 个工具（status/screen/traffic/wireguard/clipboard/shell/tap/long_press/swipe/input_text/key/open_app/
+38 个工具（status/screen/traffic/wireguard/clipboard/shell/tap/long_press/swipe/input_text/key/open_app/
 check_inbox/list_apps/screenshot/bypass_verify/solve_verification/share_to_user/
 browse/learn/recall_diary/recent_chat/wait/clean_background/skill/
 interaction_gate/interaction_record/start_background_task/live_screen/read_screen/
-app_memory/app_remember/watch_media/content）全部是 :class:`FunctionTool` 子类，构造时注入
+app_memory/app_remember/watch_media/content/files/record_media）全部是 :class:`FunctionTool` 子类，构造时注入
 :class:`PhoneService`（``core/service.py`` 中的能力门面）。
 行为规则主要写在插件 ``skills/*/SKILL.md`` 里，由 ``phone_skill`` 工具按需读取。
 
@@ -162,3 +162,4 @@ from .registry import (
 )
 
 from .save_image import PhoneSaveImageTool, PhoneSavedImagesTool
+from .files import PhoneFilesTool, PhoneRecordMediaTool

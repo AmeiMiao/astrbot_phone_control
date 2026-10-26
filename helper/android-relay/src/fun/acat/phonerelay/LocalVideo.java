@@ -76,7 +76,7 @@ final class LocalVideo implements AutoCloseable {
             long deadline = requestedAt + 15000;
             while (running && error == null && (frame == null || frame.at < after)) {
                 long remaining = deadline - SystemClock.elapsedRealtime();
-                if (remaining <= 0) { close(); throw new IOException("手机 scrcpy 等待新视频帧超时：" + stage); }
+                if (remaining <= 0) { close(); throw new IOException("手机 scrcpy 等待新视频帧超时：" + stage + " / " + adb.componentStage + " / " + (worker == null ? "none" : worker.getState())); }
                 wait(remaining);
             }
             if (error != null || !running) throw new IOException(error == null ? "手机视频已停止" : error);
@@ -127,7 +127,8 @@ final class LocalVideo implements AutoCloseable {
                 }
             }
         } catch (Exception e) {
-            synchronized (this) { error = "手机 scrcpy：" + e.getClass().getSimpleName() + " " + e.getMessage(); notifyAll(); }
+            synchronized (this) { error = "手机 scrcpy：" + e.getClass().getSimpleName() + " " + e.getMessage()
+                + (e instanceof MediaCodec.CodecException ? " " + ((MediaCodec.CodecException)e).getDiagnosticInfo() : ""); notifyAll(); }
         } finally {
             if (decoder != null) decoder.close();
             close();
@@ -145,7 +146,8 @@ final class LocalVideo implements AutoCloseable {
                 MediaFormat format = MediaFormat.createVideoFormat("video/avc", width, height);
                 format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
                 format.setInteger(MediaFormat.KEY_PRIORITY, 0);
-                format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
+                if (codec.getCodecInfo().getCapabilitiesForType("video/avc").isFeatureSupported("low-latency"))
+                    format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
                 codec.configure(format, null, null, 0); codec.start();
             } catch (Exception e) { codec.release(); throw e; }
             output = new Thread(() -> {

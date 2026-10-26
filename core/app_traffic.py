@@ -327,6 +327,11 @@ class AppTrafficCapture:
             "provider": self._provider,
             "transport": "relay_tls",
             "ca_mode": settings.ca_mode,
+            "ca_help": (
+                "当前为手动CA：HTTP可直接采集；HTTPS需要在手机安装当前方式的CA，且目标App信任它。App CA可在Relay App导出；mitmproxy CA从插件下载。"
+                if settings.ca_mode == "manual" else
+                "系统CA模式需要已授权的本机root权限；无root时请显式选择手动CA。"
+            ),
             "proxy_address": "127.0.0.1:" + str(self._port),
             "flows": len(recent),
             "received": self._received,

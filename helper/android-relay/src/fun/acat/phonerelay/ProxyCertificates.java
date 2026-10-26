@@ -20,6 +20,8 @@ final class ProxyCertificates {
     private final Map<String, SSLContext> sites = new LinkedHashMap<String, SSLContext>(16, .75f, true) {
         protected boolean removeEldestEntry(Map.Entry<String, SSLContext> entry) { return size() > 64; }
     };
+    static synchronized ProxyCertificates load(File directory) throws Exception { return new ProxyCertificates(directory); }
+    byte[] encoded() throws Exception { return ca.getEncoded(); }
     ProxyCertificates(File directory) throws Exception {
         File identity = new File(directory, "capture-identity.bin");
         if (identity.isFile()) {

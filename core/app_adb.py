@@ -22,6 +22,7 @@ class AppAdbClient(AdbClient):
         command_timeout=30,
         logger=None,
         screen_source="scrcpy",
+        video_standby=True,
     ):
         super().__init__(
             None,
@@ -35,6 +36,9 @@ class AppAdbClient(AdbClient):
         self.bridge = bridge
         self._video_screen = screen_source == "scrcpy"
         self._forwards = {}
+        self._video_standby = video_standby
+        self._video_session = ""
+        self._video_enabled = False
 
     @property
     def screen_source(self):
@@ -52,6 +56,8 @@ class AppAdbClient(AdbClient):
         if self.screen_source != "app_scrcpy":
             return await super().capture_screen(fast=fast, timeout=timeout)
         started = time.perf_counter()
+        if "video_standby" in getattr(self.bridge, "peer", {}).get("features", []) and (self._video_session != self.bridge.session or not self._video_enabled):
+            await self.configure_video(enabled=True)
         value = await self.bridge.call(
             "screen", timeout=timeout or self._command_timeout
         )
@@ -72,6 +78,18 @@ class AppAdbClient(AdbClient):
                 raise ActionFailedError("手机 scrcpy 视频帧尺寸无效")
             frame.load()
         return data, "jpeg", round((time.perf_counter() - started) * 1000)
+
+    async def configure_video(self, *, enabled):
+        if "video_standby" not in getattr(self.bridge, "peer", {}).get("features", []):
+            return
+        await self.bridge.call("screen_config", enabled=enabled, standby=self._video_standby)
+        self._video_session = self.bridge.session
+        self._video_enabled = enabled
+
+    async def stop_video(self):
+        if self.bridge.writer is not None:
+            await self.configure_video(enabled=False)
+        self._video_enabled = False
 
     async def screenshot_png(self, *, timeout=None):
         if self.screen_source != "app_scrcpy":
@@ -96,6 +114,13 @@ class AppAdbClient(AdbClient):
 
     async def _run_adb(self, argv, *, timeout=None, output_limit=None):
         args = list(argv)[3:]  # _base_command 的程序、-s 和 serial。
+        if args[:3] == ["exec-out", "head", "-c"] and len(args) == 5:
+            from .app_files import AppFiles
+            try:
+                maximum = int(args[3])
+            except ValueError as exc:
+                raise ActionFailedError("手机文件读取上限无效") from exc
+            return 0, await AppFiles(self).read(args[4], maximum), b""
         if args and args[0] in ("push", "pull"):
             if len(args) != 3:
                 raise ActionFailedError("文件传输需指定一个源文件和目标路径")
@@ -159,10 +184,11 @@ class AppAdbClient(AdbClient):
             entry = self._forwards.pop(int(args[1][4:]), None)
             if entry:
                 entry["server"].close()
-                await entry["server"].wait_closed()
-                for task in list(entry["tasks"]):
+                tasks = list(entry["tasks"])
+                for task in tasks:
                     task.cancel()
-                await asyncio.gather(*entry["tasks"], return_exceptions=True)
+                await asyncio.gather(*tasks, return_exceptions=True)
+                await entry["server"].wait_closed()
             return ""
         if len(args) != 2 or not args[0].startswith("tcp:") or not valid_service(args[1]) or not args[1].startswith("localabstract:"):
             raise ActionFailedError("手机转发仅接受本机TCP与scrcpy数据流")

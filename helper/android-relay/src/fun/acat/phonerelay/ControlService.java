@@ -23,6 +23,7 @@ public final class ControlService extends Service {
     private volatile LocalAdb adb;
     private volatile PhoneTraffic traffic;
     private volatile LocalStreams streams;
+    private volatile PhoneRecorder recorder;
     private volatile JSONObject connectionCode;
     private volatile DataOutputStream output;
     private volatile String session;
@@ -88,12 +89,13 @@ public final class ControlService extends Service {
                 String device = prefs.getString("device_id", "");
                 if (device.isEmpty()) { device = UUID.randomUUID().toString(); prefs.edit().putString("device_id", device).apply(); }
                 send(new JSONObject().put("v", 1).put("token", code.getString("token")).put("device_id", device)
-                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
+                    .put("features", new org.json.JSONArray(new String[]{"screen_frames", "traffic_proxy", "video_standby", "binary_streams", "media_recording"})).put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName));
                 JSONObject ready = read(input);
                 if (!"ready".equals(ready.optString("type"))) throw new IOException("插件配对被拒绝");
                 session = ready.getString("session"); lastRequestSequence = 0;
                 traffic = new PhoneTraffic(this, adb);
-                streams = new LocalStreams(adb, id -> dataConnection(id));
+                recorder = new PhoneRecorder(this, adb);
+                streams = new LocalStreams(adb, id -> dataConnection(id), id -> recorder.artifact(id));
                 connected = true;
                 status = "App 控制已连接；本机 ADB 权限：shell";
                 ScheduledFuture<?> heartbeat = timers.scheduleAtFixedRate(() -> {
@@ -195,6 +197,10 @@ public final class ControlService extends Service {
                 switch (message.getString("op")) {
                     case "shell": data = local.shell(id, params.getString("command"), Math.min(8 * 1024 * 1024, params.optInt("limit", 8192))); break;
                     case "nodes": data = local.nodes(id, 8 * 1024 * 1024); break;
+                    case "media_start": data = recorder.start(params); break;
+                    case "media_status": data = recorder.status(params.getString("recording_id")); break;
+                    case "media_stop": data = recorder.stop(params.getString("recording_id")); break;
+                    case "media_delete": recorder.delete(params.getString("recording_id")); data = new JSONObject().put("ok", true); break;
                     case "stream_open": streams.open(id, params.getString("stream_id"), params.getString("service")); data = new JSONObject().put("ok", true); break;
                     case "screen": data = local.screen(); break;
                     case "screen_config": local.configureVideo(params.getBoolean("enabled"), params.optBoolean("standby")); data = new JSONObject().put("ok", true); break;
@@ -274,6 +280,7 @@ public final class ControlService extends Service {
         PhoneTraffic capture = traffic; traffic = null; connectionCode = null;
         if (capture != null) capture.close();
         LocalStreams data = streams; streams = null; if (data != null) data.close();
+        PhoneRecorder media = recorder; recorder = null; if (media != null) media.close();
         LocalAdb local = adb; adb = null;
         if (local != null) try { local.close(); } catch (IOException e) { android.util.Log.w("PhoneRelay", "关闭本机 ADB 失败", e); }
     }

@@ -56,3 +56,30 @@ def test_binary_tls_session_binding_replay_and_disconnect(tmp_path):
             hold.set();consumer.cancel();await asyncio.gather(consumer,return_exceptions=True)
             main_writer.close();await bridge.close()
     asyncio.run(run())
+
+
+def test_forward_close_releases_live_local_client(tmp_path):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from core.app_adb import AppAdbClient
+    async def run():
+        entered=asyncio.Event();released=asyncio.Event()
+        class Streams:
+            @asynccontextmanager
+            async def connect(self,service):
+                reader=asyncio.StreamReader()
+                class Writer:
+                    def write(self,data):pass
+                    async def drain(self):pass
+                entered.set()
+                try:yield reader,Writer()
+                finally:released.set()
+        adb=AppAdbClient(SimpleNamespace(streams=Streams()),tmp_path)
+        port=int(await adb.run(['forward','tcp:0','localabstract:scrcpy_12345678']))
+        reader,writer=await asyncio.open_connection('127.0.0.1',port)
+        try:
+            await entered.wait()
+            await asyncio.wait_for(adb.disconnect(),2)
+            assert await reader.read()==b'' and released.is_set() and not adb._forwards
+        finally:writer.close();await writer.wait_closed()
+    asyncio.run(run())

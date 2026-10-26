@@ -158,6 +158,11 @@ class ContentTasks:
             return task
 
     async def start_capture(self, task, *, play_x=None, play_y=None):
+        recordings = getattr(self.service, "recordings", None)
+        if (recordings is not None and recordings.current is not None
+                and recordings.current.get("mode") != "video" and task["kind"] == "video"
+                and task["mode"] != "frames" and self.service.config.media.audio_enabled):
+            raise PhoneControlError("请先结束独立手机录音，再开始媒体理解的音频采集")
         if task.get("_sampler") is not None:
             return
         if task["kind"] == "video":

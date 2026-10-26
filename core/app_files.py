@@ -98,6 +98,29 @@ class AppFiles:
             except Exception as exc:
                 logging.getLogger(__name__).warning("文件租约收尾未完成，设备看门狗将清理临时文件：%s", exc)
 
+    async def read(self, source, maximum):
+        source = phone_path(source)
+        if type(maximum) is not int or not 0 <= maximum <= 20 * 1024 * 1024 + 1:
+            raise ActionFailedError("手机文件读取上限无效")
+        result = bytearray()
+        async with asyncio.timeout(60):
+            async with self.adb.bridge.streams.connect("sync:") as (reader, writer):
+                await self._packet(writer, "STAT", source.encode())
+                tag, mode = await self._header(reader)
+                if tag != b"STAT" or not stat.S_ISREG(mode):
+                    raise ActionFailedError("只能读取手机普通文件")
+                size, _mtime = struct.unpack("<II", await self._read(reader, 8))
+                if size > MAX_FILE_BYTES:
+                    raise ActionFailedError("手机文件超过128 MiB")
+                await self._packet(writer, "RECV", source.encode())
+                while len(result) < min(size, maximum):
+                    tag, length = await self._header(reader)
+                    if tag != b"DATA" or not 0 < length <= CHUNK or len(result) + length > size:
+                        raise ActionFailedError("手机文件数据长度无效")
+                    chunk = await self._read(reader, min(length, maximum - len(result)))
+                    result.extend(chunk)
+        return bytes(result)
+
     async def pull(self, source, destination):
         source = phone_path(source)
         target = Path(destination)

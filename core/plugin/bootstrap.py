@@ -383,7 +383,7 @@ class BootstrapMixin:
         from ..app_adb import AppAdbClient
         self._app_bridge = AppBridge(self.data_dir / "app-bridge", plugin_root_dir() / "bin/android/phone-adb-relay.apk")
         if initial.adb.mode == "app":
-            self.adb = AppAdbClient(self._app_bridge, adb_home, command_timeout=initial.adb.command_timeout, logger=self._device_log, screen_source=initial.adb.app_screen_source)
+            self.adb = AppAdbClient(self._app_bridge, adb_home, command_timeout=initial.adb.command_timeout, logger=self._device_log, screen_source=initial.adb.app_screen_source, video_standby=initial.adb.app_video_standby)
         self.actions = DeviceActions(self.adb, logger=self._device_log)
         self.diary = PhoneDiary(self.data_dir / "diary")
         self.quota = TokenQuota(self.data_dir)
@@ -440,6 +440,9 @@ class BootstrapMixin:
             logger=self._device_log,
         )
         self.service.media = self._media_capture
+        if initial.adb.mode == "app":
+            from ..app_recording import AppRecording
+            self.service.recordings = AppRecording(self._app_bridge, self.service.files)
         # 手机流量抓包（ADB + mitmproxy）：生命周期跟随插件。
         from ..app_traffic import AppTrafficCapture
         capture_class = AppTrafficCapture if initial.adb.mode == "app" else TrafficCapture
@@ -853,6 +856,11 @@ class BootstrapMixin:
                 await task
             except asyncio.CancelledError:
                 pass
+        if getattr(self.service, "recordings", None) is not None:
+            try:
+                await self.service.recordings.close()
+            except Exception as exc:
+                logger.warning("手机录制收尾失败，关闭控制连接后由App清理：%s", exc)
         if hasattr(self.service, "_contents"):
             await self.service.contents.close(abnormal=True)
         self._components.cancel()

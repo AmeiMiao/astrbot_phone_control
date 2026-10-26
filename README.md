@@ -49,7 +49,7 @@ ADB 地址与端口留空时，插件可安装和加载，面板、配置及资�
 
 | 能力 | 说明 |
 | --- | --- |
-| 手机控制 | 36 个 `phone_*` 工具，支持状态、UI 树、截图、点击、滑动、输入、按键与后台清理；按场景选择 ADB、scrcpy、minitouch |
+| 手机控制 | 38 个 `phone_*` 工具，支持状态、UI 树、截图、点击、滑动、输入、按键与后台清理；按场景选择 ADB、scrcpy、minitouch |
 | 内容理解 | 图文任务关联原图与正文，视频/直播结合播放音频、关键帧、STT 与视觉 Provider；看评论、回复、分享分别判断 |
 | 自主浏览 | 定时、随机和持续任务，按兴趣选择内容；用户任务优先，过程静默，结束简短汇报 |
 | 互动与配图 | 点赞、收藏、评论、被动回复、发帖分别授权并记账；按语义选用服务器或手机保存的图片 |
@@ -239,7 +239,7 @@ python3 -m pytest tests -q
 | 路径 | 内容 |
 | --- | --- |
 | `main.py`、`core/plugin/` | 入口、生命周期、命令、任务、监控与同步 |
-| `core/service.py`、`core/tools/` | 能力门面与 36 个工具 |
+| `core/service.py`、`core/tools/` | 能力门面与 38 个工具 |
 | `core/app_policy.py` | 应用类型模型分类及启动限制 |
 | `core/mesh*.py`、`core/wireguard.py` | 用户态组网、TCP 转发与节点生命周期 |
 | `views/dashboard/` | 监控与资料管理页面 |
@@ -261,3 +261,7 @@ python3 -m pytest tests -q
 在自主行为配置中用 `auto.mode` 下拉选择「随机玩」「自动刷」「定时玩」，对应子项随选择显示。`auto.activity_enabled` 控制是否运行当前模式。随机玩与自动刷分别保存各自时间段，切换后仍保留设置；定时玩使用 cron、App 与汇报会话。保存模式后取消其他自主模式的在途任务，定时排程随模式同步。已有配置加载前自动备份迁移，所有自主开关均关闭的配置保持关闭。`/phone continuous on` 选择自动刷，`/phone auto on` 选择定时玩，`/phone stop` 关闭自主活动。
 
 App 模式支持手机播放音频及连续片段采集，数据通过绑定控制会话的二进制子连接传送。双向文件传输按64 KiB分块，单文件上限128 MiB，大小和SHA256核对成功后提交目标文件。
+
+手机端录制使用 `phone_record_media` 的 start/status/stop/cancel，支持声音、画面或音视频，最大900秒/128 MiB。手机以H264/AAC封装MP4/M4A，stop下载并校验成品。`phone_files` 支持当前聊天附件上传、手机下载、缓存列表和清理；文件可按需发回当前聊天。
+
+App抓包的系统CA模式需要已授权root；手动CA模式下代理可启动，HTTPS解密仍取决于目标App信任。Relay App支持导出自身公开CA并打开系统证书设置，Dashboard可下载当前抓包方式的CA。

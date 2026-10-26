@@ -34,7 +34,7 @@ class AppCaTrust:
         if result.splitlines()[0].strip() != "0":
             if len(result.splitlines()) < 2:
                 raise ActionFailedError(
-                    "系统 CA 需要本机 adbd root 或 su；可选择手动 CA 信任方式"
+                    "系统 CA 需要本机 adbd root 或 su，代理尚未启动。无 root 时选择手动 CA，并从 Relay App 导出或从插件下载证书，在手机系统设置安装；HTTPS 还需目标 App 信任此 CA"
                 )
             check = await self.adb.shell("su -c " + shlex.quote("id -u"), timeout=10)
             if check.strip() != "0":

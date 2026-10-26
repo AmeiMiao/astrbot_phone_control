@@ -624,6 +624,12 @@ class CommandsMixin:
     ) -> None:
         """``/phone stop [job_id|all]``：停止本插件任务并收尾手机。"""
         resource_errors = []
+        recordings = getattr(self.service, "recordings", None)
+        if recordings is not None:
+            try:
+                await recordings.close()
+            except Exception as exc:
+                resource_errors.append(f"手机录制停止失败：{exc}")
         target = rest[0] if rest else "all"
         job_id = "" if target.lower() in {"all", "-a", "全部"} else target
         if hasattr(self.service, "_contents"):

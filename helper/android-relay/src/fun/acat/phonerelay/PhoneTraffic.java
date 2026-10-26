@@ -24,7 +24,7 @@ final class PhoneTraffic implements AutoCloseable {
     private long lastReport;
     PhoneTraffic(Context context, LocalAdb adb) { this.context = context; this.adb = adb; }
     synchronized JSONObject prepare() throws Exception {
-        if (certificates == null) certificates = new ProxyCertificates(context.getFilesDir());
+        if (certificates == null) certificates = ProxyCertificates.load(context.getFilesDir());
         return new JSONObject().put("ca", certificates.pem());
     }
     synchronized JSONObject start(JSONObject params, AppProxyTunnel.Dial dial) throws Exception {
