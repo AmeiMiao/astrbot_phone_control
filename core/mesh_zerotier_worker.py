@@ -130,8 +130,8 @@ class Stream:
                 self.fd = -1
 
 
-def bridge(left, right):
-    # libzt 随包配置要求每个 socket 由同一线程执行收发和关闭。
+def bridge(left, right, stopping=None):
+    # 虚拟套接字由其转发线程完成收发和关闭。
     virtual, native = (left, right) if isinstance(left, Stream) else (right, left)
     native.setblocking(False)
     pending_virtual = bytearray()
@@ -141,7 +141,7 @@ def bridge(left, right):
     last_activity = time.monotonic()
     limit = 65536
     try:
-        while native_read or virtual_read or pending_virtual or pending_native:
+        while (native_read or virtual_read or pending_virtual or pending_native) and not (stopping and stopping.is_set()):
             iteration_activity = last_activity
             if time.monotonic() - last_activity > 60:
                 raise TimeoutError("ZeroTier TCP channel idle timeout")
@@ -190,6 +190,83 @@ def bridge(left, right):
     finally:
         virtual.close()
         native.close()
+
+
+class Ingress:
+    """来源受限的虚拟网入口，连接收发与SDK关闭均归所属线程管理。"""
+    def __init__(self, listener, target, peer, bridge_fn=bridge):
+        if type(target) is not int or not 1024 <= target <= 65535:
+            raise ValueError('组网入口目标端口无效')
+        self.peer = str(ipaddress.IPv4Address(peer))
+        address=ipaddress.IPv4Address(self.peer)
+        if address.is_unspecified or address.is_loopback or address.is_multicast or int(address)==0xffffffff:
+            raise ValueError('组网入口需要手机单播IPv4')
+        self.listener, self.target, self.bridge_fn = listener, target, bridge_fn
+        self.stopping = threading.Event()
+        self.lock = threading.RLock()
+        self.threads = set()
+        self.native = set()
+        self.capacity = threading.BoundedSemaphore(32)
+        self.error = ''
+        self.connection_error = ''
+        self.failures = 0
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def serve(self):
+        try:
+            while not self.stopping.is_set():
+                try:
+                    incoming, peer = self.listener.accept()
+                except BlockingIOError:
+                    self.stopping.wait(.05); continue
+                except OSError as exc:
+                    if not self.stopping.is_set(): self.error = str(exc)
+                    return
+                if peer != self.peer or not self.capacity.acquire(blocking=False):
+                    incoming.close(); continue
+                thread = threading.Thread(target=self.handle,args=(incoming,),daemon=True)
+                with self.lock:
+                    self.threads.add(thread)
+                    thread.start()
+        finally:
+            self.listener.close()
+
+    def handle(self, incoming):
+        native = None
+        try:
+            if self.stopping.is_set(): return
+            native = socket.create_connection(('127.0.0.1',self.target),timeout=2)
+            native.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
+            with self.lock:
+                if self.stopping.is_set(): return
+                self.native.add(native)
+                self.connection_error = ''
+            self.bridge_fn(incoming,native,self.stopping)
+        except OSError as exc:
+            if not self.stopping.is_set():
+                with self.lock:
+                    self.connection_error = str(exc)
+                    self.failures += 1
+        finally:
+            incoming.close()
+            if native is not None:
+                native.close()
+                with self.lock: self.native.discard(native)
+            self.capacity.release()
+            with self.lock: self.threads.discard(threading.current_thread())
+
+    def close(self):
+        self.stopping.set()
+        self.thread.join(1)
+        with self.lock:
+            for native in self.native:
+                native.close()
+            threads = list(self.threads)
+        deadline = time.monotonic()+3
+        for thread in threads: thread.join(max(0,deadline-time.monotonic()))
+        if self.thread.is_alive() or any(t.is_alive() for t in threads):
+            raise RuntimeError('ZeroTier入口连接未在停止期限内结束')
 
 
 def read_exact(stream, size):
@@ -260,46 +337,28 @@ def run(config):
 
     server = ForwardServer(("127.0.0.1", config["socks_port"]), Socks)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    listener = None
-    proxy_target = None
-    proxy_started = False
-    proxy_failure = []
+    ingresses = {}
+    app_error = ''
 
-    def proxy(active_listener, active_target):
-        while not stopping.is_set() and active_listener.fd >= 0:
-            try:
-                incoming, peer = active_listener.accept()
-            except BlockingIOError:
-                stopping.wait(0.05)
-                continue
-            except OSError as exc:
-                if active_listener.fd >= 0:
-                    proxy_failure.append(str(exc))
-                    print("ZeroTier 代理监听失败：", str(exc), file=sys.stderr, flush=True)
-                return
-            # 抓包入口只接受配置的手机节点，不向全部 ZeroTier 成员开放代理。
-            if peer != config.get("phone_ip") or not capacity.acquire(blocking=False):
-                incoming.close()
-                continue
-
-            def handle(stream):
-                try:
-                    native = socket.create_connection(
-                        ("127.0.0.1", active_target), timeout=10
-                    )
-                    native.settimeout(60)
-                    bridge(stream, native)
-                except OSError:
-                    stream.close()
-                finally:
-                    capacity.release()
-
-            threading.Thread(target=handle, args=(incoming,), daemon=True).start()
+    def reconcile_ingress(name, desired, address):
+        current = ingresses.get(name)
+        signature = (address,desired,config.get('phone_ip'))
+        if current and (current[0] != signature or current[1].error):
+            current[1].close(); del ingresses[name]; current=None
+        if not desired: return
+        if current: return
+        port,target = desired
+        listener=sdk.stream()
+        try:
+            sdk.check(sdk.lib.zts_bind(listener.fd,address.encode(),port))
+            sdk.check(sdk.lib.zts_listen(listener.fd,16))
+            sdk.check(sdk.lib.zts_set_blocking(listener.fd,0))
+            ingresses[name]=(signature,Ingress(listener,target,config.get('phone_ip','')))
+        except BaseException:
+            listener.close(); raise
 
     try:
         while not stopping.is_set():
-            if proxy_failure:
-                raise RuntimeError("ZeroTier 代理监听失败，请检查 SDK 与节点日志")
             online = bool(sdk.lib.zts_node_is_online())
             if online and not joined:
                 sdk.check(sdk.lib.zts_net_join(network))
@@ -317,22 +376,12 @@ def run(config):
             control = (
                 json.loads(control_path.read_text()) if control_path.exists() else {}
             )
-            if ready and control.get("proxy_local_port") and not proxy_started:
-                proxy_target = int(control["proxy_local_port"])
-                listener = sdk.stream()
-                sdk.check(
-                    sdk.lib.zts_bind(listener.fd, address.encode(), config["proxy_port"])
-                )
-                sdk.check(sdk.lib.zts_listen(listener.fd, 16))
-                sdk.check(sdk.lib.zts_set_blocking(listener.fd, 0))
-                threading.Thread(
-                    target=proxy, args=(listener, proxy_target), daemon=True
-                ).start()
-                proxy_started = True
-            if proxy_started and not control.get("proxy_local_port"):
-                listener.close()
-                listener = None
-                proxy_started = False
+            proxy_target=int(control.get('proxy_local_port') or 0)
+            desired_proxy=(int(config['proxy_port']),proxy_target) if ready and proxy_target else None
+            desired_app=(int(config.get('app_port') or 0),int(config.get('app_port') or 0)) if ready and config.get('app_port') and config.get('phone_ip') else None
+            app_error = 'App入口需要配置手机组网IPv4' if config.get('app_port') and not config.get('phone_ip') else ''
+            for name,desired in (('proxy',desired_proxy),('app',desired_app)):
+                reconcile_ingress(name,desired,address)
             private_json(
                 Path(config["status_path"]),
                 dict(
@@ -346,7 +395,9 @@ def run(config):
                     error=error,
                     auth_url="",
                     updated_at=time.time(),
-                    proxy_port=config["proxy_port"] if proxy_started else 0,
+                    proxy_port=config["proxy_port"] if 'proxy' in ingresses else 0,
+                    app_port=config.get('app_port',0) if 'app' in ingresses else 0,
+                    app_error=(ingresses['app'][1].connection_error if 'app' in ingresses else app_error),
                 ),
             )
             stopping.wait(1)
@@ -354,8 +405,8 @@ def run(config):
         stopping.set()
         server.shutdown()
         server.server_close()
-        if listener:
-            listener.close()
+        for _signature, ingress in ingresses.values():
+            ingress.close()
         sdk.lib.zts_node_stop()
 
 

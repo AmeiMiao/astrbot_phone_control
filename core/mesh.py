@@ -81,6 +81,11 @@ class MeshManager:
         return self.service.config.mesh
 
     @property
+    def app_port(self):
+        adb = getattr(self.service.config, "adb", None)
+        return adb.app_port if adb is not None and adb.mode == "app" else 0
+
+    @property
     def running(self):
         return self.process is not None and self.process.returncode is None
 
@@ -229,6 +234,8 @@ class MeshManager:
             node_id=(data.get("Self") or {}).get("ID", ""),
         )
         result["ready"] = result["state"] == "Running" and bool(result["addresses"])
+        result["app_port"] = self.app_port if result["ready"] else 0
+        result["app_route"] = "tailscale-loopback" if result["ready"] and self.app_port else ""
         if result["ready"]:
             result["error"] = ""
         return result
@@ -395,6 +402,7 @@ class MeshManager:
                         phone_ip=settings.phone_ip,
                         adb_port=settings.adb_port,
                         proxy_port=settings.proxy_port,
+                        app_port=self.app_port,
                         control_path=str(self.root / "zerotier-control.json"),
                         status_path=str(status_path),
                     ),

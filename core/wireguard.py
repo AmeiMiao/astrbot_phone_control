@@ -474,8 +474,8 @@ def build_helper_config(
         raise WireGuardConfigError(
             f"phone_wg_ip {phone_ip} 不在 interface_address 网段 {network} 内"
         )
-    adb_local_port = _validate_adb_local_port(settings)
-    if not 1 <= settings.adb_target_port <= 65535:
+    adb_local_port = 0 if app_port else _validate_adb_local_port(settings)
+    if not app_port and not 1 <= settings.adb_target_port <= 65535:
         raise WireGuardConfigError("adb_target_port 需为 1–65535")
     if not 0 <= settings.socks_port <= 65535 or (settings.socks_port and settings.socks_port == adb_local_port):
         raise WireGuardConfigError("socks_port 需为 0–65535 且与 ADB 本地端口不同")

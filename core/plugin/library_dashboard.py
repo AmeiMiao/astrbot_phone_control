@@ -232,6 +232,7 @@ class LibraryDashboardMixin:
                 "node_id": status["public_key"],
                 "addresses": status["interface_addresses"],
                 "adb_forward": status["adb_over_wg"],
+                "app_port": status.get("app_port", 0),
                 "error": status["error"] or status["health_reason"],
             }
         else:
