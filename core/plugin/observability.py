@@ -341,11 +341,17 @@ class ObservabilityMixin(LibraryDashboardMixin):
         bridge = self._app_bridge
         if bridge.server is None:
             return json_response({"enabled": False, "message": "请在 ADB 连接中选择使用 App 控制并重载插件"})
-        host = str(request.query.get("host") or request.headers.get("host", "").split(":")[0]).strip()
-        if not host or "/" in host or len(host) > 253:
-            return error_response("请填写手机可访问的插件主机名或 IPv4 地址", status_code=400)
-        return json_response({"enabled": True, "peer": bridge.peer, "port": bridge.port,
-                              "code": bridge.pairing(host), "capabilities": ["控制", "截图", "节点", "剪贴板"]})
+        from ..app_network import relay_route, peer_capabilities
+        config=self._config()
+        enabled=config.mesh.enabled or config.wireguard.enabled
+        network=await self._network_status() if enabled else {}
+        panel_host=request.headers.get("host", "").split(":")[0]
+        route=relay_route(port=bridge.port,host=str(request.query.get("host") or '').strip(),panel_host=panel_host,network_enabled=enabled,network=network)
+        return json_response({"enabled": True,"peer":bridge.peer,"port":bridge.port,
+                              "code":bridge.pairing(route['host']) if route['host'] else '',
+                              "route":route,"device_capabilities":peer_capabilities(bridge.peer),
+                              "capabilities":["控制","截图","节点","剪贴板","播放音频","媒体录制","文件传输","HTTP(S)抓包"]})
+
 
     async def dashboard_overview(self):
         """GET dashboard/overview：运行状态/额度/今日互动/最近指标。"""

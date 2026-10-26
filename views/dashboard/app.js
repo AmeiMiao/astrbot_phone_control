@@ -157,7 +157,14 @@
       : value.message || "在插件的 ADB 连接中选择「使用 App 控制」，保存并重载。" );
     setText("app-endpoint", value.port ? `TCP ${value.port}` : "—");
     setText("app-version", peer.version ? `v${peer.version}` : "—");
-    $("app-pair").disabled = !value.enabled;
+    const route = value.route || {};
+    const capability = value.device_capabilities || {};
+    setText("app-route-status", `${route.source || "external"} · ${route.message || "等待选择插件地址"}`);
+    setText("app-endpoint", route.host ? `${route.host}:${value.port}` : value.port ? `TCP ${value.port}` : "—");
+    setText("app-current-target", capability.endpoint_host ? `App实际目标：${capability.endpoint_host}:${capability.endpoint_port}` : "实际目标等待新版App报告；组网在线与App连接分别确认。");
+    setText("app-adb-status", capability.adb_uid === 0 ? "本机ADB：Root（UID 0）" : Number.isInteger(capability.adb_uid) ? `本机ADB：UID ${capability.adb_uid}${capability.su_present ? "，检测到su，使用时仍需授权" : "；系统CA需要Root或su授权"}` : connected ? "本机ADB已连接，权限详情等待新版App报告。" : "本机ADB尚未报告，请在手机端确认授权与连接端口。");
+    setText("app-capability-status", Number.isInteger(capability.sdk_int) ? `Android API ${capability.sdk_int} · 播放音频${capability.playback_audio ? "支持" : "不可用"}；HTTPS仍需目标App信任对应CA。` : "音频采集要求Android 11及以上；设备能力等待新版App报告。");
+    $("app-pair").disabled = !value.enabled || (value.route && !route.host);
     $("app-reset").disabled = !value.enabled;
   }
 

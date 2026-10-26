@@ -17,7 +17,7 @@
         "type": "int",
         "default": 6190,
         "description": "App 接入端口",
-        "hint": "手机主动连接此 TLS 端口；容器需发布同一端口。配对码在 Dashboard 的 App 连接中获取。",
+        "hint": "手机主动连接的TLS端口。内置组网由插件映射到虚拟网入口；外部系统VPN按容器网络发布此端口。在独立的Relay App页面获取配对码。",
         "condition": {
           "mode": "使用 App 控制"
         }
@@ -26,7 +26,7 @@
         "type": "string",
         "default": "",
         "description": "模拟器 ADB 主机地址（留空=未启用）",
-        "hint": "留空表示未配置 ADB：插件仍可安装/加载，面板、配置和资料迁移可用，但不连接设备、不启动手机后台任务（假开启）。远程模拟器填写 AstrBot 所在环境可访问的主机地址，例如 192.168.1.10。",
+        "hint": "填写AstrBot所在环境可访问的ADB地址；经App TCP中转时填写手机组网IP，端口默认15555。留空时直连手机能力保持未启用。",
         "condition": {
           "mode": "直连"
         }
@@ -61,7 +61,7 @@
       "connect_timeout": {
         "type": "int",
         "default": 20,
-        "description": "连接设备等待秒数",
+        "description": "直连连接设备等待秒数",
         "hint": "范围 1-120，默认 20。"
       },
       "command_timeout": {
@@ -89,7 +89,8 @@
         "description": "手机视频保持就绪",
         "hint": "App scrcpy 在控制连接期间保持手机视频通道就绪，并通过独立加密连接推送最新帧，降低截图等待。关闭后按需采集，90秒空闲释放；保持就绪会消耗一定电量和流量，插件端 scrcpy 由直连配置控制。",
         "condition": {
-          "mode": "使用 App 控制"
+          "mode": "使用 App 控制",
+          "app_screen_source": "scrcpy 视频取帧"
         }
       }
     },
@@ -1278,7 +1279,7 @@
   "network": {
     "type": "object",
     "description": "组网",
-    "hint": "启用后选择 WireGuard、Tailscale 或 ZeroTier；每次运行一种服务，停用恢复原 ADB 目标。功能保存并重载时准备所需运行组件。",
+    "hint": "选择内置用户态组网。App控制由手机主动连接插件组网地址和App端口；直连或App TCP中转使用ADB转发。外部系统VPN独立配置，手机VPN分流需允许Phone Relay。切换连接方式后保存并重载以刷新适用参数。",
     "items": {
       "enabled": {
         "type": "bool",
@@ -1472,7 +1473,7 @@
             "type": "string",
             "default": "",
             "description": "手机组网 IPv4",
-            "hint": "手机官方客户端连接后显示的组网地址。"
+            "hint": "配置手机在此ZeroTier网络获分配的IPv4。App回连入口按此地址限制来源；填写后保存重载。"
           },
           "auto_adb": {
             "type": "bool",
@@ -1572,7 +1573,7 @@
           "manual"
         ],
         "description": "抓包 CA 信任方式",
-        "hint": "system 通过 adb root 安装系统 CA；manual 由使用者或 App 自行信任下载的 CA，可在无 root 设备抓取 HTTP，HTTPS 仅适用于信任此 CA 的 App；证书固定的应用可能拒绝连接。",
+        "hint": "system需要设备Root：直连可尝试adb root，App控制需本机adbd已Root或su已授权。manual由目标App信任所选抓包方式的CA；无Root可采集HTTP，HTTPS需安装且目标App信任CA，证书固定可能拒绝解密。",
         "condition": {
           "enabled": true
         }
@@ -1581,7 +1582,7 @@
         "type": "string",
         "default": "",
         "description": "mitmdump 可执行路径",
-        "hint": "插件端 mitmdump 路径，建议在独立 venv 安装抓包依赖；留空从 PATH 或当前 Python 同目录查找。",
+        "hint": "仅mitmproxy方式使用；在独立venv安装并填写路径，App抓包使用手机代理。",
         "condition": {
           "enabled": true
         }

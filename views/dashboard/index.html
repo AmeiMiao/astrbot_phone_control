@@ -118,7 +118,7 @@
             <section class="card relay-card" aria-labelledby="relay-pair-title">
               <div class="relay-section-head"><span class="relay-step">02</span><div><h2 id="relay-pair-title">连接手机与插件</h2><p>为手机填写一个可访问的插件地址。</p></div></div>
               <label class="relay-field" for="app-host">插件主机名或 IPv4 地址<input id="app-host" type="text" placeholder="例如 relay.example.com" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="app-host-hint" /></label>
-              <p class="hint" id="app-host-hint">留空使用当前面板主机。手机通过此地址和 App 接入端口连接插件。</p>
+              <p class="hint" id="app-host-hint">留空优先使用已就绪的内置组网地址；未启用内置组网时使用当前面板主机。外部VPN可填写插件主机的组网地址。手机VPN分流需允许Phone Relay。</p>
               <button id="app-pair" class="btn primary" type="button">获取 App 配对码</button>
               <p id="app-status" class="relay-feedback" role="status"></p>
               <div id="app-code-area" class="relay-code-area" hidden>
@@ -126,8 +126,8 @@
                 <textarea id="app-code" readonly rows="4" spellcheck="false" aria-label="App 配对码"></textarea>
                 <p class="hint">将此码填入手机 App 的「插件配对码」，再启动控制。配对码包含连接凭据，请妥善保管。</p>
               </div>
-              <div class="relay-capabilities" aria-label="App 控制能力"><span>触控与输入</span><span>屏幕截图</span><span>UI 节点</span><span>剪贴板</span></div>
-              <p class="hint">音视频、文件传输与抓包使用插件的直连模式。</p>
+              <div class="relay-capabilities" aria-label="App 控制能力"><span>触控与输入</span><span>屏幕截图</span><span>UI 节点</span><span>剪贴板</span><span>播放音频</span><span>媒体录制</span><span>文件传输</span><span>流量抓包</span></div>
+              <p class="hint">音视频、录制、文件与抓包通过App连接传送；HTTPS仍需目标App信任对应抓包CA。</p>
             </section>
             <div class="relay-aside">
               <section class="card relay-card" aria-labelledby="relay-install-title">
@@ -135,6 +135,13 @@
                 <button id="app-apk" class="btn primary relay-download" type="button">下载 Relay APK</button>
                 <ol class="relay-checklist"><li>在手机安装 App，开启并授权本机 ADB。</li><li>在插件的 ADB 连接中选择「使用 App 控制」，保存并重载。</li><li>获取配对码，在手机 App 中填写并启动控制。</li></ol>
                 <a id="app-config-link" class="relay-config-link" href="#" target="_top">打开插件配置 →</a>
+              </section>
+              <section class="card relay-card"><h2>连接与能力检查</h2>
+                <p id="app-route-status" class="hint">正在检查组网入口…</p>
+                <p id="app-current-target" class="hint">实际连接目标等待App报告。</p>
+                <p id="app-adb-status" class="hint">本机ADB授权等待App报告。</p>
+                <p id="app-capability-status" class="hint">音频采集要求Android 11及以上；HTTPS解密取决于CA信任。</p>
+                <p class="hint">组网登录、本机ADB配对、插件App配对是三个独立步骤。App断线时请查看手机端显示的失败阶段。</p>
               </section>
               <section class="card relay-card relay-reset" aria-labelledby="relay-reset-title"><h2 id="relay-reset-title">更换受控手机</h2><p>重置会断开已配对手机，并生成新的连接凭据。请先停止手机任务。</p><button id="app-reset" class="btn ghost" type="button">重置 App 配对</button></section>
             </div>

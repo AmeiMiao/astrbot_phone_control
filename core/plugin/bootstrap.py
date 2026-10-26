@@ -310,6 +310,8 @@ class BootstrapMixin:
         populate_embedding_options(self.raw_config, context)
         from ..app_traffic import populate_capture_options
         populate_capture_options(self.raw_config)
+        from ..app_schema import populate_connection_options
+        populate_connection_options(self.raw_config)
         if migrate_network(self.raw_config):
             save = getattr(self.raw_config, "save_config", None)
             if callable(save):
