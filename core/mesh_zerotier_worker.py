@@ -2,6 +2,8 @@
 
 import argparse
 import ctypes as c
+import errno
+import struct
 import ipaddress
 import json
 import os
@@ -25,6 +27,8 @@ class PollFd(c.Structure):
 
 
 class SDK:
+    _call_lock = threading.RLock()
+
     def __init__(self, path):
         self.lib = c.CDLL(str(path))
         specs = {
@@ -38,7 +42,8 @@ class SDK:
             "zts_net_transport_is_ready": ([c.c_uint64], c.c_int),
             "zts_addr_get_str": ([c.c_uint64, c.c_uint, c.c_void_p, c.c_uint], c.c_int),
             "zts_socket": ([c.c_int, c.c_int, c.c_int], c.c_int),
-            "zts_connect": ([c.c_int, c.c_char_p, c.c_ushort, c.c_int], c.c_int),
+            "zts_bsd_connect": ([c.c_int, c.c_void_p, c.c_uint], c.c_int),
+            "zts_bsd_getsockopt": ([c.c_int, c.c_int, c.c_int, c.c_void_p, c.POINTER(c.c_uint)], c.c_int),
             "zts_bind": ([c.c_int, c.c_char_p, c.c_ushort], c.c_int),
             "zts_listen": ([c.c_int, c.c_int], c.c_int),
             "zts_bsd_accept": ([c.c_int, c.c_void_p, c.c_void_p], c.c_int),
@@ -50,8 +55,6 @@ class SDK:
             "zts_shutdown_wr": ([c.c_int], c.c_int),
             "zts_set_no_delay": ([c.c_int, c.c_int], c.c_int),
             "zts_set_blocking": ([c.c_int, c.c_int], c.c_int),
-            "zts_set_recv_timeout": ([c.c_int, c.c_int, c.c_int], c.c_int),
-            "zts_set_send_timeout": ([c.c_int, c.c_int, c.c_int], c.c_int),
         }
         for name, (args, result) in specs.items():
             fn = getattr(self.lib, name)
@@ -66,13 +69,47 @@ class SDK:
             raise OSError(error, "ZeroTier socket operation failed")
         return result
 
+    def call(self, name, *args):
+        # SDK使用进程级zts_errno；原生调用与错误读取属于同一临界区。
+        with self._call_lock:
+            return self.check(getattr(self.lib, name)(*args))
+
     def stream(self):
-        fd = self.check(self.lib.zts_socket(2, 1, 0))
-        self.lib.zts_set_no_delay(fd, 1)
-        self.lib.zts_set_blocking(fd, 1)
-        self.lib.zts_set_recv_timeout(fd, 60, 0)
-        self.lib.zts_set_send_timeout(fd, 30, 0)
+        fd = self.call("zts_socket", 2, 1, 0)
+        try:
+            self.call("zts_set_no_delay", fd, 1)
+            self.call("zts_set_blocking", fd, 0)
+        except BaseException:
+            self.call("zts_close", fd)
+            raise
         return Stream(self, fd)
+
+    def connect(self, stream, host, port, timeout=10):
+        # zts_sockaddr_in采用BSD的长度/地址族字节和网络字节序端口。
+        raw = struct.pack("!BBH4s8x", 16, 2, port, ipaddress.IPv4Address(host).packed)
+        address = c.create_string_buffer(raw, len(raw))
+        try:
+            self.call("zts_bsd_connect", stream.fd, address, len(raw))
+            return
+        except OSError as error:
+            if error.errno not in (errno.EINPROGRESS, errno.EALREADY, errno.EWOULDBLOCK):
+                raise
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            descriptor = PollFd(stream.fd, 2, 0)
+            self.call("zts_bsd_poll", c.byref(descriptor), 1, 0)
+            if descriptor.revents & 8:
+                raise OSError(errno.EBADF, "ZeroTier socket unavailable")
+            if descriptor.revents & 6:
+                error = c.c_int();length = c.c_uint(c.sizeof(error))
+                self.call("zts_bsd_getsockopt", stream.fd, 0x0fff, 0x1007, c.byref(error), c.byref(length))
+                if error.value:
+                    raise OSError(error.value, "ZeroTier connect failed")
+                if descriptor.revents & 4:
+                    raise OSError(errno.ECONNABORTED, "ZeroTier connect failed")
+                return
+            time.sleep(min(.01, max(0, deadline-time.monotonic())))
+        raise TimeoutError("ZeroTier connection deadline exceeded")
 
     def configure_transport(self, force_tcp_relay):
         if not force_tcp_relay:
@@ -82,7 +119,8 @@ class SDK:
             raise RuntimeError("当前ZeroTier SDK不支持强制TCP中继，请更新动态库")
         configure.argtypes = [c.c_int]
         configure.restype = c.c_int
-        self.check(configure(1))
+        with self._call_lock:
+            self.check(configure(1))
 
     def address(self, network):
         buf = c.create_string_buffer(IP_STRING_SIZE)
@@ -101,43 +139,42 @@ class Stream:
         with self.lock:
             if self.fd < 0:
                 raise OSError("ZeroTier listener closed")
-            fd = self.sdk.check(self.sdk.lib.zts_bsd_accept(self.fd, None, None))
+            fd = self.sdk.call("zts_bsd_accept", self.fd, None, None)
         # 先确认 accept 成功，再按官方固定长度合约查询对端地址。
         address = c.create_string_buffer(IP_STRING_SIZE)
         port = c.c_ushort()
         try:
-            self.sdk.check(self.sdk.lib.zts_getpeername(
-                fd, address, IP_STRING_SIZE, c.byref(port)
-            ))
+            self.sdk.call("zts_set_blocking", fd, 0)
+            self.sdk.call("zts_getpeername", fd, address, IP_STRING_SIZE, c.byref(port))
         except BaseException:
-            self.sdk.lib.zts_close(fd)
+            self.sdk.call("zts_close", fd)
             raise
         return Stream(self.sdk, fd), address.value.decode()
 
     def recv(self, size):
         buf = c.create_string_buffer(size)
-        n = self.sdk.check(self.sdk.lib.zts_recv(self.fd, buf, size, 8))
+        n = self.sdk.call("zts_recv", self.fd, buf, size, 8)
         return buf.raw[:n]
 
     def send(self, data):
         buf = c.create_string_buffer(data)
-        return self.sdk.check(self.sdk.lib.zts_send(self.fd, buf, len(data), 8))
+        return self.sdk.call("zts_send", self.fd, buf, len(data), 8)
 
     def poll(self, reading, writing):
         descriptor = PollFd(self.fd, (1 if reading else 0) | (2 if writing else 0), 0)
-        self.sdk.check(self.sdk.lib.zts_bsd_poll(c.byref(descriptor), 1, 0))
+        self.sdk.call("zts_bsd_poll", c.byref(descriptor), 1, 0)
         if descriptor.revents & 12:
             raise OSError("ZeroTier socket unavailable")
         return bool(descriptor.revents & 1), bool(descriptor.revents & 2)
 
     def shutdown(self, how):
-        self.sdk.lib.zts_shutdown_wr(self.fd)
+        self.sdk.call("zts_shutdown_wr", self.fd)
 
     def close(self):
         with self.lock:
             if self.fd >= 0:
-                self.sdk.lib.zts_close(self.fd)
-                self.fd = -1
+                fd, self.fd = self.fd, -1
+                self.sdk.call("zts_close", fd)
 
 
 def bridge(left, right, stopping=None):
@@ -331,7 +368,7 @@ def run(config):
                 if host != config.get("phone_ip") or port != config["adb_port"]:
                     raise OSError("SOCKS target outside configured phone endpoint")
                 remote = sdk.stream()
-                sdk.check(sdk.lib.zts_connect(remote.fd, host.encode(), port, 10000))
+                sdk.connect(remote, host, port)
                 self.request.sendall(b"\x05\x00\x00\x01" + b"\x00" * 6)
                 self.request.settimeout(60)
                 bridge(self.request, remote)
@@ -361,9 +398,8 @@ def run(config):
         port,target = desired
         listener=sdk.stream()
         try:
-            sdk.check(sdk.lib.zts_bind(listener.fd,address.encode(),port))
-            sdk.check(sdk.lib.zts_listen(listener.fd,16))
-            sdk.check(sdk.lib.zts_set_blocking(listener.fd,0))
+            sdk.call("zts_bind",listener.fd,address.encode(),port)
+            sdk.call("zts_listen",listener.fd,16)
             ingresses[name]=(signature,Ingress(listener,target,config.get('phone_ip','')))
         except BaseException:
             listener.close(); raise

@@ -15,3 +15,5 @@ MESH_BUILD_DIR=/path/to/cache/mesh MESH_OUTPUT=/path/to/output ./build-zerotier.
 SDK 的虚拟接口 MTU 为 1280，TCP MSS 随之计算，使封装后的流量适合常见 1500 MTU 链路。构建脚本应用同目录 `zerotier-mtu.patch`；每个 SDK socket 的收发与关闭由同一线程处理，代理保留 TCP 半关闭并使用有界缓冲。
 
 ZeroTier 的强制 TCP 中继由 `zts_init_force_tcp_relay` 在节点启动前设置，默认按 SDK 自动策略运行。开启时要求动态库提供此接口；能力不足会明确报错。所选传输策略写入节点状态，配置变更重建工作进程并复用节点身份。
+
+SDK共享进程级`zts_errno`，原生套接字调用与错误读取通过同一互斥保护。套接字以非阻塞方式运行；连接采用BSD接口、可写状态与`SO_ERROR`核对，10秒连接期限内轮询，每次调用后释放互斥，数据与其他连接可继续处理。

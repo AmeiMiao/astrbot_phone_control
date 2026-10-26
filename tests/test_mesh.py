@@ -198,7 +198,8 @@ def test_manual_zerotier_sdk_exports_required_native_api():
         pytest.skip("设置 PHONE_TEST_LIBZT 验证手动提供的 SDK 原生 ABI")
     sdk = SDK(library)
     assert sdk.lib.zts_node_start.argtypes == []
-    assert len(sdk.lib.zts_connect.argtypes) == 4
+    assert len(sdk.lib.zts_bsd_connect.argtypes) == 3
+    assert len(sdk.lib.zts_bsd_getsockopt.argtypes) == 5
 
 
 def test_zerotier_stream_handles_partial_native_send():
@@ -219,7 +220,9 @@ def test_zerotier_stream_handles_partial_native_send():
         def zts_close(fd):
             return 0
 
-    sdk = SimpleNamespace(lib=Native(), check=lambda n: n)
+    from core.mesh_zerotier_worker import SDK
+    import threading
+    sdk = SDK.__new__(SDK);sdk.lib=Native();sdk._call_lock=threading.RLock()
     stream = Stream(sdk, 7)
     remaining = b"original-image-data"
     while remaining:
@@ -420,12 +423,17 @@ def test_zerotier_accept_uses_exact_sdk_address_buffer_and_reports_invalid_argum
         return 0
     native.zts_bsd_accept = accept
     native.zts_getpeername = peername
+    def blocking(fd, enabled):
+        assert enabled == 0
+        calls.append(("blocking",fd,enabled));return 0
+    native.zts_set_blocking = blocking
+    native.zts_close = lambda fd:0
     sdk = SDK.__new__(SDK)
     sdk.lib = native
     listener = Stream(sdk, 7)
     stream, peer = listener.accept()
     assert peer == "192.0.2.18" and stream.fd == 9
-    assert calls == [("accept", 7), ("peer", 9, 46)]
+    assert calls == [("accept", 7), ("blocking",9,0), ("peer", 9, 46)]
     with pytest.raises(OSError, match="code -3"):
         sdk.check(-3)
     calls.clear()
@@ -448,7 +456,8 @@ def test_zerotier_tcp_policy_is_preserved_and_restarts_mesh():
 
 def test_sdk_tcp_policy_support_and_native_failure_are_explicit():
     from core.mesh_zerotier_worker import SDK
-    sdk=SDK.__new__(SDK);sdk.lib=SimpleNamespace()
+    import threading
+    sdk=SDK.__new__(SDK);sdk.lib=SimpleNamespace();sdk._call_lock=threading.RLock()
     sdk.configure_transport(False)
     with pytest.raises(RuntimeError,match='不支持强制TCP'):
         sdk.configure_transport(True)
@@ -470,3 +479,85 @@ def test_zerotier_transport_policy_status_does_not_imply_connected(tmp_path):
         status=await manager.status()
         assert status['transport_policy']=='tcp_relay' and not status['ready'] and not status['running']
     asyncio.run(run())
+
+
+def test_sdk_global_errno_is_not_overwritten_by_another_socket():
+    import errno
+    import threading
+    from core.mesh_zerotier_worker import SDK,Stream
+    receiving=threading.Event();release=threading.Event();closing=threading.Event();entered_close=threading.Event()
+    state={'errno':0};errors=[]
+    def recv(fd,buffer,size,flags):
+        state['errno']=errno.EAGAIN;receiving.set();assert release.wait(2)
+        return -1
+    def close(fd):
+        state['errno']=errno.EBADF;entered_close.set()
+        return -1
+    class FakeSDK(SDK):
+        def __init__(self):
+            self.lib=SimpleNamespace(zts_recv=recv,zts_close=close)
+        def check(self,result):
+            if result<0:raise OSError(state['errno'],'native socket error')
+            return result
+    sdk=FakeSDK();reader=Stream(sdk,7);other=Stream(FakeSDK(),8)
+    def receive():
+        try:reader.recv(16)
+        except OSError as error:errors.append(error.errno)
+    def shutdown():
+        closing.set()
+        try:other.close()
+        except OSError:pass
+    first=threading.Thread(target=receive);second=threading.Thread(target=shutdown)
+    first.start();assert receiving.wait(1);second.start();assert closing.wait(1)
+    raced=entered_close.wait(.1);release.set();first.join(2);second.join(2)
+    assert not first.is_alive() and not second.is_alive()
+    assert errors==[errno.EAGAIN],errors
+    assert not raced,'native call and global errno must be read atomically'
+
+
+@pytest.mark.parametrize('socket_error',[0,111])
+def test_sdk_nonblocking_connect_uses_bsd_address_and_socket_error(socket_error):
+    import ctypes,errno,struct
+    from core.mesh_zerotier_worker import SDK,Stream,PollFd
+    state={'errno':errno.EINPROGRESS};addresses=[]
+    def connect(fd,address,length):
+        addresses.append(ctypes.string_at(address,length));return -1
+    def poll(descriptor,count,timeout):
+        assert count==1 and timeout==0
+        ctypes.cast(descriptor,ctypes.POINTER(PollFd)).contents.revents=2
+        return 1
+    def getsockopt(fd,level,option,value,length):
+        assert (level,option)==(0x0fff,0x1007)
+        ctypes.cast(value,ctypes.POINTER(ctypes.c_int)).contents.value=socket_error
+        return 0
+    class FakeSDK(SDK):
+        def check(self,result):
+            if result<0:raise OSError(state['errno'],'native socket error')
+            return result
+    sdk=FakeSDK.__new__(FakeSDK);sdk.lib=SimpleNamespace(zts_bsd_connect=connect,zts_bsd_poll=poll,zts_bsd_getsockopt=getsockopt)
+    stream=Stream(sdk,7)
+    if socket_error:
+        with pytest.raises(OSError) as failure:sdk.connect(stream,'192.0.2.1',5555)
+        assert failure.value.errno==socket_error
+    else:sdk.connect(stream,'192.0.2.1',5555)
+    assert addresses==[struct.pack('!BBH4s8x',16,2,5555,bytes([192,0,2,1]))]
+
+
+def test_sdk_connect_deadline_does_not_hold_other_socket_calls():
+    import errno,threading,time
+    from core.mesh_zerotier_worker import SDK,Stream
+    pending=threading.Event();finished=threading.Event();errors=[]
+    class FakeSDK(SDK):
+        def check(self,result):
+            if result<0:raise OSError(errno.EINPROGRESS,'connect pending')
+            return result
+    def poll(*args):pending.set();return 0
+    sdk=FakeSDK.__new__(FakeSDK);sdk.lib=SimpleNamespace(zts_bsd_connect=lambda *args:-1,zts_bsd_poll=poll,zts_send=lambda *args:4)
+    def connect():
+        try:sdk.connect(Stream(sdk,7),'192.0.2.1',5555,timeout=.15)
+        except TimeoutError:errors.append('deadline')
+        finally:finished.set()
+    thread=threading.Thread(target=connect);thread.start();assert pending.wait(1)
+    assert sdk.call('zts_send',8,b'data',4,8)==4
+    assert not finished.is_set(),'pending connect must release the native mutex between polls'
+    thread.join(1);assert not thread.is_alive() and errors==['deadline']
