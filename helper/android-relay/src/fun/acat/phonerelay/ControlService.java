@@ -43,13 +43,24 @@ public final class ControlService extends Service {
         if (!address.isLoopbackAddress() && NetworkInterface.getByInetAddress(address) == null)
             throw new IOException("ADB 地址必须属于本机");
     }
+    static boolean isActive() {
+        synchronized(ControlService.class) { return activeService!=null && activeService.running; }
+    }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         SharedPreferences prefs=getSharedPreferences("control",0);
         if (intent!=null && "stop".equals(intent.getAction())) { prefs.edit().putBoolean("control_wanted",false).apply();stopSelf();return START_NOT_STICKY; }
         if (intent==null && !(prefs.getBoolean("restore_enabled",false) && prefs.getBoolean("control_wanted",false))) {stopSelf();return START_NOT_STICKY;}
         String action = intent==null ? "restore" : intent.getAction();
+        if ("policy".equals(action)) {
+            if(!running) { stopSelf(startId);return START_NOT_STICKY; }
+            return prefs.getBoolean("restore_enabled",false)?START_STICKY:START_NOT_STICKY;
+        }
         if ("check".equals(action) || "install".equals(action)) {
-            if (work == null || socket == null) { status = "请先连接插件"; return START_NOT_STICKY; }
+            if (work == null || socket == null) {
+                status = "请先连接插件";
+                if(!running)stopSelf(startId);
+                return running && prefs.getBoolean("restore_enabled",false)?START_STICKY:START_NOT_STICKY;
+            }
             work.execute(() -> {
                 try {
                     if (!jobs.isEmpty()) throw new IOException("请先停止手机任务再更新");
@@ -62,7 +73,7 @@ public final class ControlService extends Service {
                     } else installUpdate();
                 } catch (Exception e) { status = "更新失败：" + e.getMessage(); }
             });
-            return START_NOT_STICKY;
+            return prefs.getBoolean("restore_enabled",false)?START_STICKY:START_NOT_STICKY;
         }
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("control", "手机 App 控制", NotificationManager.IMPORTANCE_LOW));

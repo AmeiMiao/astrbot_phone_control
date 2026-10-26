@@ -8,6 +8,7 @@ public final class RecoveryReceiver extends BroadcastReceiver {
         String action=intent.getAction();
         if(!Intent.ACTION_BOOT_COMPLETED.equals(action) && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action))return;
         SharedPreferences prefs=context.getSharedPreferences("control",0);
+        android.util.Log.i("PhoneRelay","恢复检查："+action+"；enabled="+prefs.getBoolean("restore_enabled",false)+"；wanted="+prefs.getBoolean("control_wanted",false));
         if(!prefs.getBoolean("restore_enabled",false) || !prefs.getBoolean("control_wanted",false))return;
         try { context.startForegroundService(new Intent(context,ControlService.class).setAction("restore")); }
         catch(RuntimeException e) {

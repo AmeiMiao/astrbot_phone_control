@@ -82,7 +82,7 @@ App scrcpy 模式在原生配置中提供推帧长边、频率、JPEG 质量和�
 
 连接页可发现并验证本机无线调试连接端口；只接受属于本机接口的`_adb-tls-connect._tcp`服务，已有ADB身份授权通过后才保存。配对码窗口的临时端口用于交换密钥，连接端口来自无线调试首页。系统未发布发现服务时可手填；端口发现和开机恢复分别由默认关闭的开关控制。
 
-开启恢复后，开机、App更新或系统回收可重建控制会话。本机无线调试、VPN与后台启动权限需就绪；系统拒绝时打开App启动控制。停止按钮会清除本次运行意愿。新会话只处理新请求，录制、文件传输和设备动作由插件重新请求。前台服务使用Android的[connectedDevice类型及权限](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device)。
+运行中切换恢复开关会即时刷新服务的系统重启策略，连接保持运行；闲置服务保持停止。开启恢复后，开机、App更新或系统回收可重建控制会话。本机无线调试、VPN与后台启动权限需就绪；系统拒绝时打开App启动控制。停止按钮会清除本次运行意愿。新会话只处理新请求，录制、文件传输和设备动作由插件重新请求。前台服务使用Android的[connectedDevice类型及权限](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device)。
 
 TCP中转提供组网监听端口（默认15555）与本机ADB目标端口（默认5555），目标也可填写无线调试连接端口；仅隧道接口指定源IP可访问，最多16个活动会话。转发原始ADB字节，TLS和ADB授权在插件ADB客户端与系统adbd之间完成。App主动回连的插件配对与此认证分别配置。
 

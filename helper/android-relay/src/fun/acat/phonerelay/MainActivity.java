@@ -203,6 +203,13 @@ public final class MainActivity extends Activity {
         android.widget.CheckBox box=new android.widget.CheckBox(this);box.setText(label);box.setTextColor(ui.text);
         box.setChecked(prefs.getBoolean(key,false));box.setOnCheckedChangeListener((button,checked)-> {
             prefs.edit().putBoolean(key,checked).apply();
+            if("restore_enabled".equals(key) && ControlService.isActive()) {
+                try {startForegroundService(new Intent(this,ControlService.class).setAction("policy"));}
+                catch(RuntimeException e) {
+                    String message="恢复策略已保存；请停止后重新启动控制以应用策略："+e.getClass().getSimpleName();
+                    prefs.edit().putString("recovery_error",message).apply();ControlService.status=message;renderStatus();
+                }
+            }
             if(checked && android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED)
                 requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},304);
         });ui.add(parent,box,12);
