@@ -108,3 +108,68 @@ def test_partial_download_progress_resets_idle_timeout_without_extending_total_d
             with pytest.raises(TimeoutError):await AppFiles(None)._read(stalled,1)
         finally:await sender
     asyncio.run(run())
+
+
+def test_upload_progress_resets_idle_deadline(monkeypatch):
+    from core.app_streams import AppStreams, ProgressWriter
+    monkeypatch.setattr(module, 'IO_IDLE_SECONDS', .06)
+    async def run():
+        bridge=SimpleNamespace(writer=object(),session='current')
+        streams=AppStreams(bridge);identity='a'*32
+        entry={'session':'current','flow':True,'sent':0,'received':0,'progress':asyncio.Event(),'closed':False}
+        streams.entries[identity]=entry
+        started=asyncio.Event()
+        class Transport:
+            def write(self,data):
+                assert len(data)==120
+                started.set()
+            async def drain(self):pass
+        writer=ProgressWriter(Transport(),entry,bridge)
+        async def phone():
+            await started.wait()
+            for total in range(20,121,20):
+                await asyncio.sleep(.025)
+                streams.progress({'session':'current','stream_id':identity,'received_bytes':total})
+        peer=asyncio.create_task(phone())
+        try:
+            await AppFiles(None)._packet(writer,'DATA',b'x'*112)
+            assert entry['received']==120
+            await peer
+        finally:
+            peer.cancel();await asyncio.gather(peer,return_exceptions=True)
+    asyncio.run(run())
+
+
+def test_duplicate_upload_confirmations_do_not_extend_idle_deadline(monkeypatch):
+    from core.app_streams import AppStreams, ProgressWriter
+    monkeypatch.setattr(module, 'IO_IDLE_SECONDS', .04)
+    async def run():
+        bridge=SimpleNamespace(writer=object(),session='current')
+        streams=AppStreams(bridge);identity='b'*32
+        entry={'session':'current','flow':True,'sent':0,'received':0,'progress':asyncio.Event(),'closed':False}
+        streams.entries[identity]=entry
+        class Transport:
+            def write(self,data):pass
+            async def drain(self):pass
+        packet=asyncio.create_task(AppFiles(None)._packet(ProgressWriter(Transport(),entry,bridge),'DATA',b'x'))
+        async def duplicates():
+            while True:
+                await asyncio.sleep(.01)
+                streams.progress({'session':'current','stream_id':identity,'received_bytes':0})
+        peer=asyncio.create_task(duplicates())
+        try:
+            with pytest.raises(TimeoutError):await asyncio.wait_for(packet,.2)
+            assert not packet.cancelled(), 'duplicate confirmations hid a stalled upload'
+        finally:
+            peer.cancel();packet.cancel();await asyncio.gather(peer,packet,return_exceptions=True)
+    asyncio.run(run())
+
+
+def test_native_upload_transport_still_has_idle_deadline(monkeypatch):
+    monkeypatch.setattr(module,'IO_IDLE_SECONDS',.02)
+    class Transport:
+        def write(self,data):pass
+        async def drain(self):await asyncio.Event().wait()
+    async def run():
+        with pytest.raises(TimeoutError):await AppFiles(None)._packet(Transport(),'DATA',b'x')
+    asyncio.run(run())

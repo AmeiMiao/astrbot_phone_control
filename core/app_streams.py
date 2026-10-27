@@ -50,14 +50,14 @@ class ProgressWriter:
     def write(self,data):
         self.entry['sent']+=len(data)
         self.stream.write(data)
-    async def drain(self):
-        await self.stream.drain()
+    async def drain(self, *, idle_timeout=15):
+        await asyncio.wait_for(self.stream.drain(), idle_timeout)
         entry=self.entry
         while entry['received']<entry['sent']:
             entry['progress'].clear()
             if entry['closed'] or self.bridge.writer is None or entry['session']!=self.bridge.session:
                 raise DeviceOfflineError('手机数据连接已结束')
-            await entry['progress'].wait()
+            await asyncio.wait_for(entry['progress'].wait(), idle_timeout)
 
 
 class AppStreams:
@@ -110,7 +110,8 @@ class AppStreams:
         received=value.get('received_bytes')
         if not entry['flow'] or type(received) is not int or not entry['received']<=received<=entry['sent']:
             raise ValueError('数据进度字节数无效')
-        entry['received']=received;entry['progress'].set()
+        if received>entry['received']:
+            entry['received']=received;entry['progress'].set()
 
     async def accept(self, hello, reader, writer):
         bridge = self.bridge

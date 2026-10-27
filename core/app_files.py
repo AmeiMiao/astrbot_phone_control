@@ -13,6 +13,7 @@ import struct
 import time
 
 from .errors import ActionFailedError
+from .app_streams import ProgressWriter
 from .device_gate import current_scope
 from .process_lease import DeviceLease
 
@@ -53,7 +54,10 @@ class AppFiles:
         if scope:
             scope.checkpoint("file_transfer")
         writer.write(tag.encode() + struct.pack("<I", len(data) if number is None else number) + data)
-        await asyncio.wait_for(writer.drain(), 15)
+        if isinstance(writer, ProgressWriter):
+            await writer.drain(idle_timeout=IO_IDLE_SECONDS)
+        else:
+            await asyncio.wait_for(writer.drain(), IO_IDLE_SECONDS)
 
     async def _header(self, reader):
         raw = await self._read(reader, 8)
