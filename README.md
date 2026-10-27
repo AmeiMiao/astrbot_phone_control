@@ -158,7 +158,11 @@ MemoryCompanion、LivingMemory 使用独立同步开关。LivingMemory 写入复
 
 App 控制中的截图、节点、音频、媒体录制、文件及抓包经 App 连接传输，插件端 scrcpy 按直连模式配置启动。App 画质参数位于「ADB 连接」；直连参数和组网 ADB 转发参数按已保存的连接方式显示，切换后保存并重载，隐藏值保留。低带宽下可调整推帧尺寸、频率和 JPEG 质量；画面年龄上限代表允许的真实画面陈旧程度，超过上限拒绝。实时 PCM 音频约需192KB/s，带宽不足时可使用手机录制 AAC 片段后回传。详细配置见 [Phone Relay 使用说明](helper/android-relay/README.md)。
 
+手机端的自动恢复默认关闭，依赖 Android 对开机广播和后台前台服务的准入。系统或模拟器屏蔽开机广播时，可打开 Phone Relay 手动启动；本机无线端口变化可由已启用的端口发现使用既有身份验证。
+
 ZeroTier 默认由 SDK 自动选择传输路径。节点在线但两端 UDP 互访受限时，可在 ZeroTier 参数开启「强制 TCP 中继」（`zerotier_force_tcp_relay`），保存并重载后使用官方 TCP 中继。组网页显示所选策略；成员授权、手机源 IP 校验和 App TLS 认证保持执行，中继延迟和吞吐受网络条件影响。
+
+ZeroTier 节点重建后的路径收敛还取决于官方客户端，节点就绪而手机仍停在 TCP 建链时，可在手机重新连接 ZeroTier 网络，再检查 Relay 页面报告的实际目标。
 
 ### Tailscale / ZeroTier 设置
 
