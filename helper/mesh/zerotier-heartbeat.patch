@@ -1,0 +1,14 @@
+diff --git a/node/Node.cpp b/node/Node.cpp
+--- a/node/Node.cpp
++++ b/node/Node.cpp
+@@ -256,6 +256,10 @@ public:
+ 
+ 			// Contact upstream peers as infrequently as possible
+ 			int roleBasedTimerScale = (role == ZT_PEER_ROLE_LEAF) ? 2 : 16;
++#ifdef ZT_SDK
++			// SDK根节点心跳须在活动判定期限内完成。
++			if (role != ZT_PEER_ROLE_LEAF) roleBasedTimerScale = 1;
++#endif
+ 
+ 			// Unless we don't any have paths to the roots, then we shouldn't wait a long time to contact them
+ 			bool hasPaths = p->paths(RR->node->now()).size() > 0;

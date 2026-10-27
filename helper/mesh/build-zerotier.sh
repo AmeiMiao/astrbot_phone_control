@@ -16,6 +16,13 @@ else
   git -C "$MESH_BUILD_DIR/libzt" apply --check "$mesh_helper_dir/zerotier-mtu.patch"
   git -C "$MESH_BUILD_DIR/libzt" apply "$mesh_helper_dir/zerotier-mtu.patch"
 fi
+mesh_core_dir="$MESH_BUILD_DIR/libzt/ext/ZeroTierOne"
+if git -C "$mesh_core_dir" apply --reverse --check "$mesh_helper_dir/zerotier-heartbeat.patch" 2>/dev/null; then
+  :
+else
+  git -C "$mesh_core_dir" apply --check "$mesh_helper_dir/zerotier-heartbeat.patch"
+  git -C "$mesh_core_dir" apply "$mesh_helper_dir/zerotier-heartbeat.patch"
+fi
 cmake -S "$MESH_BUILD_DIR/libzt" -B "$MESH_BUILD_DIR/build" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIB=ON -DBUILD_STATIC_LIB=ON -DBUILD_HOST_SELFTEST=OFF \
