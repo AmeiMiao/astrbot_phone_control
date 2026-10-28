@@ -8,7 +8,7 @@ import pytest
 
 from core.config import PhoneConfig
 from core.config_apply import build_apply_plan
-from core.config_migration import ConfigMigrationError, prepare_migration
+from core.config_storage import ConfigStorageError
 from core.network_config import (
     migrate_network,
     migrate_network_file,
@@ -130,12 +130,12 @@ def test_file_migration_happens_before_schema_cleanup_and_keeps_private_backup(
 def test_malformed_or_symlink_config_is_never_overwritten(tmp_path):
     path = tmp_path / "plugin.json"
     path.write_text("invalid")
-    with pytest.raises(ConfigMigrationError):
+    with pytest.raises(ConfigStorageError):
         migrate_network_file(path)
     assert path.read_text() == "invalid"
     link = tmp_path / "link"
     link.symlink_to(path)
-    with pytest.raises(ConfigMigrationError):
+    with pytest.raises(ConfigStorageError):
         migrate_network_file(link)
 
 
@@ -170,26 +170,3 @@ def test_wg_command_patch_selects_wg_and_preserves_other_provider_parameters():
             "wireguard": {"mode": "server"},
         }
     }
-
-
-def test_source_plugin_import_translates_network_fields_before_schema_filter(tmp_path):
-    source = tmp_path / "astrbot_phone_control_config.json"
-    source.write_text(
-        json.dumps(
-            {
-                "mesh": {
-                    "enabled": True,
-                    "provider": "zerotier",
-                    "zerotier_network_id": "0123456789abcdef",
-                }
-            }
-        )
-    )
-    schema = json.loads(
-        (Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text()
-    )
-    plan = prepare_migration(tmp_path, "astrbot_phone_control_mirror", schema)
-    config = PhoneConfig.from_mapping(plan.merged)
-    assert config.mesh.enabled and config.mesh.provider == "zerotier"
-    assert config.mesh.zerotier_network_id == "0123456789abcdef"
-    assert json.loads(source.read_text())["mesh"]["enabled"]

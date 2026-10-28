@@ -4,7 +4,7 @@ import copy
 import json
 from pathlib import Path
 
-from .config_migration import _atomic_write, _read
+from .config_storage import _atomic_write, _read
 
 MODES = ("随机玩", "自动刷", "定时玩")
 FLAGS = {"random_enabled": "随机玩", "continuous_enabled": "自动刷", "enabled": "定时玩"}

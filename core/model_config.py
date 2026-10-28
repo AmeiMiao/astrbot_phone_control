@@ -4,7 +4,7 @@ import copy
 import json
 from pathlib import Path
 
-from .config_migration import _atomic_write, _read
+from .config_storage import _atomic_write, _read
 
 
 MODEL_SOURCES = {

@@ -3,7 +3,7 @@
 import copy
 from pathlib import Path
 
-from .config_migration import _atomic_write, _read
+from .config_storage import _atomic_write, _read
 from .mesh_config import MeshSettings
 from .wireguard import WireGuardSettings
 

@@ -314,7 +314,6 @@ class ObservabilityMixin(LibraryDashboardMixin):
             (f"{base}/diary", self.dashboard_diary, ["GET"], "浏览日志"),
         )
         routes += self._library_dashboard_routes(base)
-        routes += self._config_migration_routes(base)
         routes += ((f"{base}/app-connection", self.dashboard_app_connection, ["GET"], "Relay App 连接"),
                    (f"{base}/app-apk", self.dashboard_app_apk, ["GET"], "Relay APK 下载"),
                    (f"{base}/app-connection", self.dashboard_app_reset, ["POST"], "重置 Relay 配对"))

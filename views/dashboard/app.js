@@ -21,8 +21,6 @@
     imagesRequest: 0,
     diaryOffset: 0,
     diaryRequest: 0,
-    migrationToken: null,
-    dataMigrationToken: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -104,7 +102,6 @@
     $("view-records").hidden = view !== "records";
     $("view-vectors").hidden = view !== "vectors";
     $("view-images").hidden = view !== "images";
-    $("view-migration").hidden = view !== "migration";
     $("view-mesh").hidden = view !== "mesh";
     if (view === "dashboard") {
       schedulePolls();
@@ -969,70 +966,6 @@
   }
 
   // ---------------- 初始化 ----------------
-  async function previewMigration() {
-    state.migrationToken = null;
-    $("btn-migration-apply").disabled = true;
-    setText("migration-fields", "");
-    try {
-      const plan = await apiGet("dashboard/config-migration");
-      state.migrationToken = plan.token;
-      $("btn-migration-apply").disabled = plan.count === 0;
-      setText("migration-status", `待导入 ${plan.count} 项，保留当前自定义设置 ${plan.preserved} 项。`);
-      setText("migration-fields", `待导入：\n${plan.changed.join("\n") || "无"}\n\n保留当前值：\n${plan.kept.join("\n") || "无"}`);
-    } catch (err) {
-      setText("migration-status", `预览失败：${err.message || err}`);
-    }
-  }
-
-  async function applyMigration() {
-    if (!state.migrationToken) return;
-    if (!await confirmAction("导入预览中的原插件配置？自定义设置保持当前值，原插件文件保持完整。导入后将按新配置连接设备并调整后台任务。", "确认导入")) return;
-    $("btn-migration-apply").disabled = true;
-    try {
-      const result = await state.bridge.apiPost("dashboard/config-migration", { token: state.migrationToken });
-      state.migrationToken = null;
-      setText("migration-status", result.message);
-      setText("migration-fields", `已导入 ${result.count} 项配置。`);
-    } catch (err) {
-      state.migrationToken = null;
-      setText("migration-status", `导入失败：${err.message || err}；请重新预览。`);
-    }
-  }
-
-  function invalidateDataMigration() {
-    state.dataMigrationToken = null;
-    $("btn-data-migration-apply").disabled = true;
-  }
-
-  async function previewDataMigration() {
-    invalidateDataMigration();
-    setText("data-migration-files", "");
-    try {
-      const plan = await apiGet("dashboard/data-migration", { include_keys: String($("data-migration-keys").checked) });
-      state.dataMigrationToken = plan.token;
-      $("btn-data-migration-apply").disabled = plan.count === 0;
-      setText("data-migration-status", `待导入 ${plan.count} 个文件，${(plan.bytes / 1024 / 1024).toFixed(2)} MiB；保留当前资料 ${plan.preserved} 项。`);
-      setText("data-migration-files", `待导入：\n${plan.changed.join("\n") || "无"}\n\n保留当前记录或密钥：\n${plan.kept.join("\n") || "无"}`);
-    } catch (err) {
-      setText("data-migration-status", `预览失败：${err.message || err}`);
-    }
-  }
-
-  async function applyDataMigration() {
-    if (!state.dataMigrationToken) return;
-    if (!await confirmAction("导入预览中的持久化数据？记录将合并去重并保留当前冲突值；目标资料自动备份，原插件文件保持完整。", "确认导入数据")) return;
-    $("btn-data-migration-apply").disabled = true;
-    try {
-      const result = await state.bridge.apiPost("dashboard/data-migration", { token: state.dataMigrationToken, include_keys: $("data-migration-keys").checked });
-      invalidateDataMigration();
-      setText("data-migration-status", result.message);
-      setText("data-migration-files", `已导入 ${result.count} 个文件。`);
-    } catch (err) {
-      invalidateDataMigration();
-      setText("data-migration-status", `导入失败：${err.message || err}；请重新预览。`);
-    }
-  }
-
   async function init() {
     try {
       state.bridge = await getBridge();
@@ -1109,11 +1042,6 @@
         finally { button.disabled = false; }
       });
     }
-    $("btn-data-migration-preview").addEventListener("click", previewDataMigration);
-    $("btn-data-migration-apply").addEventListener("click", applyDataMigration);
-    $("data-migration-keys").addEventListener("change", invalidateDataMigration);
-    $("btn-migration-preview").addEventListener("click", previewMigration);
-    $("btn-migration-apply").addEventListener("click", applyMigration);
     $("btn-refresh").addEventListener("click", () => {
       refreshOverview();
       refreshSeries();

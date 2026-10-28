@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from .config_migration import _atomic_write, _read
+from .config_storage import _atomic_write, _read
 
 LIMIT_KEYS = ("max_comments_per_day", "max_passive_replies_per_day", "max_posts_per_day")
 

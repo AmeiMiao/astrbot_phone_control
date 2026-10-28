@@ -345,7 +345,7 @@ class BootstrapMixin:
             warn=lambda message: logger.warning(message),
         )
         # ADB 地址/端口留空表示未配置：插件以「假开启」状态加载，不连接设备、
-        # 不启动任何手机后台任务；面板、配置与资料迁移保持可用。
+        # 不启动任何手机后台任务；面板与配置保持可用。
         self._phone_enabled = initial.adb.configured
         security = self.raw_config.get("security", self.raw_config)
         saved_keep = (
@@ -606,7 +606,7 @@ class BootstrapMixin:
         else:
             logger.info(
                 "%s 已加载但未启用手机能力（adb.host/adb.port 未配置，假开启）："
-                "面板、配置与资料迁移可用；填写 ADB 地址后重新加载插件即可启用。数据目录 %s",
+                "面板与配置可用；填写 ADB 地址后重新加载插件即可启用。数据目录 %s",
                 PLUGIN_NAME,
                 self.data_dir,
             )

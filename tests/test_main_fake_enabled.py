@@ -1,6 +1,6 @@
 """ADB 未配置时的「假开启」状态测试（容器内跑，本地无 astrbot 跳过）。
 
-空白 adb.host/port 时插件必须能正常加载：面板/配置/迁移可用，但不连接设备、
+空白 adb.host/port 时插件必须能正常加载：面板/配置可用，但不连接设备、
 不启动自主浏览/随机/持续刷/抓包/WireGuard 等后台循环，命令与工具返回可读提示。
 """
 
@@ -88,6 +88,7 @@ def test_empty_adb_loads_as_fake_enabled(tmp_path, monkeypatch):
             assert plugin.context.tools
             routes = [route for route, _ in plugin.context.web_routes]
             assert any(route.endswith("/dashboard/overview") for route in routes)
+            assert not any(route.endswith(("/config-migration", "/data-migration")) for route in routes)
 
             await plugin.initialize()
             # 假开启：没有任何设备后台任务被启动。

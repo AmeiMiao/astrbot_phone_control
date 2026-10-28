@@ -216,7 +216,6 @@ from .core.plugin.shared import (
 )
 from .core.service import PhoneService
 from .core.semantic import RECALL_MARKER
-from .core.plugin.config_migration import ConfigMigrationMixin
 from .core.verification_controller import PhoneVerification
 
 
@@ -236,7 +235,6 @@ class PhoneControlPlugin(
     TasksMixin,
     RuntimeMixin,
     ObservabilityMixin,
-    ConfigMigrationMixin,
     Star,
 ):
     """AstrBot 手机操控插件。"""
