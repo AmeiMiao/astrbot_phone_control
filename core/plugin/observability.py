@@ -300,12 +300,27 @@ class ObservabilityMixin(LibraryDashboardMixin):
     def _dashboard_manager(self) -> Any:
         return getattr(self.service, "backends", None)
 
+    def _unregister_web_apis(self, *, replacing: bool = False) -> None:
+        """注册时替换插件命名空间，停用时仅移除当前实例的接口。"""
+        registered = getattr(self.context, "registered_web_apis", None)
+        if registered is None:
+            return
+        prefix = f"/{PLUGIN_NAME}/"
+        registered[:] = [
+            entry for entry in registered
+            if not (
+                entry[0].startswith(prefix)
+                and (replacing or getattr(entry[1], "__self__", None) is self)
+            )
+        ]
+
     def _register_dashboard_apis(self) -> None:
         """注册 Dashboard 监控与资料管理 Web API（页面由 views/dashboard 提供）。"""
         register = getattr(self.context, "register_web_api", None)
         if not callable(register):
             logger.debug("当前 AstrBot 不支持 register_web_api，跳过 Dashboard API 注册")
             return
+        self._unregister_web_apis(replacing=True)
         base = f"/{PLUGIN_NAME}/dashboard"
         routes = (
             (f"{base}/overview", self.dashboard_overview, ["GET"], "手机监控概览"),

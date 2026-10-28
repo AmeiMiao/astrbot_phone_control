@@ -177,3 +177,36 @@ def test_disable_cancels_component_wait_without_starting_device(tmp_path, monkey
         assert plugin._components_task.cancelled()
         assert runtime == []
     asyncio.run(scenario())
+
+
+def test_web_api_replacement_and_instance_termination_preserve_ownership(tmp_path,monkeypatch):
+    class RegistryContext(FakeContext):
+        def __init__(self):
+            super().__init__();self.registered_web_apis=[]
+        def register_web_api(self,route,handler,methods=None,desc=None):
+            # 使用宿主实际注册实现，覆盖共享列表中的替换行为。
+            plugin_main.Context.register_web_api(self,route,handler,methods,desc)
+    async def scenario():
+        monkeypatch.setattr(plugin_main,'_resolve_data_dir',lambda:tmp_path/'data')
+        context=RegistryContext();first=plugin_main.PhoneControlPlugin(context,{})
+        namespace=f'/{plugin_main.PLUGIN_NAME}/'
+        retired=(namespace+'dashboard/retired-preview',first.dashboard_overview,['GET'],'fixture')
+        foreign=('/'+plugin_main.PLUGIN_NAME+'_other/dashboard/overview',first.dashboard_overview,['GET'],'other')
+        context.registered_web_apis.extend([retired,foreign])
+        registry=context.registered_web_apis
+        second=None
+        try:
+            second=plugin_main.PhoneControlPlugin(context,{})
+            assert context.registered_web_apis is registry
+            assert retired not in registry and foreign in registry
+            own=[entry for entry in registry if entry[0].startswith(namespace)]
+            assert own and all(getattr(entry[1],'__self__',None) is second for entry in own)
+            await first.terminate()
+            assert all(entry in registry for entry in own),'earlier instance removed active APIs'
+            await second.terminate()
+            assert not any(entry[0].startswith(namespace) for entry in registry)
+            assert foreign in registry
+        finally:
+            await first.terminate()
+            if second is not None:await second.terminate()
+    asyncio.run(scenario())

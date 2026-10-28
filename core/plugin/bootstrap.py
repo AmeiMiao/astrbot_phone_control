@@ -773,6 +773,7 @@ class BootstrapMixin:
             logger.info("插件实例已停用，跳过重复终止")
             return
         self._terminated = True
+        self._unregister_web_apis()
         try:
             await self._tool_reports.close()
             await self._terminate_impl()
